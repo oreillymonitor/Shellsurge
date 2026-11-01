@@ -57,6 +57,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -104,7 +105,9 @@ import io.github.lordofpolls.shellwave.terminal.ctrlCode
 import io.github.lordofpolls.shellwave.terminal.decodeKeyBarKeys
 import io.github.lordofpolls.shellwave.terminal.externalRowAt
 import io.github.lordofpolls.shellwave.terminal.findMatches
+import io.github.lordofpolls.shellwave.terminal.KeyboardKey
 import io.github.lordofpolls.shellwave.terminal.hardwareKeyCode
+import io.github.lordofpolls.shellwave.terminal.shouldHideKeyBar
 import io.github.lordofpolls.shellwave.terminal.linkAt
 import io.github.lordofpolls.shellwave.terminal.rememberTerminalSelectionState
 import io.github.lordofpolls.shellwave.terminal.resolveTerminalTypeface
@@ -567,6 +570,19 @@ internal fun SessionTabBody(
     val keyboardEnhancedInput by rememberPrefState { TerminalInputPreferences.getKeyboardEnhancedInput(it) }
     var tabQuickResponseOpen by remember { mutableStateOf(false) }
     var quickDrawerActive by remember(sessionId) { mutableStateOf(false) }
+    val hideKeyBarPref by rememberPrefState { SessionLayoutPreferences.getHideKeyBarWithKeyboard(it) }
+    val configuration = LocalConfiguration.current
+    val keyBarHidden = shouldHideKeyBar(
+        hideKeyBarPref,
+        configuration.keyboard,
+        configuration.hardKeyboardHidden,
+    )
+    LaunchedEffect(keyBarHidden) {
+        if (keyBarHidden) {
+            ctrlLatched = false
+            altLatched = false
+        }
+    }
 
     // topRow <= 0 is how far into the scrollback the view is; scrollDragRemainderPx carries a
     // drag's sub-cell remainder between events, so slow swipes accumulate to a full row instead of
@@ -880,7 +896,16 @@ internal fun SessionTabBody(
         runCatching { localContext.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
     }
 
-    // imePadding lives on KeyBar itself below, not on this Column - see that call site.
+    val toggleKeyboard: () -> Unit = {
+        if (imeVisible) {
+            keyboardController?.hide()
+        } else {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
+    // imePadding lives on KeyBar or its stand-in below, not on this Column - see that call site.
     Column(modifier = modifier) {
         if (searchController.open) {
             TerminalSearchBar(
@@ -1112,9 +1137,15 @@ internal fun SessionTabBody(
                             topRow = 0
                         }
                     },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 56.dp, bottom = 12.dp),
+                    modifier = if (keyBarHidden) {
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp)
+                    } else {
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 56.dp, bottom = 12.dp)
+                    },
                 )
             } else if (canShowJumpPill) {
                 ScrollbackJumpPill(
@@ -1125,6 +1156,21 @@ internal fun SessionTabBody(
                             topRow = (-10).coerceIn(-transcriptRows, 0)
                         }
                     },
+                    modifier = if (keyBarHidden) {
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp)
+                    } else {
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 56.dp, bottom = 12.dp)
+                    },
+                )
+            }
+            if (keyBarHidden) {
+                KeyboardKey(
+                    visible = imeVisible,
+                    onClick = toggleKeyboard,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 56.dp, bottom = 12.dp),
@@ -1198,14 +1244,16 @@ internal fun SessionTabBody(
             }
         }
 
-        // `imePadding()` belongs here, on the key bar alone, never on the outer Column. With it on
+        // `imePadding()` belongs here, on the key bar or its stand-in, never on the outer Column. With it on
         // the Column - whose other child is a `weight(1f)` Box - each frame of the IME-hide
         // animation recomputes the remaining-space split from a bottom padding that is itself still
         // animating. If one frame's inset makes the padding read larger than the Column's height,
         // `weight(1f)` clamps the terminal to zero for that frame and the key bar is placed
-        // immediately after it, at the top, which reads as a second key bar flashing. Padding the
-        // key bar alone removes the weighted sibling from the equation.
-        KeyBar(
+        // immediately after it, at the top, which reads as a second key bar flashing. Padding only
+        // this one removes the weighted sibling from the equation.
+        if (keyBarHidden) {
+            Spacer(modifier = Modifier.imePadding())
+        } else KeyBar(
             ctrlLatched = ctrlLatched,
             altLatched = altLatched,
             onCtrlToggle = { ctrlLatched = !ctrlLatched },
@@ -1215,14 +1263,7 @@ internal fun SessionTabBody(
             // Ctrl/Alt latch behaviour.
             onMacro = { text -> sendText(text) },
             keyboardVisible = imeVisible,
-            onKeyboardToggle = {
-                if (imeVisible) {
-                    keyboardController?.hide()
-                } else {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
-                }
-            },
+            onKeyboardToggle = toggleKeyboard,
             onOpenPromptComposer = {
                 tabComposerInitialText = ""
                 tabPromptComposerOpen = true

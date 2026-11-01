@@ -545,7 +545,8 @@ private fun AgentQuickResponseKey(
  * focused for the whole life of a session, so once the keyboard has been dismissed - by the back
  * gesture, or by the system - tapping the terminal calls `requestFocus()` on a field that is
  * *already* focused, which is a no-op and brings nothing back. The bar is the only chrome that
- * survives an IME dismissal, so this is where the way back belongs.
+ * survives an IME dismissal, so this is where the way back belongs, floating in the bar's place
+ * when the bar is hidden.
  *
  * Icon-only: it is app chrome rather than a key, and nothing it does reaches the far end, so
  * dressing it as one more `CTRL`-style label would be a claim about the wrong thing. The glyph
@@ -553,7 +554,7 @@ private fun AgentQuickResponseKey(
  * it, since a screen reader gets no glyph to read.
  */
 @Composable
-private fun KeyboardKey(
+internal fun KeyboardKey(
     visible: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

@@ -3,11 +3,6 @@ package io.github.lordofpolls.shellwave.feature.session
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.LocalActivity
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -917,14 +912,7 @@ internal fun SessionTabBody(
             }
 
             // Scrollback position, line steppers, and jump-to-bottom pill: shown only while scrolled back.
-            AnimatedVisibility(
-                visible = topRow < 0,
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut() + slideOutVertically { it / 2 },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 56.dp, bottom = 12.dp),
-            ) {
+            if (topRow < 0) {
                 ScrollbackStepperPill(
                     linesBack = -topRow,
                     onStepUp = {
@@ -934,6 +922,9 @@ internal fun SessionTabBody(
                         topRow = (topRow + 10).coerceIn(-scrollbackRows, 0)
                     },
                     onJumpToBottom = { topRow = 0 },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 56.dp, bottom = 12.dp),
                 )
             }
             if (showLayoutToggle) {

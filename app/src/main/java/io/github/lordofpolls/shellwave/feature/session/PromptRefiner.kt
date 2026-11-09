@@ -2,10 +2,8 @@ package io.github.lordofpolls.shellwave.feature.session
 
 import android.util.Log
 import com.google.mlkit.genai.prompt.FeatureStatus
-import com.google.mlkit.genai.prompt.GenerateContentRequest
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
-import com.google.mlkit.genai.prompt.SystemInstruction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -56,22 +54,20 @@ internal object PromptRefiner {
             val model = getModel()
             val status = model.checkStatus()
             if (status == FeatureStatus.AVAILABLE) {
-                val systemPrompt = """
+                val fullPrompt = """
                     You are a developer prompt refiner for an AI coding agent (like antigravity-cli or opencode).
-                    Transform the user's spoken voice note into a crisp, direct, professional instruction.
+                    Transform the following user's spoken voice note into a crisp, direct, professional instruction.
                     Guidelines:
                     - Remove spoken filler words (uh, um, like, you know, so basically, hey).
                     - If there are multiple tasks or steps, organize them into a clean markdown bulleted list.
                     - Preserve all technical names, file paths, commands, flags, and slash commands (e.g. /goal, /plan).
                     - Output ONLY the refined prompt text without any introductory remarks or conversational preamble.
+
+                    Voice Note:
+                    $withMacros
                 """.trimIndent()
 
-                val request = GenerateContentRequest.Builder()
-                    .setSystemInstruction(SystemInstruction(systemPrompt))
-                    .newText(withMacros)
-                    .build()
-
-                val response = model.generateContent(request)
+                val response = model.generateContent(fullPrompt)
                 val output = response.candidates.firstOrNull()?.text?.trim()
                 if (!output.isNullOrBlank()) {
                     return@withContext output

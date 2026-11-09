@@ -1,6 +1,7 @@
 package io.github.lordofpolls.shellwave.feature.session
 
 import android.util.Log
+import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
@@ -19,7 +20,7 @@ data class AgentDigestResult(
 
 /**
  * On-device terminal output digest engine using Gemini Nano via Android AICore / ML Kit GenAI,
- * with an instant intelligent fallback regex parser.
+ * with an intelligent fallback analyzer for local command & agent outputs.
  */
 internal object AgentDigestModel {
     private const val TAG = "AgentDigestModel"
@@ -38,85 +39,130 @@ internal object AgentDigestModel {
             )
         }
 
-        // Try Gemini Nano first if available on device
+        // Try Gemini Nano first if available or downloadable on device
         try {
             val model = getModel()
-            val status = runCatching { model.checkStatus() }.getOrNull()
+            var status = runCatching { model.checkStatus() }.getOrNull()
+
+            if (status == FeatureStatus.DOWNLOADABLE) {
+                try {
+                    model.download().collect { dStatus ->
+                        if (dStatus is DownloadStatus.DownloadCompleted) {
+                            status = FeatureStatus.AVAILABLE
+                        }
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Gemini Nano download error: ${e.message}")
+                }
+            }
+
             if (status == FeatureStatus.AVAILABLE) {
                 val prompt = """
-                    You are an expert developer assistant reading terminal output from an AI coding agent (e.g., Claude Code, Antigravity, Aider).
-                    Analyze what the agent did and what it needs.
-
+                    You are a voice assistant for a developer reading recent terminal output from an AI coding agent (e.g. Claude Code, Antigravity, Aider) or shell command.
+                    
                     Instructions:
-                    1. Summary: Provide 1 to 2 conversational, clear sentences summarizing what the agent accomplished or the current status.
-                    2. Novelty / Self-Correction Rule: If and only if the agent encountered an error it self-corrected, an unexpected test failure it fixed, or a novel workaround, add exactly 1 additional sentence describing that. Otherwise omit.
-                    3. If the agent is waiting on user input (e.g. [y/N], confirmation, or question), set has_question to true, extract the question, and provide 2-3 quick options (e.g. ["Yes", "No"]).
+                    1. Provide a concise, clear spoken summary in 1 to 2 conversational sentences explaining what was accomplished or the current status.
+                    2. Novelty / Self-Correction Rule: If and only if the agent encountered an error it self-corrected, an unexpected test failure it fixed, or a novel workaround, add a 3rd sentence highlighting that. Otherwise omit.
+                    3. If the terminal ends with a question or confirmation prompt (like [y/n]), state the question clearly at the end.
 
-                    Respond ONLY in valid JSON matching this schema:
-                    {
-                      "spoken": "1 to 2 sentences summarizing what happened. Optional 3rd sentence if self-corrected or novel.",
-                      "has_question": true,
-                      "question": "Question text or null",
-                      "quick_options": ["Yes", "No"],
-                      "is_error": false
-                    }
-
-                    Terminal Output Tail:
+                    Terminal Output:
                     $trimmed
                 """.trimIndent()
 
                 val response = model.generateContent(prompt)
-                val text = response.candidates.firstOrNull()?.text?.trim()
-                if (!text.isNullOrBlank()) {
-                    val parsed = parseJsonResponse(text)
-                    if (parsed != null) {
-                        return@withContext parsed.copy(usedAi = true)
-                    }
+                val rawResponse = response.candidates.firstOrNull()?.text?.trim()
+                if (!rawResponse.isNullOrBlank()) {
+                    val structured = extractStructuredResult(rawResponse)
+                    return@withContext structured.copy(usedAi = true)
                 }
             }
         } catch (e: Throwable) {
             Log.w(TAG, "Gemini Nano analysis unavailable or failed: ${e.message}")
         }
 
-        // Fallback to local rule-based extractor
+        // Fallback to intelligent rule-based extractor
         fallbackAnalyze(trimmed)
     }
 
-    private fun parseJsonResponse(jsonStr: String): AgentDigestResult? {
-        val cleaned = jsonStr.replace("```json", "").replace("```", "").trim()
-        return runCatching {
-            val json = JSONObject(cleaned)
-            val spoken = json.optString("spoken", "").trim()
-            if (spoken.isEmpty()) return null
-            val hasQuestion = json.optBoolean("has_question", false)
-            val question = json.optString("question", "").takeIf { it.isNotBlank() }
-            val quickArray = json.optJSONArray("quick_options")
-            val quickOptions = mutableListOf<String>()
-            if (quickArray != null) {
-                for (i in 0 until quickArray.length()) {
-                    val opt = quickArray.optString(i, "").trim()
-                    if (opt.isNotEmpty()) quickOptions.add(opt)
-                }
-            }
-            val isError = json.optBoolean("is_error", false)
-            AgentDigestResult(
-                spokenSummary = spoken,
-                hasQuestion = hasQuestion,
-                question = question,
-                quickOptions = if (hasQuestion && quickOptions.isEmpty()) listOf("Yes", "No") else quickOptions,
-                isError = isError,
-            )
-        }.getOrNull()
+    /**
+     * Parses Gemini Nano's response into an AgentDigestResult, gracefully handling
+     * JSON, markdown, or plain conversational speech.
+     */
+    private fun extractStructuredResult(response: String): AgentDigestResult {
+        // Attempt JSON extraction first if model generated JSON
+        val jsonMatch = Regex("\\{.*\\}", RegexOption.DOT_MATCHES_ALL).find(response)?.value
+        if (jsonMatch != null) {
+            val parsed = runCatching {
+                val json = JSONObject(jsonMatch)
+                val spoken = json.optString("spoken", "").ifEmpty { json.optString("summary", "") }.trim()
+                if (spoken.isNotEmpty()) {
+                    val hasQuestion = json.optBoolean("has_question", false)
+                    val question = json.optString("question", "").takeIf { it.isNotBlank() }
+                    val quickArray = json.optJSONArray("quick_options")
+                    val quickOptions = mutableListOf<String>()
+                    if (quickArray != null) {
+                        for (i in 0 until quickArray.length()) {
+                            val opt = quickArray.optString(i, "").trim()
+                            if (opt.isNotEmpty()) quickOptions.add(opt)
+                        }
+                    }
+                    val isError = json.optBoolean("is_error", false)
+                    AgentDigestResult(
+                        spokenSummary = spoken,
+                        hasQuestion = hasQuestion,
+                        question = question,
+                        quickOptions = if (hasQuestion && quickOptions.isEmpty()) listOf("Yes", "No") else quickOptions,
+                        isError = isError,
+                    )
+                } else null
+            }.getOrNull()
+            if (parsed != null) return parsed
+        }
+
+        // Handle conversational text or markdown response
+        val cleanText = response
+            .replace(Regex("```[a-z]*"), "")
+            .replace("```", "")
+            .replace(Regex("[*#_]"), "")
+            .trim()
+
+        val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
+        val lines = cleanText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val questionLine = lines.lastOrNull { yesNoRegex.containsMatchIn(it) || it.endsWith("?") }
+        val hasQuestion = questionLine != null
+        val isError = cleanText.contains("error", ignoreCase = true) || cleanText.contains("failed", ignoreCase = true)
+
+        return AgentDigestResult(
+            spokenSummary = cleanText,
+            hasQuestion = hasQuestion,
+            question = questionLine,
+            quickOptions = if (hasQuestion) listOf("Yes", "No") else emptyList(),
+            isError = isError,
+        )
     }
 
     private fun fallbackAnalyze(output: String): AgentDigestResult {
-        val lines = output.lines().filter { it.isNotBlank() }
-        val lastFew = lines.takeLast(15)
+        val allLines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (allLines.isEmpty()) {
+            return AgentDigestResult(
+                spokenSummary = "Terminal is idle with no recent output.",
+                hasQuestion = false,
+            )
+        }
 
-        // 1. Detect pending prompt questions
+        // Identify shell prompt lines (e.g., user@host:~$ or ending with $, #, >)
+        val promptRegex = Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯%]\\s*$")
+        val meaningfulLines = allLines.filter { line ->
+            !promptRegex.matches(line) && !line.endsWith("$") && !line.endsWith("#") && !line.endsWith(">")
+        }
+
+        val analysisPool = if (meaningfulLines.isNotEmpty()) meaningfulLines else allLines
+        val lastFew = analysisPool.takeLast(12)
+
+        // 1. Detect pending prompt questions (e.g. [y/N], (y/n), or trailing question)
         val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
         val questionLine = lastFew.lastOrNull { line ->
-            yesNoRegex.containsMatchIn(line) || line.trimEnd().endsWith("?")
+            yesNoRegex.containsMatchIn(line) || line.endsWith("?") || line.contains("confirm", ignoreCase = true)
         }
 
         if (questionLine != null) {
@@ -131,16 +177,19 @@ internal object AgentDigestModel {
             )
         }
 
-        // 2. Detect error / failure
+        // 2. Detect error or failure
         val failureLine = lastFew.lastOrNull { line ->
             line.contains("BUILD FAILED", ignoreCase = true) ||
                 line.contains("FAILURES!!!", ignoreCase = true) ||
                 line.contains("FAILURE:", ignoreCase = true) ||
-                line.startsWith("Error:", ignoreCase = true)
+                line.contains("error:", ignoreCase = true) ||
+                line.contains("Exception:", ignoreCase = true) ||
+                line.contains("fatal:", ignoreCase = true)
         }
         if (failureLine != null) {
+            val cleanError = failureLine.removePrefix("e: ").trim()
             return AgentDigestResult(
-                spokenSummary = "Command failed with an error. Check the terminal output for details.",
+                spokenSummary = "Command failed with an error: $cleanError",
                 hasQuestion = false,
                 isError = true,
                 usedAi = false,
@@ -151,21 +200,37 @@ internal object AgentDigestModel {
         val successLine = lastFew.lastOrNull { line ->
             line.contains("BUILD SUCCESSFUL", ignoreCase = true) ||
                 line.contains("Tests run:", ignoreCase = true) ||
-                line.contains("done", ignoreCase = true)
+                line.contains("passed in", ignoreCase = true) ||
+                line.contains("up to date", ignoreCase = true) ||
+                line.contains("done", ignoreCase = true) ||
+                line.contains("completed", ignoreCase = true) ||
+                line.contains("committed", ignoreCase = true) ||
+                line.contains("pushed", ignoreCase = true)
         }
         if (successLine != null) {
             return AgentDigestResult(
-                spokenSummary = "Agent finished task successfully. All checks passed.",
+                spokenSummary = "Agent completed task: $successLine",
                 hasQuestion = false,
                 isError = false,
                 usedAi = false,
             )
         }
 
-        // General default
-        val lastLine = lastFew.lastOrNull() ?: "idle"
+        // 4. Summarize the last meaningful command or agent outputs
+        if (meaningfulLines.isNotEmpty()) {
+            val summaryText = meaningfulLines.takeLast(2).joinToString(". ")
+            return AgentDigestResult(
+                spokenSummary = "Latest agent output: $summaryText",
+                hasQuestion = false,
+                isError = false,
+                usedAi = false,
+            )
+        }
+
+        // True idle prompt
+        val lastPrompt = allLines.lastOrNull() ?: "idle"
         return AgentDigestResult(
-            spokenSummary = "Agent is idle. Current prompt: $lastLine",
+            spokenSummary = "Terminal is idle at the prompt.",
             hasQuestion = false,
             isError = false,
             usedAi = false,

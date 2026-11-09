@@ -457,7 +457,7 @@ internal fun AgentQuickResponseSheet(
                     }
 
                     // Slash commands
-                    listOf("/compact", "/plan", "/goal", "/review", "/help").forEach { slash ->
+                    listOf("/usage", "/compact", "/plan", "/goal", "/review", "/help").forEach { slash ->
                         FilterChip(
                             selected = false,
                             onClick = { execute { onSendText(slash, true) } },

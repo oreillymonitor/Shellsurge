@@ -76,4 +76,17 @@ class TerminalTextSanitizerTest {
         assertTrue(result.isError)
         assertTrue(result.spokenSummary.contains("failed", ignoreCase = true))
     }
+
+    @Test
+    fun fallbackSummarizesMeaningfulAgentOutput() = runBlocking {
+        val raw = """
+            claude> Refactored session auth handler.
+            All unit tests passed.
+            user@host:~/project$ 
+        """.trimIndent()
+        val result = AgentDigestModel.analyzeTerminalTail(raw)
+        assertFalse(result.hasQuestion)
+        assertFalse(result.spokenSummary.contains("idle", ignoreCase = true))
+        assertTrue(result.spokenSummary.contains("passed", ignoreCase = true))
+    }
 }

@@ -200,9 +200,7 @@ internal fun PromptComposerDialog(
     }
 
     val aiShortcuts = listOf(
-        "agy",
-        "agy -c",
-        "opencode",
+        "/usage",
         "/goal",
         "/plan",
         "/compact",
@@ -210,6 +208,9 @@ internal fun PromptComposerDialog(
         "/grill-me",
         "/boost",
         "/learn",
+        "agy",
+        "agy -c",
+        "opencode",
     )
 
     val aiTemplates = listOf(

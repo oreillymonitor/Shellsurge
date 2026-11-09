@@ -120,7 +120,7 @@ fun TerminalScrollbar(
             }
         }
 
-        // Relative drag accumulator with progressive power curve
+        // Relative drag accumulator with controlled progressive curve
         fun updateFromRelativeDrag(initialRow: Int, totalDeltaY: Float, pullLeftPx: Float) {
             val maxScroll = currentMaxScrollback
             if (maxScroll <= 0) return
@@ -131,16 +131,19 @@ fun TerminalScrollbar(
             val absY = abs(totalDeltaY)
             val sign = if (totalDeltaY < 0f) -1 else 1
 
-            // Progressive power curve:
-            // Under 60px of drag: calm linear response (~4px per line), giving effortless control for 10-20 lines
-            // Over 60px of drag: smooth progressive acceleration to traverse large history buffers
+            // Calibrated touch response:
+            // ~12dp per line: steady, tactile 1-to-1 feel for the first 2 lines.
+            // After 2 lines of scrolling, gentle progressive acceleration begins without wild spikes.
+            val pxPerLine = with(density) { 12.dp.toPx() }.coerceAtLeast(10f)
+            val twoLinesPx = pxPerLine * 2f
+
             val lines = when {
-                fineMode -> absY / 5.0f // Ultra-high precision: 5px per line
-                absY <= 60f -> absY / 3.5f // Gentle deadband: 10 lines = 35px, 20 lines = 70px
+                fineMode -> absY / (pxPerLine * 1.5f) // Ultra-high precision
+                absY <= twoLinesPx -> absY / pxPerLine // First 2 lines: linear 1-to-1 response
                 else -> {
-                    val extraPx = absY - 60f
-                    val baseScale = (maxScroll / 120f).coerceIn(1.5f, 15f)
-                    (60f / 3.5f) + (extraPx / 30f).pow(1.55f) * baseScale
+                    val extraLines = (absY - twoLinesPx) / pxPerLine
+                    // Controllable progressive ramp starting after 2 lines
+                    2f + extraLines + (0.35f * extraLines.pow(1.3f))
                 }
             }
 

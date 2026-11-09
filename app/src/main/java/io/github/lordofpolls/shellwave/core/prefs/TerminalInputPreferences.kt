@@ -1,6 +1,7 @@
 package io.github.lordofpolls.shellwave.core.prefs
 
 import android.content.Context
+import androidx.core.content.edit
 
 private const val PREFS_NAME = "shellwave_prefs"
 private const val KEY_KEYBOARD_ENHANCED_INPUT = "keyboard_enhanced_input"
@@ -18,7 +19,8 @@ object TerminalInputPreferences {
             .getBoolean(KEY_KEYBOARD_ENHANCED_INPUT, true)
 
     fun setKeyboardEnhancedInput(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_KEYBOARD_ENHANCED_INPUT, enabled).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putBoolean(KEY_KEYBOARD_ENHANCED_INPUT, enabled)
+        }
     }
 }

@@ -73,8 +73,8 @@ private const val BELL_VIBRATION_MS = 150L
  * hand from any other terminal.
  */
 internal const val RESILIENT_SESSION_BOOTSTRAP =
-    "command -v tmux >/dev/null 2>&1 && exec tmux new -A -s shellwave || " +
-            "echo '[shellwave] tmux not found on this host - staying in a plain shell.'"
+    "command -v tmux >/dev/null 2>&1 && exec tmux new -A -s shellsurge || " +
+            "echo '[shellsurge] tmux not found on this host - staying in a plain shell.'"
 
 /**
  * One SSH connection driving one [TerminalEmulator]. Owns the sshj session and shell plus the

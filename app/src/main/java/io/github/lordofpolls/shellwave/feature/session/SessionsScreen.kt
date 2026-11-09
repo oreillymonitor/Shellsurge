@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -17,8 +18,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,6 +54,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -897,9 +904,17 @@ internal fun SessionTabBody(
             // A sibling of the gesture-bearing Box, not a descendant of it - terminalGestures
             // consumes every down on the Initial pass, which would otherwise swallow the tap.
             if (topRow < 0) {
-                JumpToBottomBadge(
+                val emulator = terminalEmulator
+                val maxScrollback = emulator?.screen?.activeTranscriptRows ?: 0
+                ScrollbackStepperPill(
                     linesBack = -topRow,
-                    onClick = { topRow = 0 },
+                    onStepUp = {
+                        topRow = (topRow - 10).coerceIn(-maxScrollback, 0)
+                    },
+                    onStepDown = {
+                        topRow = (topRow + 10).coerceIn(-maxScrollback, 0)
+                    },
+                    onJumpToBottom = { topRow = 0 },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 24.dp, bottom = 12.dp),
@@ -1007,25 +1022,73 @@ internal fun SessionTabBody(
     LaunchedEffect(sessionId) { focusRequester.requestFocus() }
 }
 
-/** Scrollback position and jump-to-bottom in one: shown only while scrolled back. */
+/** Scrollback position, line steppers, and jump-to-bottom in one: shown only while scrolled back. */
 @Composable
-private fun JumpToBottomBadge(linesBack: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun ScrollbackStepperPill(
+    linesBack: Int,
+    onStepUp: () -> Unit,
+    onStepDown: () -> Unit,
+    onJumpToBottom: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Surface(
-        onClick = onClick,
-        // TalkBack reads the bare glyph as "50 down arrow", which doesn't say what the tap does.
-        modifier = modifier.semantics {
-            contentDescription = "Scrolled back $linesBack lines. Jump to bottom."
-        },
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 6.dp,
+        tonalElevation = 2.dp,
+        modifier = modifier.semantics {
+            contentDescription = "Scrolled back $linesBack lines. Controls to step up, down, or jump to bottom."
+        },
     ) {
-        MachineText(
-            "$linesBack ↓",
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+        ) {
+            FilledTonalIconButton(
+                onClick = onStepUp,
+                modifier = Modifier.size(34.dp),
+            ) {
+                Text(
+                    text = "▲10",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                )
+            }
+
+            FilledTonalIconButton(
+                onClick = onStepDown,
+                modifier = Modifier.size(34.dp),
+            ) {
+                Text(
+                    text = "▼10",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                )
+            }
+
+            Button(
+                onClick = onJumpToBottom,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.height(34.dp),
+            ) {
+                MachineText(
+                    "$linesBack ↓",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
     }
 }
 

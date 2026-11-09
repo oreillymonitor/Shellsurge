@@ -33,7 +33,7 @@ data class HostEntity(
     val credentialId: Long,
     val lastConnectedAt: Long?,
     val createdAt: Long,
-    /** Sends `tmux new -A -s shellwave` as the shell's first line. See [RESILIENT_SESSION_BOOTSTRAP]. */
+    /** Sends `tmux new -A -s shellsurge` as the shell's first line. See [RESILIENT_SESSION_BOOTSTRAP]. */
     val resilientSession: Boolean = false,
     /**
      * Per-host overrides; `null` means the app-wide default.

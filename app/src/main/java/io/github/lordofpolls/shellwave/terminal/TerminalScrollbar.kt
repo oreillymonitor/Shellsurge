@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
@@ -103,21 +104,29 @@ fun TerminalScrollbar(
             }
         }
 
-        // Relative drag accumulator with speed calibration
+        // Relative drag accumulator with progressive power curve
         fun updateFromRelativeDrag(initialRow: Int, totalDeltaY: Float, pullLeftPx: Float) {
-            // If the user drags their finger left (away from edge), activate precision fine-scrubbing
+            // If the user drags their finger left (away from edge), activate ultra-fine scrubbing
             val fineMode = pullLeftPx > with(density) { 40.dp.toPx() }
             isFineScrubbing = fineMode
 
-            // Line rate per pixel: damped for controllability so micro-movements don't jump 50 lines
-            val baseRate = (maxScrollback.toFloat() / availableTravelPx)
-            val speedFactor = when {
-                fineMode -> 0.35f // Super high precision line-by-line reading
-                baseRate > 4f -> 0.65f // Tame high line density buffers
-                else -> 0.85f
+            val absY = abs(totalDeltaY)
+            val sign = if (totalDeltaY < 0f) -1 else 1
+
+            // Progressive power curve:
+            // Under 60px of drag: calm linear response (~4px per line), giving effortless control for 10-20 lines
+            // Over 60px of drag: smooth progressive acceleration to traverse large history buffers
+            val lines = when {
+                fineMode -> absY / 5.0f // Ultra-high precision: 5px per line
+                absY <= 60f -> absY / 3.5f // Gentle deadband: 10 lines = 35px, 20 lines = 70px
+                else -> {
+                    val extraPx = absY - 60f
+                    val baseScale = (maxScrollback / 120f).coerceIn(1.5f, 15f)
+                    (60f / 3.5f) + (extraPx / 30f).pow(1.55f) * baseScale
+                }
             }
 
-            val linesDelta = (totalDeltaY * baseRate * speedFactor).roundToInt()
+            val linesDelta = (sign * lines).roundToInt()
             val newRow = (initialRow + linesDelta).coerceIn(-maxScrollback, 0)
             if (newRow != scrubRow) {
                 scrubRow = newRow

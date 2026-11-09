@@ -76,11 +76,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.lordofpolls.shellwave.fork"
+        applicationId = "io.github.oreillymonitor.shellsurge"
         minSdk = 31
         targetSdk = 37
-        versionCode = 11011
-        versionName = "1.10.11"
+        versionCode = 11012
+        versionName = "1.10.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

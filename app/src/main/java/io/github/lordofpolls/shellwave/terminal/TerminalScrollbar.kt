@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,11 @@ fun TerminalScrollbar(
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
 
+    val currentTopRow by rememberUpdatedState(topRow)
+    val currentMaxScrollback by rememberUpdatedState(maxScrollback)
+    val currentHasScrollback by rememberUpdatedState(hasScrollback)
+    val currentOnScrollToRow by rememberUpdatedState(onScrollToRow)
+
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubRow by remember { mutableIntStateOf(topRow) }
     var lastHapticRow by remember { mutableIntStateOf(topRow) }
@@ -105,9 +111,10 @@ fun TerminalScrollbar(
 
         // Trigger haptics on milestone rows (every 5-10 rows or boundaries) for a crisp ratchet feel
         fun checkHaptic(row: Int) {
-            if (!hasScrollback) return
-            val threshold = if (maxScrollback > 500) 10 else 5
-            if (abs(row - lastHapticRow) >= threshold || row == 0 || row == -maxScrollback) {
+            val maxScroll = currentMaxScrollback
+            if (maxScroll <= 0) return
+            val threshold = if (maxScroll > 500) 10 else 5
+            if (abs(row - lastHapticRow) >= threshold || row == 0 || row == -maxScroll) {
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 lastHapticRow = row
             }
@@ -115,7 +122,8 @@ fun TerminalScrollbar(
 
         // Relative drag accumulator with progressive power curve
         fun updateFromRelativeDrag(initialRow: Int, totalDeltaY: Float, pullLeftPx: Float) {
-            if (!hasScrollback) return
+            val maxScroll = currentMaxScrollback
+            if (maxScroll <= 0) return
             // If the user drags their finger left (away from edge), activate ultra-fine scrubbing
             val fineMode = pullLeftPx > with(density) { 40.dp.toPx() }
             isFineScrubbing = fineMode
@@ -131,17 +139,17 @@ fun TerminalScrollbar(
                 absY <= 60f -> absY / 3.5f // Gentle deadband: 10 lines = 35px, 20 lines = 70px
                 else -> {
                     val extraPx = absY - 60f
-                    val baseScale = (maxScrollback / 120f).coerceIn(1.5f, 15f)
+                    val baseScale = (maxScroll / 120f).coerceIn(1.5f, 15f)
                     (60f / 3.5f) + (extraPx / 30f).pow(1.55f) * baseScale
                 }
             }
 
             val linesDelta = (sign * lines).roundToInt()
-            val newRow = (initialRow + linesDelta).coerceIn(-maxScrollback, 0)
+            val newRow = (initialRow + linesDelta).coerceIn(-maxScroll, 0)
             if (newRow != scrubRow) {
                 scrubRow = newRow
                 checkHaptic(newRow)
-                onScrollToRow(newRow)
+                currentOnScrollToRow(newRow)
             }
         }
 
@@ -151,19 +159,19 @@ fun TerminalScrollbar(
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
                 .width(48.dp)
-                .pointerInput(maxScrollback, trackHeightPx, thumbHeightPx, hasScrollback) {
+                .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         down.consume()
-                        if (!hasScrollback) return@awaitEachGesture
+                        if (!currentHasScrollback) return@awaitEachGesture
                         isScrubbing = true
-                        lastHapticRow = topRow
-                        scrubRow = topRow
+                        val initialRow = currentTopRow
+                        lastHapticRow = initialRow
+                        scrubRow = initialRow
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
 
                         val startY = down.position.y
                         val startX = down.position.x
-                        val initialRow = topRow
 
                         while (true) {
                             val event = awaitPointerEvent()

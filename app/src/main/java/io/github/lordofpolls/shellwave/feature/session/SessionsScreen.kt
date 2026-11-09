@@ -487,6 +487,7 @@ internal fun SessionTabBody(
     var transcriptRows by remember(sessionId) {
         mutableIntStateOf(summary.connection.emulatorOrNull?.screen?.activeTranscriptRows ?: 0)
     }
+    var mouseScrolledLines by remember(sessionId) { mutableIntStateOf(0) }
 
     var searchQuery by remember(sessionId) { mutableStateOf("") }
     var searchMatches by remember(sessionId) { mutableStateOf(emptyList<TerminalMatch>()) }
@@ -605,6 +606,7 @@ internal fun SessionTabBody(
             // Fresh connection and emulator: drop the old buffer and anything pointing into it.
             terminalEmulator = null
             transcriptRows = 0
+            mouseScrolledLines = 0
             topRow = 0
             selectionState.clear()
         }
@@ -653,6 +655,7 @@ internal fun SessionTabBody(
     }
 
     fun sendText(text: String) {
+        mouseScrolledLines = 0
         // The latch is a one-shot modifier for the next keypress, not the next batch: a fast burst
         // can coalesce several characters into one delta, and only the first of those was actually
         // typed while the modifier was held.
@@ -675,6 +678,20 @@ internal fun SessionTabBody(
 
     fun sendSpecialKey(keyCode: Int) {
         val emulator = summary.connection.emulatorOrNull
+        val isMouseActive = emulator?.isMouseTrackingActive() == true
+        if (!ctrlLatched && !altLatched && !isMouseActive) {
+            if (keyCode == KeyEvent.KEYCODE_PAGE_UP) {
+                val maxScrollback = emulator?.screen?.activeTranscriptRows ?: 0
+                transcriptRows = maxScrollback
+                topRow = (topRow - 10).coerceIn(-maxScrollback, 0)
+                return
+            } else if (keyCode == KeyEvent.KEYCODE_PAGE_DOWN) {
+                val maxScrollback = emulator?.screen?.activeTranscriptRows ?: 0
+                transcriptRows = maxScrollback
+                topRow = (topRow + 10).coerceIn(-maxScrollback, 0)
+                return
+            }
+        }
         val keyMode =
             (if (ctrlLatched) KeyHandler.KEYMOD_CTRL else 0) or (if (altLatched) KeyHandler.KEYMOD_ALT else 0)
         ctrlLatched = false
@@ -703,13 +720,30 @@ internal fun SessionTabBody(
         emulator.sendMouseEvent(TerminalEmulator.MOUSE_LEFT_BUTTON, column, row, false)
     }
 
+    fun sendWheelLines(notches: Int, col: Int = 1, row: Int = 1) {
+        val emulator = terminalEmulator ?: return
+        val button = if (notches > 0) TerminalEmulator.MOUSE_WHEELUP_BUTTON else TerminalEmulator.MOUSE_WHEELDOWN_BUTTON
+        repeat(abs(notches)) {
+            emulator.sendMouseEvent(button, col, row, true)
+        }
+        if (notches > 0) {
+            mouseScrolledLines += notches
+        } else {
+            mouseScrolledLines = (mouseScrolledLines + notches).coerceAtLeast(0)
+        }
+    }
+
     fun sendMouseWheel(offset: Offset, dy: Float) {
         val emulator = terminalEmulator ?: return
         val cellHeightPx = measuredSize?.cellHeightPx ?: return
-        val (column, row) = mouseCell(offset) ?: return
+        val size = measuredSize ?: return
+        val col = ((offset.x / size.cellWidthPx).toInt() + 1).coerceIn(1, emulator.mColumns)
+        val row = ((offset.y / size.cellHeightPx).toInt() + 1).coerceIn(1, emulator.mRows)
         val (notches, remainder) = dragRows(scrollDragRemainderPx + dy, cellHeightPx)
         scrollDragRemainderPx = remainder
-        repeat(abs(notches)) { emulator.sendMouseEvent(wheelButton(notches), column, row, true) }
+        if (notches != 0) {
+            sendWheelLines(notches, col, row)
+        }
     }
 
     val localContext = LocalContext.current
@@ -908,13 +942,27 @@ internal fun SessionTabBody(
                 }
             }
             // Interactive scrollbar for fast scrubbing through scrollback history
-            val scrollbackRows = transcriptRows
+            val isMouseActive = terminalEmulator?.isMouseTrackingActive() == true
+            val effectiveScrollback = if (isMouseActive) maxOf(mouseScrolledLines + 100, 500) else transcriptRows
+            val effectiveTopRow = if (isMouseActive) -mouseScrolledLines else topRow
+
             terminalEmulator?.let { emulator ->
                 TerminalScrollbar(
-                    topRow = topRow,
-                    maxScrollback = scrollbackRows,
+                    topRow = effectiveTopRow,
+                    maxScrollback = effectiveScrollback,
                     screenRows = emulator.mRows,
-                    onScrollToRow = { newRow -> topRow = newRow },
+                    onScrollToRow = { newRow ->
+                        if (isMouseActive) {
+                            val currentLines = mouseScrolledLines
+                            val targetLines = -newRow
+                            val delta = targetLines - currentLines
+                            if (delta != 0) {
+                                sendWheelLines(delta)
+                            }
+                        } else {
+                            topRow = newRow
+                        }
+                    },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(bottom = 8.dp, top = 8.dp),
@@ -922,24 +970,47 @@ internal fun SessionTabBody(
             }
 
             // Scrollback position, line steppers, and jump-to-bottom pill:
-            if (topRow < 0) {
+            val isScrolledBack = if (isMouseActive) mouseScrolledLines > 0 else topRow < 0
+            val linesBackCount = if (isMouseActive) mouseScrolledLines else -topRow
+            val canShowJumpPill = if (isMouseActive) true else transcriptRows > 0
+
+            if (isScrolledBack) {
                 ScrollbackStepperPill(
-                    linesBack = -topRow,
+                    linesBack = linesBackCount,
                     onStepUp = {
-                        topRow = (topRow - 10).coerceIn(-scrollbackRows, 0)
+                        if (isMouseActive) {
+                            sendWheelLines(10)
+                        } else {
+                            topRow = (topRow - 10).coerceIn(-transcriptRows, 0)
+                        }
                     },
                     onStepDown = {
-                        topRow = (topRow + 10).coerceIn(-scrollbackRows, 0)
+                        if (isMouseActive) {
+                            sendWheelLines(-10)
+                        } else {
+                            topRow = (topRow + 10).coerceIn(-transcriptRows, 0)
+                        }
                     },
-                    onJumpToBottom = { topRow = 0 },
+                    onJumpToBottom = {
+                        if (isMouseActive) {
+                            summary.connection.write("q")
+                            mouseScrolledLines = 0
+                        } else {
+                            topRow = 0
+                        }
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 56.dp, bottom = 12.dp),
                 )
-            } else if (scrollbackRows > 0) {
+            } else if (canShowJumpPill) {
                 ScrollbackJumpPill(
                     onJumpUp = {
-                        topRow = (-10).coerceIn(-scrollbackRows, 0)
+                        if (isMouseActive) {
+                            sendWheelLines(10)
+                        } else {
+                            topRow = (-10).coerceIn(-transcriptRows, 0)
+                        }
                     },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)

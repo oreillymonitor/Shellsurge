@@ -268,7 +268,7 @@ private fun AgentQuickResponseKey(onClick: () -> Unit) {
 private fun KeyboardKey(
     visible: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier.size(ClusterKeySize),
+    modifier: Modifier = Modifier,
 ) {
     FilledTonalButton(
         onClick = onClick,

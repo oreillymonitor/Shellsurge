@@ -6,20 +6,47 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -29,11 +56,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.lordofpolls.shellwave.BuildConfig
 import io.github.lordofpolls.shellwave.core.billing.SupporterState
@@ -50,13 +83,8 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 /**
- * The Settings destination, as M3 preference groups built from [SettingsRow] and friends.
- *
- * Sections and not cards: a `titleSmall` header already groups its items, and a `Card` would spend
- * height drawing a container around that.
- *
- * There is no Security group: host key trust is per host and biometric gating is per credential, so
- * it would be empty.
+ * The Settings destination, organized into structured Material 3 preference cards with segmented
+ * controls, visual theme selectors, and clear category hierarchy.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,123 +133,237 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = LocalReadableInset.current)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            SettingsSectionHeader("Appearance", first = true)
-
-            SettingsRadioGroup(
-                label = "Theme",
-                options = ThemeMode.entries,
-                selected = themeMode,
-                labelOf = { it.name.lowercase().replaceFirstChar(Char::uppercase) },
-                onSelect = onThemeModeChange,
-            )
-
-            SettingsRadioGroup(
-                label = "Colour",
-                options = ColourTheme.entries,
-                selected = colourTheme,
-                labelOf = {
-                    when (it) {
-                        ColourTheme.DYNAMIC -> "Dynamic (Material You)"
-                        ColourTheme.SCHEMATIC -> "Schematic"
-                        ColourTheme.NOTHING -> "Nothing (dot-matrix)"
-                    }
-                },
-                onSelect = onColourThemeChange,
-            )
-
-            SettingsSwitch(
-                title = "Exact scheme colours",
-                // Plain language over CAM16/HCT: the mechanism is documented at SchemeHarmonizer,
-                // and a settings row has to say what changes.
-                description = "Show colour schemes exactly as authored, without nudging them toward the app's accent. Only affects the terminal.",
-                checked = exactSchemeColours,
-                onCheckedChange = onExactSchemeColoursChange,
-            )
-
-            SettingsRow(
-                title = "Terminal",
-                description = "Font, cursor, scrollback, colour scheme, key bar layouts, bell and full-width mode.",
-                chevron = true,
-                onClick = onOpenTerminalSettings,
-            )
-
-            SettingsSectionHeader("Hosts")
-
-            SettingsRow(
-                title = "Trusted host keys",
-                description = "The host keys accepted so far, with a fingerprint to check and a way to forget one.",
-                chevron = true,
-                onClick = onOpenKnownHosts,
-            )
-
-            SettingsSwitch(
-                title = "Show which hosts are reachable",
-                // This app makes no traffic the user did not ask for, so the one feature that
-                // changes that says so in the row that turns it on.
-                description = "Probes each saved host's SSH port and marks it UP or DOWN. No credentials used. Stops when you leave the app.",
-                checked = reachabilityEnabled,
-                onCheckedChange = onReachabilityEnabledChange,
-            )
-
-            if (reachabilityEnabled) {
-                SettingsRadioGroup(
-                    label = "How often",
-                    options = ReachabilityInterval.entries,
-                    selected = reachabilityInterval,
-                    labelOf = { it.label },
-                    onSelect = onReachabilityIntervalChange,
+            // 1. APPEARANCE
+            SettingsGroupCard(title = "Appearance", icon = Icons.Outlined.Palette) {
+                SettingsSegmentedGroup(
+                    label = "Theme mode",
+                    options = ThemeMode.entries,
+                    selected = themeMode,
+                    labelOf = { it.name.lowercase().replaceFirstChar(Char::uppercase) },
+                    onSelect = onThemeModeChange,
                 )
+
+                ColourThemeSelector(
+                    selected = colourTheme,
+                    onSelect = onColourThemeChange,
+                )
+
+                SettingsCardDivider()
 
                 SettingsSwitch(
-                    title = "Allow on mobile data",
-                    description = "Off by default, so probing only happens on unmetered networks such as Wi-Fi.",
-                    checked = reachabilityMetered,
-                    onCheckedChange = onReachabilityMeteredChange,
-                )
-
-                Text(
-                    "Hosts behind a jump host aren't probed - a direct connection to them would fail - so they show \"—\".",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    title = "Exact scheme colours",
+                    description = "Show colour schemes exactly as authored, without nudging them toward the app's accent. Only affects the terminal.",
+                    checked = exactSchemeColours,
+                    onCheckedChange = onExactSchemeColoursChange,
                 )
             }
 
-            SettingsSectionHeader("Automation")
+            // 2. TERMINAL & INPUT
+            SettingsGroupCard(title = "Terminal & Input", icon = Icons.Outlined.Terminal) {
+                SettingsRow(
+                    title = "Terminal configuration",
+                    description = "Font, cursor, scrollback, colour scheme, key bar layouts, bell and full-width mode.",
+                    icon = Icons.Outlined.Terminal,
+                    chevron = true,
+                    onClick = onOpenTerminalSettings,
+                )
+            }
 
-            AutomationSettings(
-                enabled = automationEnabled,
-                onEnabledChange = onAutomationEnabledChange,
-                token = automationToken,
-                onRegenerate = onRegenerateAutomationToken,
-            )
+            // 3. HOSTS & SECURITY
+            SettingsGroupCard(title = "Hosts & Security", icon = Icons.Outlined.Dns) {
+                SettingsRow(
+                    title = "Trusted host keys",
+                    description = "The host keys accepted so far, with a fingerprint to check and a way to forget one.",
+                    icon = Icons.Outlined.VpnKey,
+                    chevron = true,
+                    onClick = onOpenKnownHosts,
+                )
 
-            SettingsSectionHeader("Backup")
+                SettingsCardDivider()
 
-            ConfigExportRow(onExport = onExportConfig)
-            ConfigImportRow(onImport = onImportConfig)
+                SettingsSwitch(
+                    title = "Show which hosts are reachable",
+                    description = "Probes each saved host's SSH port and marks it UP or DOWN. No credentials used. Stops when you leave the app.",
+                    checked = reachabilityEnabled,
+                    onCheckedChange = onReachabilityEnabledChange,
+                )
 
+                AnimatedVisibility(visible = reachabilityEnabled) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) {
+                        SettingsSegmentedGroup(
+                            label = "How often",
+                            options = ReachabilityInterval.entries,
+                            selected = reachabilityInterval,
+                            labelOf = { it.label },
+                            onSelect = onReachabilityIntervalChange,
+                        )
+
+                        SettingsSwitch(
+                            title = "Allow on mobile data",
+                            description = "Off by default, so probing only happens on unmetered networks such as Wi-Fi.",
+                            checked = reachabilityMetered,
+                            onCheckedChange = onReachabilityMeteredChange,
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "Hosts behind a jump host aren't probed - a direct connection to them would fail - so they show \"—\".",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(10.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4. AUTOMATION
+            SettingsGroupCard(title = "Automation", icon = Icons.Outlined.Code) {
+                AutomationSettings(
+                    enabled = automationEnabled,
+                    onEnabledChange = onAutomationEnabledChange,
+                    token = automationToken,
+                    onRegenerate = onRegenerateAutomationToken,
+                )
+            }
+
+            // 5. BACKUP & RESTORE
+            SettingsGroupCard(title = "Backup & Restore", icon = Icons.Outlined.FolderOpen) {
+                ConfigExportRow(onExport = onExportConfig)
+                SettingsCardDivider()
+                ConfigImportRow(onImport = onImportConfig)
+            }
+
+            // 6. SUPPORT (when available)
             if (supporterState != SupporterState.Unavailable) {
-                SettingsSectionHeader("Support")
-                SupporterRow(state = supporterState, onBecomeSupporter = onBecomeSupporter)
+                SettingsGroupCard(title = "Support", icon = Icons.Outlined.FavoriteBorder) {
+                    SupporterRow(state = supporterState, onBecomeSupporter = onBecomeSupporter)
+                }
             }
 
-            SettingsSectionHeader("About")
+            // 7. ABOUT
+            SettingsGroupCard(title = "About", icon = Icons.Outlined.Info) {
+                SettingsRow(
+                    title = "Version",
+                    description = "ShellSurge SSH & Terminal Client",
+                    badgeText = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                )
+                SettingsCardDivider()
+                SettingsRow(
+                    title = "Source code",
+                    description = SOURCE_REPOSITORY_URL,
+                    chevron = true,
+                    onClick = { runCatching { uriHandler.openUri(SOURCE_REPOSITORY_URL) } },
+                )
+                SettingsCardDivider()
+                SettingsRow(
+                    title = "Licences",
+                    description = "Open-source software notices and GPLv3 licence text.",
+                    chevron = true,
+                    onClick = onOpenLicenses,
+                )
+            }
 
-            SettingsRow(
-                title = "Version",
-                description = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-            )
-            SettingsRow(
-                title = "Source code",
-                description = SOURCE_REPOSITORY_URL,
-                onClick = { runCatching { uriHandler.openUri(SOURCE_REPOSITORY_URL) } },
-            )
-            SettingsRow(title = "Licences", chevron = true, onClick = onOpenLicenses)
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.padding(bottom = 8.dp))
+@Composable
+private fun ColourThemeSelector(
+    selected: ColourTheme,
+    onSelect: (ColourTheme) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Colour palette",
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ColourTheme.entries.forEach { option ->
+                val isSelected = option == selected
+                val (title, subtitle, dotColor) = when (option) {
+                    ColourTheme.DYNAMIC -> Triple(
+                        "Dynamic",
+                        "Material You",
+                        MaterialTheme.colorScheme.primary,
+                    )
+                    ColourTheme.SCHEMATIC -> Triple(
+                        "Schematic",
+                        "Lime accent",
+                        Color(0xFFA3E635),
+                    )
+                    ColourTheme.NOTHING -> Triple(
+                        "Nothing",
+                        "Dot-matrix",
+                        Color(0xFFD71921),
+                    )
+                }
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(role = Role.RadioButton) { onSelect(option) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f)
+                    },
+                    border = BorderStroke(
+                        width = if (isSelected) 1.5.dp else 1.dp,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        },
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(dotColor, CircleShape),
+                            )
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -229,13 +371,6 @@ fun SettingsScreen(
 /**
  * The app-wide automation gate: the switch, the token, and the two lines a user needs to wire up a
  * Tasker task without leaving the app to look up an action name.
- *
- * The description says what it lets other apps do. Every other switch here changes how Shellwave
- * looks or behaves; this one hands a capability to software the user has not audited, and the row
- * that turns it on is the only place that fact is guaranteed to be read.
- *
- * Regeneration sits behind a confirmation because it silently breaks every task holding the old
- * token, and the breakage shows up later as an automation that quietly stopped working.
  */
 @Composable
 private fun AutomationSettings(
@@ -256,42 +391,85 @@ private fun AutomationSettings(
         onCheckedChange = onEnabledChange,
     )
 
-    if (enabled && token != null) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.padding(top = 8.dp)
-        ) {
-            Text("Token", style = MaterialTheme.typography.labelLarge)
-            // A substituted lookalike glyph here would produce a silent, baffling failure in
-            // another app.
-            MachineText(token, style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = {
-                    scope.launch {
-                        clipboard.setClipEntry(
-                            ClipEntry(
-                                ClipData.newPlainText(
-                                    "Shellwave automation token",
-                                    token
-                                )
-                            )
+    AnimatedVisibility(visible = enabled && token != null) {
+        if (token != null) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = "AUTOMATION TOKEN",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.primary,
                         )
+                        // A substituted lookalike glyph here would produce a silent, baffling failure in
+                        // another app.
+                        MachineText(token, style = MaterialTheme.typography.bodyMedium)
                     }
-                    // Android 13+ confirms clipboard writes itself.
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                        Toast.makeText(context, "Token copied", Toast.LENGTH_SHORT).show()
-                    }
-                }) {
-                    Text("Copy token")
                 }
-                TextButton(onClick = { confirmingRegenerate = true }) { Text("Generate a new one") }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(
+                        onClick = {
+                            scope.launch {
+                                clipboard.setClipEntry(
+                                    ClipEntry(
+                                        ClipData.newPlainText(
+                                            "ShellSurge automation token",
+                                            token
+                                        )
+                                    )
+                                )
+                            }
+                            // Android 13+ confirms clipboard writes itself.
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                Toast.makeText(context, "Token copied", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            Icons.Outlined.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Copy token")
+                    }
+                    OutlinedButton(onClick = { confirmingRegenerate = true }) {
+                        Icon(
+                            Icons.Outlined.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Regenerate")
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "In Tasker: Send Intent, Target Activity, action $ACTION_RUN_SCRIPT, with extras " +
+                                "$EXTRA_SCRIPT_ID (the script's id, shown when you edit it) and $EXTRA_TOKEN (the token above).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(10.dp),
+                    )
+                }
             }
-            Text(
-                "In Tasker: Send Intent, Target Activity, action $ACTION_RUN_SCRIPT, with extras " +
-                        "$EXTRA_SCRIPT_ID (the script's id, shown when you edit it) and $EXTRA_TOKEN (the token above).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 
@@ -317,18 +495,12 @@ private fun AutomationSettings(
     }
 }
 
-/**
- * A one-time, no-functionality purchase, so the copy says up front that it unlocks nothing.
- *
- * Callers skip this entirely for [SupporterState.Unavailable] - an F-Droid build or a Play Console
- * listing where no tier resolves - so there's nothing to render for that case here.
- */
 @Composable
 private fun SupporterRow(state: SupporterState, onBecomeSupporter: (String) -> Unit) {
     when (state) {
         is SupporterState.Loading, is SupporterState.Unavailable -> Unit
 
-        is SupporterState.Purchasable -> Column {
+        is SupporterState.Purchasable -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingsRow(
                 title = "Become a supporter",
                 description = "A one-time purchase that unlocks nothing - just a way to say thanks. " +
@@ -375,22 +547,26 @@ private fun ConfigExportRow(onExport: suspend (Uri) -> Unit) {
         title = "Export configuration",
         description = "Writes your hosts, tunnels, scripts and settings to a JSON file. Passwords, " +
                 "private keys and passphrases are not included - they stay sealed in this device's keystore.",
-        onClick = { launcher.launch("shellwave-config-${LocalDate.now()}.json") },
+        icon = Icons.Outlined.FolderOpen,
+        chevron = true,
+        onClick = { launcher.launch("shellsurge-config-${LocalDate.now()}.json") },
     )
     outcome?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall)
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
     }
 }
 
-/**
- * `OpenDocument`, plus a confirmation the export has no need of: picking a file to read looks
- * harmless, while what follows writes rows and replaces every app-wide setting. The dialog is where
- * that gap gets closed, and it says what an export cannot carry before the picker opens rather than
- * after the import lands.
- *
- * The summary is a list of lines and not one string, because a line per skipped host is the useful
- * shape - see [ConfigImportSummary.lines].
- */
 @Composable
 private fun ConfigImportRow(onImport: suspend (Uri) -> ConfigImportSummary) {
     val scope = rememberCoroutineScope()
@@ -414,10 +590,29 @@ private fun ConfigImportRow(onImport: suspend (Uri) -> ConfigImportSummary) {
         title = "Import configuration",
         description = "Reads a file written by Export. Hosts, tunnels, scripts and layouts are added " +
                 "to what you already have; app-wide settings are replaced. Nothing is deleted.",
+        icon = Icons.Outlined.FileOpen,
+        chevron = true,
         onClick = { confirming = true },
     )
-    outcome.forEach {
-        Text(it, style = MaterialTheme.typography.bodySmall)
+    if (outcome.isNotEmpty()) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                outcome.forEach {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+        }
     }
 
     if (confirming) {
@@ -436,8 +631,6 @@ private fun ConfigImportRow(onImport: suspend (Uri) -> ConfigImportSummary) {
             confirmButton = {
                 TextButton(onClick = {
                     confirming = false
-                    // Any type: a document provider can hand back a .json as text/plain or
-                    // application/octet-stream, and refusing those means the file is unpickable.
                     launcher.launch(arrayOf("*/*"))
                 }) {
                     Text("Choose file")

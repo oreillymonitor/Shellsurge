@@ -330,8 +330,8 @@ fun SessionsScreen(
                         conn.write("\r")
                     }
                 },
-                onSendRawBytes = { bytes ->
-                    current.connection.write(bytes)
+                onSendRaw = { control ->
+                    current.connection.write(control)
                 },
                 onOpenComposerWithText = { initialText ->
                     quickResponseOpen = false
@@ -949,8 +949,8 @@ internal fun SessionTabBody(
                         summary.connection.write("\r")
                     }
                 },
-                onSendRawBytes = { bytes ->
-                    summary.connection.write(bytes)
+                onSendRaw = { control ->
+                    summary.connection.write(control)
                 },
                 onOpenComposerWithText = { initialText ->
                     tabQuickResponseOpen = false

@@ -67,7 +67,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun AgentQuickResponseSheet(
     onSendText: (text: String, sendEnter: Boolean) -> Unit,
-    onSendRawBytes: (bytes: ByteArray) -> Unit,
+    onSendRaw: (control: String) -> Unit,
     onOpenComposerWithText: (initialText: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -311,7 +311,7 @@ internal fun AgentQuickResponseSheet(
                 ) {
                     // Ctrl+C (Interrupt)
                     Button(
-                        onClick = { execute { onSendRawBytes(byteArrayOf(3)) } },
+                        onClick = { execute { onSendRaw("\u0003") } },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error,
                             contentColor = MaterialTheme.colorScheme.onError,
@@ -324,7 +324,7 @@ internal fun AgentQuickResponseSheet(
 
                     // Escape (ESC)
                     FilledTonalButton(
-                        onClick = { execute { onSendRawBytes(byteArrayOf(27)) } },
+                        onClick = { execute { onSendRaw("\u001B") } },
                     ) {
                         Text("ESC")
                     }

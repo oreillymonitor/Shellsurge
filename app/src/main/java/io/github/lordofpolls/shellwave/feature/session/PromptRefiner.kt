@@ -1,15 +1,21 @@
 package io.github.lordofpolls.shellwave.feature.session
 
 import android.util.Log
+import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+internal data class RefineResult(
+    val text: String,
+    val statusNotice: String?,
+)
+
 /**
  * On-device prompt refiner using Gemini Nano (via Android AICore / ML Kit GenAI)
- * on Pixel 9 and compatible devices, with graceful rule-based fallback.
+ * on Pixel 9 and compatible devices, with intelligent rule-based formatting fallback.
  */
 internal object PromptRefiner {
     private const val TAG = "PromptRefiner"
@@ -46,14 +52,48 @@ internal object PromptRefiner {
      * Refines a raw voice prompt using on-device Gemini Nano if available,
      * or falls back to intelligent rule-based cleaning.
      */
-    suspend fun refinePrompt(rawInput: String): String = withContext(Dispatchers.IO) {
+    suspend fun refinePrompt(
+        rawInput: String,
+        onProgress: (String) -> Unit = {},
+    ): RefineResult = withContext(Dispatchers.IO) {
         val withMacros = applyVoiceMacros(rawInput).trim()
-        if (withMacros.isBlank()) return@withContext withMacros
+        if (withMacros.isBlank()) return@withContext RefineResult(withMacros, null)
 
+        var nanoNotice: String? = null
         try {
             val model = getModel()
-            val status = model.checkStatus()
+            var status = runCatching { model.checkStatus() }.getOrNull()
+
+            if (status == FeatureStatus.DOWNLOADABLE) {
+                onProgress("Downloading Gemini Nano from AICore…")
+                var downloadSucceeded = false
+                try {
+                    model.download().collect { dStatus ->
+                        when (dStatus) {
+                            is DownloadStatus.DownloadProgress -> {
+                                val mb = dStatus.totalBytesDownloaded / (1024 * 1024)
+                                onProgress("Downloading Gemini Nano: ${mb}MB…")
+                            }
+                            is DownloadStatus.DownloadCompleted -> {
+                                downloadSucceeded = true
+                                onProgress("Gemini Nano ready. Generating…")
+                            }
+                            is DownloadStatus.DownloadFailed -> {
+                                Log.w(TAG, "Download failed: ${dStatus.exception}")
+                            }
+                            else -> {}
+                        }
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Download flow error: ${e.message}")
+                }
+                if (downloadSucceeded) {
+                    status = FeatureStatus.AVAILABLE
+                }
+            }
+
             if (status == FeatureStatus.AVAILABLE) {
+                onProgress("Refining with Gemini Nano…")
                 val fullPrompt = """
                     You are a developer prompt refiner for an AI coding agent (like antigravity-cli or opencode).
                     Transform the following user's spoken voice note into a crisp, direct, professional instruction.
@@ -70,29 +110,59 @@ internal object PromptRefiner {
                 val response = model.generateContent(fullPrompt)
                 val output = response.candidates.firstOrNull()?.text?.trim()
                 if (!output.isNullOrBlank()) {
-                    return@withContext output
+                    return@withContext RefineResult(output, "Polished with Gemini Nano (on-device)")
                 }
             } else {
-                Log.d(TAG, "Gemini Nano status: $status, falling back to rule-based polish")
+                val reason = when (status) {
+                    FeatureStatus.DOWNLOADING -> "Gemini Nano is downloading via AICore."
+                    FeatureStatus.DOWNLOADABLE -> "Gemini Nano download required in AICore."
+                    FeatureStatus.UNAVAILABLE -> "Gemini Nano unavailable. Enable AICore in Developer Options."
+                    null -> "AICore model service uninitialized on device."
+                }
+                Log.d(TAG, reason)
+                nanoNotice = reason
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "Gemini Nano polish failed, falling back to rule-based: ${e.message}")
+            val err = e.message ?: "AICore uninitialized"
+            Log.w(TAG, "Gemini Nano polish failed: $err")
+            nanoNotice = "AICore unavailable ($err). Used smart formatting."
         }
 
-        // Rule-based fallback
-        fallbackClean(withMacros)
+        // Smart format fallback
+        val cleaned = smartClean(withMacros)
+        RefineResult(cleaned, nanoNotice)
     }
 
-    private fun fallbackClean(input: String): String {
+    fun smartClean(input: String): String {
         var text = input
-        val fillers = listOf(
+
+        // 1. Remove introductory conversational filler phrases
+        val introFillers = listOf(
+            Regex("(?i)^\\s*(hey|so|basically|um|uh|can you|could you|please|i want to|i need to|what if we|how about we)\\s+"),
+            Regex("(?i)\\b(you know|like I said|I mean|as well|sort of|kind of)\\b[,\\s]*"),
             Regex("(?i)\\b(um|uh|er|ah)\\b[,\\s]*"),
-            Regex("(?i)\\b(you know|so basically|like I said|I mean)\\b[,\\s]*"),
         )
-        for (filler in fillers) {
+        for (filler in introFillers) {
             text = filler.replace(text, "")
         }
-        // Capitalize sentences
+
+        // 2. If user strung multiple steps with "and also", "and then", "also make sure":
+        // convert them into clean bullet points if not already bulleted
+        if (!text.contains("\n-") && !text.contains("\n*")) {
+            val stepDelimiters = Regex("(?i)\\s+(and also|and then|and please|also make sure to|also make sure that|also)\\s+")
+            if (stepDelimiters.containsMatchIn(text)) {
+                val parts = text.split(stepDelimiters).map { it.trim().trimEnd(',', ';') }.filter { it.isNotBlank() }
+                if (parts.size > 1) {
+                    val header = parts.first().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                    val bullets = parts.drop(1).joinToString("\n") { step ->
+                        "- " + step.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                    }
+                    return "$header:\n$bullets"
+                }
+            }
+        }
+
+        // 3. Sentence capitalization
         return text.split("\n").joinToString("\n") { line ->
             line.trim().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
         }.trim()

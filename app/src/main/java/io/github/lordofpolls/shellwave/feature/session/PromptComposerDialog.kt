@@ -180,13 +180,16 @@ internal fun PromptComposerDialog(
     fun polish() {
         if (text.isBlank() || isPolishing) return
         isPolishing = true
-        statusMessage = "Polishing with Gemini Nano…"
+        statusMessage = "Refining prompt…"
         scope.launch {
             try {
-                text = PromptRefiner.refinePrompt(text)
+                val result = PromptRefiner.refinePrompt(text) { progress ->
+                    statusMessage = progress
+                }
+                text = result.text
+                statusMessage = result.statusNotice
             } finally {
                 isPolishing = false
-                statusMessage = null
             }
         }
     }
@@ -274,7 +277,7 @@ internal fun PromptComposerDialog(
                             }
                         },
                         label = {
-                            Text(if (isPolishing) "Refining…" else "✨ Nano Polish")
+                            Text(if (isPolishing) "Refining…" else "Nano Polish")
                         },
                     )
                 }
@@ -283,7 +286,11 @@ internal fun PromptComposerDialog(
                     Text(
                         text = it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = if (it.contains("unavailable") || it.contains("AICore")) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
                     )
                 }
 

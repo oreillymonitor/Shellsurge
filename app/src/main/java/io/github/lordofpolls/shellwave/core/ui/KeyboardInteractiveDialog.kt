@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -60,8 +61,9 @@ fun KeyboardInteractiveDialog(prompt: KeyboardInteractivePrompt, modifier: Modif
                     } else null,
                     visualTransformation = if (prompt.echo || passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
                         autoCorrectEnabled = false,
-                        keyboardType = if (prompt.echo || passwordVisible) KeyboardType.Text else KeyboardType.Password,
+                        keyboardType = if (prompt.echo) KeyboardType.Text else KeyboardType.Password,
                     ),
                 )
             }

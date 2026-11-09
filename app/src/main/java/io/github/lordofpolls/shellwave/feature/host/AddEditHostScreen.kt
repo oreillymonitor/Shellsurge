@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -856,6 +857,7 @@ fun AddEditHostScreen(
                             value = password,
                             onValueChange = { password = it },
                             label = { Text("Password") },
+                            singleLine = true,
                             trailingIcon = {
                                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                     Icon(
@@ -869,8 +871,9 @@ fun AddEditHostScreen(
                             } else null,
                             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
                                 autoCorrectEnabled = false,
-                                keyboardType = if (passwordVisible) KeyboardType.Text else KeyboardType.Password,
+                                keyboardType = KeyboardType.Password,
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -898,6 +901,7 @@ fun AddEditHostScreen(
                             value = importedPassphrase,
                             onValueChange = { importedPassphrase = it },
                             label = { Text("Passphrase (if encrypted)") },
+                            singleLine = true,
                             trailingIcon = {
                                 IconButton(onClick = { importedPassphraseVisible = !importedPassphraseVisible }) {
                                     Icon(
@@ -908,8 +912,9 @@ fun AddEditHostScreen(
                             },
                             visualTransformation = if (importedPassphraseVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
                                 autoCorrectEnabled = false,
-                                keyboardType = if (importedPassphraseVisible) KeyboardType.Text else KeyboardType.Password,
+                                keyboardType = KeyboardType.Password,
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()

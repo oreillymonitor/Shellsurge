@@ -28,6 +28,7 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -89,8 +90,9 @@ fun QuickConnectPasswordDialog(
                     },
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
                         autoCorrectEnabled = false,
-                        keyboardType = if (passwordVisible) KeyboardType.Text else KeyboardType.Password,
+                        keyboardType = KeyboardType.Password,
                     ),
                     singleLine = true,
                     // Without a declared content type a password manager sees an anonymous field

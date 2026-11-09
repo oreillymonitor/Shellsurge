@@ -21,10 +21,15 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -52,6 +57,7 @@ import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import io.github.lordofpolls.shellwave.core.crypto.CredentialType
@@ -261,9 +267,11 @@ fun AddEditHostScreen(
     var error by remember { mutableStateOf<String?>(null) }
 
     var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
 
     var importedPem by remember { mutableStateOf("") }
     var importedPassphrase by remember { mutableStateOf("") }
+    var importedPassphraseVisible by remember { mutableStateOf(false) }
     var parsedPublicKey by remember { mutableStateOf<String?>(null) }
     // The label only sets the comment, so it is applied here rather than re-parsing on every
     // keystroke in the Label field.
@@ -848,11 +856,22 @@ fun AddEditHostScreen(
                             value = password,
                             onValueChange = { password = it },
                             label = { Text("Password") },
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(
+                                        imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                    )
+                                }
+                            },
                             supportingText = if (existing != null && originalAuthKind == AuthKind.PASSWORD && storedSecretPresent) {
                                 { Text("Leave blank to keep the saved password") }
                             } else null,
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(
+                                autoCorrectEnabled = false,
+                                keyboardType = if (passwordVisible) KeyboardType.Text else KeyboardType.Password,
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .semantics { contentType = ContentType.Password },
@@ -879,7 +898,19 @@ fun AddEditHostScreen(
                             value = importedPassphrase,
                             onValueChange = { importedPassphrase = it },
                             label = { Text("Passphrase (if encrypted)") },
-                            visualTransformation = PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { importedPassphraseVisible = !importedPassphraseVisible }) {
+                                    Icon(
+                                        imageVector = if (importedPassphraseVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                        contentDescription = if (importedPassphraseVisible) "Hide passphrase" else "Show passphrase",
+                                    )
+                                }
+                            },
+                            visualTransformation = if (importedPassphraseVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(
+                                autoCorrectEnabled = false,
+                                keyboardType = if (importedPassphraseVisible) KeyboardType.Text else KeyboardType.Password,
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .semantics { contentType = ContentType.Password },

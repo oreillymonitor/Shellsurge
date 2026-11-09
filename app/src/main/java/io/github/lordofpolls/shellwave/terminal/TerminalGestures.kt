@@ -111,9 +111,10 @@ fun Modifier.terminalGestures(
                 }
                 if (change1.positionChange() != Offset.Zero) {
                     val travelled = distanceBetween(down.position, change1.position)
-                    lastPos1 = change1.position
                     if (travelled > TOUCH_SLOP_PX) {
                         mode = GestureMode.DRAG
+                        onDrag(change1.position.y - down.position.y)
+                        lastPos1 = change1.position
                         change1.consume()
                     }
                 }

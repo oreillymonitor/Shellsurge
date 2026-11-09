@@ -93,6 +93,7 @@ import io.github.lordofpolls.shellwave.terminal.rememberTerminalSelectionState
 import io.github.lordofpolls.shellwave.terminal.resolveTerminalTypeface
 import io.github.lordofpolls.shellwave.terminal.selectionHighlightColor
 import io.github.lordofpolls.shellwave.terminal.dragRows
+import io.github.lordofpolls.shellwave.terminal.TerminalScrollbar
 import io.github.lordofpolls.shellwave.terminal.terminalGestures
 import io.github.lordofpolls.shellwave.terminal.wheelButton
 import io.github.lordofpolls.shellwave.ui.design.EmptyState
@@ -877,6 +878,22 @@ internal fun SessionTabBody(
                     )
                 }
             }
+            // Interactive scrollbar for fast scrubbing through scrollback history
+            terminalEmulator?.let { emulator ->
+                val maxScrollback = emulator.screen.activeTranscriptRows
+                if (maxScrollback > 0) {
+                    TerminalScrollbar(
+                        topRow = topRow,
+                        maxScrollback = maxScrollback,
+                        screenRows = emulator.mRows,
+                        onScrollToRow = { newRow -> topRow = newRow },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(bottom = if (topRow < 0) 56.dp else 8.dp, top = 8.dp),
+                    )
+                }
+            }
+
             // A sibling of the gesture-bearing Box, not a descendant of it - terminalGestures
             // consumes every down on the Initial pass, which would otherwise swallow the tap.
             if (topRow < 0) {
@@ -885,7 +902,7 @@ internal fun SessionTabBody(
                     onClick = { topRow = 0 },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(12.dp),
+                        .padding(end = 24.dp, bottom = 12.dp),
                 )
             }
             if (showLayoutToggle) {

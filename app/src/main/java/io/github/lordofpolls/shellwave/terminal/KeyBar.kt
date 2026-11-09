@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.outlined.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.outlined.KeyboardHide
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -86,6 +87,7 @@ fun KeyBar(
     keyboardVisible: Boolean = false,
     onKeyboardToggle: () -> Unit = {},
     onOpenPromptComposer: (() -> Unit)? = null,
+    onOpenQuickResponse: (() -> Unit)? = null,
     keys: List<KeyBarKey> = DEFAULT_KEY_BAR_KEYS,
     rows: Int = 1,
     modifier: Modifier = Modifier,
@@ -161,6 +163,9 @@ fun KeyBar(
             }
         }
         if (hasCluster) CursorCluster(onSpecialKey = onSpecialKey)
+        if (onOpenQuickResponse != null) {
+            AgentQuickResponseKey(onClick = onOpenQuickResponse)
+        }
         if (onOpenPromptComposer != null) {
             PromptComposerKey(onClick = onOpenPromptComposer)
         }
@@ -192,6 +197,29 @@ private fun PromptComposerKey(onClick: () -> Unit) {
     ) {
         Icon(
             imageVector = Icons.Outlined.EditNote,
+            contentDescription = null,
+            modifier = Modifier.size(KeyIconSize),
+        )
+    }
+}
+
+/**
+ * Opens the Quick Response menu for immediate 1-tap interaction with AI coding agents.
+ */
+@Composable
+private fun AgentQuickResponseKey(onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier =
+            Modifier
+                .size(ClusterKeySize)
+                .semantics {
+                    contentDescription = "Open agent quick response menu"
+                },
+        contentPadding = PaddingValues(0.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.SmartToy,
             contentDescription = null,
             modifier = Modifier.size(KeyIconSize),
         )

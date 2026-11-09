@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.AlertDialog
@@ -35,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -60,13 +63,15 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun PromptComposerDialog(
+    initialText: String = "",
     onSend: (prompt: String, sendEnter: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
-    var text by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf(initialText) }
     var sendEnter by remember { mutableStateOf(true) }
     var isListening by remember { mutableStateOf(false) }
     var isPolishing by remember { mutableStateOf(false) }
@@ -204,6 +209,15 @@ internal fun PromptComposerDialog(
         "/learn",
     )
 
+    val aiTemplates = listOf(
+        "Fix errors" to "Please review the errors above and fix them.",
+        "Proceed" to "Looks good, please proceed.",
+        "Explain" to "Please explain this code and your approach in detail.",
+        "Run tests" to "Please run unit tests to verify the changes.",
+        "Add comments" to "Please add clear comments explaining the logic.",
+        "Refactor" to "Please refactor this for clarity and performance.",
+    )
+
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
@@ -235,27 +249,51 @@ internal fun PromptComposerDialog(
                         .heightIn(min = 130.dp, max = 240.dp),
                 )
 
-                // Voice dictation & Gemini Nano polish controls
+                // Voice dictation, paste clip & Gemini Nano polish controls
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    FilledTonalIconButton(
-                        onClick = { toggleVoice() },
-                        colors = if (isListening) {
-                            IconButtonDefaults.filledTonalIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                        } else {
-                            IconButtonDefaults.filledTonalIconButtonColors()
-                        },
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            imageVector = if (isListening) Icons.Filled.Mic else Icons.Outlined.Mic,
-                            contentDescription = if (isListening) "Stop voice input" else "Start voice input",
-                        )
+                        FilledTonalIconButton(
+                            onClick = { toggleVoice() },
+                            colors = if (isListening) {
+                                IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            } else {
+                                IconButtonDefaults.filledTonalIconButtonColors()
+                            },
+                        ) {
+                            Icon(
+                                imageVector = if (isListening) Icons.Filled.Mic else Icons.Outlined.Mic,
+                                contentDescription = if (isListening) "Stop voice input" else "Start voice input",
+                            )
+                        }
+
+                        if (clipboardManager.hasText()) {
+                            AssistChip(
+                                onClick = {
+                                    val clip = clipboardManager.getText()?.text ?: ""
+                                    if (clip.isNotBlank()) {
+                                        text = if (text.isBlank()) clip else "$text\n$clip"
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Outlined.ContentPaste,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                },
+                                label = { Text("Paste") },
+                            )
+                        }
                     }
 
                     AssistChip(
@@ -292,6 +330,27 @@ internal fun PromptComposerDialog(
                             MaterialTheme.colorScheme.primary
                         },
                     )
+                }
+
+                // Vibe prompt template chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    aiTemplates.forEach { (label, templateText) ->
+                        SuggestionChip(
+                            onClick = {
+                                text = if (text.isBlank()) {
+                                    templateText
+                                } else {
+                                    "$text\n$templateText"
+                                }
+                            },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
                 }
 
                 // Quick insertion chips for AI CLI workflows

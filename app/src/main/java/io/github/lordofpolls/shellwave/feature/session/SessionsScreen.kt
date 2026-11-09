@@ -220,6 +220,8 @@ fun SessionsScreen(
         // Hoisted above the rail, whose overflow opens it.
         var scriptPickerOpen by remember(current?.id) { mutableStateOf(false) }
         var promptComposerOpen by remember(current?.id) { mutableStateOf(false) }
+        var composerInitialText by remember(current?.id) { mutableStateOf("") }
+        var quickResponseOpen by remember(current?.id) { mutableStateOf(false) }
 
         // A capture script pinned to another host is left out: "run it here" and "run it on that
         // other machine" are opposite instructions, and honouring the script's own target would run
@@ -271,7 +273,11 @@ fun SessionsScreen(
                     onRunScript = if (runnableHere.isEmpty()) null else ({
                         scriptPickerOpen = true
                     }),
-                    onPromptComposer = { promptComposerOpen = true },
+                    onPromptComposer = {
+                        composerInitialText = ""
+                        promptComposerOpen = true
+                    },
+                    onAgentQuickResponse = { quickResponseOpen = true },
                     onClose = current?.let { { sessionManager.closeSession(it.id) } },
                     onSearch = searchController::show,
                     isLogging = isLogging,
@@ -310,8 +316,35 @@ fun SessionsScreen(
             )
         }
 
+        if (quickResponseOpen && current != null) {
+            AgentQuickResponseSheet(
+                onSendText = { text, sendEnter ->
+                    val conn = current.connection
+                    val emulator = conn.emulatorOrNull
+                    if (emulator != null && text.isNotEmpty()) {
+                        emulator.paste(text)
+                    } else if (text.isNotEmpty()) {
+                        conn.write(text.replace("\n", "\r"))
+                    }
+                    if (sendEnter) {
+                        conn.write("\r")
+                    }
+                },
+                onSendRawBytes = { bytes ->
+                    current.connection.write(bytes)
+                },
+                onOpenComposerWithText = { initialText ->
+                    quickResponseOpen = false
+                    composerInitialText = initialText
+                    promptComposerOpen = true
+                },
+                onDismiss = { quickResponseOpen = false },
+            )
+        }
+
         if (promptComposerOpen && current != null) {
             PromptComposerDialog(
+                initialText = composerInitialText,
                 onSend = { prompt, enter ->
                     val conn = current.connection
                     val emulator = conn.emulatorOrNull
@@ -324,7 +357,10 @@ fun SessionsScreen(
                         conn.write("\r")
                     }
                 },
-                onDismiss = { promptComposerOpen = false },
+                onDismiss = {
+                    promptComposerOpen = false
+                    composerInitialText = ""
+                },
             )
         }
 
@@ -430,6 +466,8 @@ internal fun SessionTabBody(
     var altLatched by remember { mutableStateOf(false) }
     val keyboardEnhancedInput by rememberPrefState { TerminalInputPreferences.getKeyboardEnhancedInput(it) }
     var tabPromptComposerOpen by remember { mutableStateOf(false) }
+    var tabComposerInitialText by remember { mutableStateOf("") }
+    var tabQuickResponseOpen by remember { mutableStateOf(false) }
 
     // topRow <= 0 is how far into the scrollback the view is; scrollDragRemainderPx carries a
     // drag's sub-cell remainder between events, so slow swipes accumulate to a full row instead of
@@ -888,14 +926,47 @@ internal fun SessionTabBody(
                     keyboardController?.show()
                 }
             },
-            onOpenPromptComposer = { tabPromptComposerOpen = true },
+            onOpenPromptComposer = {
+                tabComposerInitialText = ""
+                tabPromptComposerOpen = true
+            },
+            onOpenQuickResponse = { tabQuickResponseOpen = true },
             keys = keyBarKeys,
             rows = keyBarRows,
             modifier = Modifier.imePadding(),
         )
 
+        if (tabQuickResponseOpen) {
+            AgentQuickResponseSheet(
+                onSendText = { text, sendEnter ->
+                    val emulator = terminalEmulator
+                    if (emulator != null && text.isNotEmpty()) {
+                        emulator.paste(text)
+                    } else if (text.isNotEmpty()) {
+                        summary.connection.write(text.replace("\n", "\r"))
+                    }
+                    if (sendEnter) {
+                        summary.connection.write("\r")
+                    }
+                },
+                onSendRawBytes = { bytes ->
+                    summary.connection.write(bytes)
+                },
+                onOpenComposerWithText = { initialText ->
+                    tabQuickResponseOpen = false
+                    tabComposerInitialText = initialText
+                    tabPromptComposerOpen = true
+                },
+                onDismiss = {
+                    tabQuickResponseOpen = false
+                    focusRequester.requestFocus()
+                },
+            )
+        }
+
         if (tabPromptComposerOpen) {
             PromptComposerDialog(
+                initialText = tabComposerInitialText,
                 onSend = { prompt, enter ->
                     val emulator = terminalEmulator
                     if (emulator != null) {
@@ -909,6 +980,7 @@ internal fun SessionTabBody(
                 },
                 onDismiss = {
                     tabPromptComposerOpen = false
+                    tabComposerInitialText = ""
                     focusRequester.requestFocus()
                 },
             )

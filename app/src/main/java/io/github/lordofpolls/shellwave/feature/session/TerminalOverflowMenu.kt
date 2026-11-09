@@ -13,6 +13,7 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.DropdownMenu
@@ -55,6 +56,7 @@ internal fun TerminalOverflowMenu(
     onBrowseFiles: (SshConnection) -> Unit,
     onRunScript: (() -> Unit)?,
     onPromptComposer: (() -> Unit)? = null,
+    onAgentQuickResponse: (() -> Unit)? = null,
     onClose: (() -> Unit)?,
     onSearch: () -> Unit,
     isLogging: Boolean,
@@ -135,6 +137,21 @@ internal fun TerminalOverflowMenu(
                             onClick = {
                                 expanded = false
                                 onRunScript()
+                            },
+                        )
+                    }
+                    if (onAgentQuickResponse != null) {
+                        DropdownMenuItem(
+                            text = { Text("Agent quick response…") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.SmartToy,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onAgentQuickResponse()
                             },
                         )
                     }

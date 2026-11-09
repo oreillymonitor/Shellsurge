@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.KeyboardDoubleArrowDown
@@ -90,6 +91,7 @@ fun KeyBar(
     onKeyboardToggle: () -> Unit = {},
     onOpenPromptComposer: (() -> Unit)? = null,
     onOpenQuickResponse: (() -> Unit)? = null,
+    onOpenDigest: (() -> Unit)? = null,
     keys: List<KeyBarKey> = DEFAULT_KEY_BAR_KEYS,
     rows: Int = 1,
     modifier: Modifier = Modifier,
@@ -140,7 +142,7 @@ fun KeyBar(
         }
 
     // A cluster or stacked AI controls make the strip two rows tall, so a second row of flat keys is free.
-    val hasTwoRowPinned = hasCluster || (onOpenQuickResponse != null || onOpenPromptComposer != null)
+    val hasTwoRowPinned = hasCluster || (onOpenQuickResponse != null || onOpenPromptComposer != null || onOpenDigest != null)
     val freeSecondRow = hasTwoRowPinned && buttons.size >= MIN_BUTTONS_FOR_FREE_SECOND_ROW
     val rowCount = maxOf(rows.coerceIn(1, MAX_KEY_BAR_ROWS), if (freeSecondRow) 2 else 1)
     // Ceiling division puts the longer row first: the bar grows away from the terminal.
@@ -174,14 +176,18 @@ fun KeyBar(
         }
         if (hasCluster) CursorCluster(onSpecialKey = onSpecialKey)
 
-        // Pinned controls at the right edge: Prompt Composer and Robot sit above the regular keyboard icon.
+        // Pinned controls at the right edge: Digest, Prompt Composer, and Robot sit above the regular keyboard icon.
         Column(
             verticalArrangement = Arrangement.spacedBy(KeyGap),
             horizontalAlignment = Alignment.End,
         ) {
-            val hasAiControls = onOpenQuickResponse != null || onOpenPromptComposer != null
+            val aiCount = listOfNotNull(onOpenDigest, onOpenPromptComposer, onOpenQuickResponse).size
+            val hasAiControls = aiCount > 0
             if (hasAiControls) {
                 Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
+                    if (onOpenDigest != null) {
+                        AgentDigestKey(onClick = onOpenDigest)
+                    }
                     if (onOpenPromptComposer != null) {
                         PromptComposerKey(onClick = onOpenPromptComposer)
                     }
@@ -190,12 +196,11 @@ fun KeyBar(
                     }
                 }
             }
-            val bothAiPresent = onOpenQuickResponse != null && onOpenPromptComposer != null
             KeyboardKey(
                 visible = keyboardVisible,
                 onClick = onKeyboardToggle,
-                modifier = if (bothAiPresent) {
-                    Modifier.width(ClusterKeySize * 2 + KeyGap).height(ClusterKeySize)
+                modifier = if (aiCount > 1) {
+                    Modifier.width(ClusterKeySize * aiCount + KeyGap * (aiCount - 1)).height(ClusterKeySize)
                 } else {
                     Modifier.size(ClusterKeySize)
                 },
@@ -210,6 +215,29 @@ fun KeyBar(
  * for two of it, so in practice this only holds back a layout stripped down to one or two keys.
  */
 private const val MIN_BUTTONS_FOR_FREE_SECOND_ROW = 4
+
+/**
+ * Triggers the on-device Gemini Nano terminal output digest.
+ */
+@Composable
+private fun AgentDigestKey(onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier =
+            Modifier
+                .size(ClusterKeySize)
+                .semantics {
+                    contentDescription = "Summarize terminal output"
+                },
+        contentPadding = PaddingValues(0.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.AutoAwesome,
+            contentDescription = null,
+            modifier = Modifier.size(KeyIconSize),
+        )
+    }
+}
 
 /**
  * Opens the multi-line Prompt Composer dialog for drafting complex AI commands or dictating prompts.

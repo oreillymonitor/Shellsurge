@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
@@ -74,6 +75,7 @@ internal fun AgentQuickResponseSheet(
     onSendText: (text: String, sendEnter: Boolean) -> Unit,
     onSendRaw: (control: String) -> Unit,
     onOpenComposerWithText: (initialText: String) -> Unit,
+    onSummarize: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
@@ -151,6 +153,46 @@ internal fun AgentQuickResponseSheet(
                     },
                     label = { Text("Composer") },
                 )
+            }
+
+            if (onSummarize != null) {
+                Card(
+                    onClick = {
+                        execute { onSummarize() }
+                    },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(24.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Summarize Terminal & Listen",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            Text(
+                                text = "On-device digest, read aloud & voice response",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                            )
+                        }
+                    }
+                }
             }
 
             // Section 0: Launch Coding Agent CLI

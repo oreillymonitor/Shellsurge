@@ -104,6 +104,7 @@ import io.github.lordofpolls.shellwave.terminal.resolveTerminalTypeface
 import io.github.lordofpolls.shellwave.terminal.selectionHighlightColor
 import io.github.lordofpolls.shellwave.terminal.dragRows
 import io.github.lordofpolls.shellwave.terminal.TerminalScrollbar
+import io.github.lordofpolls.shellwave.terminal.TerminalTextSanitizer
 import io.github.lordofpolls.shellwave.terminal.terminalGestures
 import io.github.lordofpolls.shellwave.terminal.wheelButton
 import io.github.lordofpolls.shellwave.ui.design.EmptyState
@@ -464,14 +465,51 @@ internal fun SessionTabBody(
     val keyBarKeys = overrideLayout?.let { decodeKeyBarKeys(it.keysJson) } ?: DEFAULT_KEY_BAR_KEYS
     // From the same per-host layout override the keys come from. No override means one row.
     val keyBarRows = overrideLayout?.rows ?: 1
-    val fontContext = LocalContext.current
+    val localContext = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val terminalTypeface =
         remember(fontFamily, profileOrDefault.customFontUri) {
-            resolveTerminalTypeface(fontContext, fontFamily, profileOrDefault.customFontUri)
+            resolveTerminalTypeface(localContext, fontFamily, profileOrDefault.customFontUri)
         }
     val lineHeightMultiplier = profileOrDefault.lineHeightMultiplier
 
+    var isVoiceListening by remember { mutableStateOf(false) }
+    var activeDigest by remember { mutableStateOf<AgentDigestResult?>(null) }
+
     var terminalEmulator by remember { mutableStateOf<TerminalEmulator?>(null) }
+
+    val voiceEngine = remember {
+        AgentVoiceEngine(
+            context = localContext,
+            onListeningStateChange = { listening -> isVoiceListening = listening },
+            onSpeechRecognized = { recognizedText ->
+                val emulator = terminalEmulator
+                if (emulator != null) {
+                    emulator.paste(recognizedText)
+                } else {
+                    summary.connection.write(recognizedText)
+                }
+                summary.connection.write("\r")
+                activeDigest = null
+            },
+        )
+    }
+
+    DisposableEffect(voiceEngine) {
+        onDispose { voiceEngine.release() }
+    }
+
+    fun triggerDigest(speakImmediately: Boolean = false) {
+        val emulator = terminalEmulator ?: return
+        val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 100)
+        coroutineScope.launch {
+            val result = AgentDigestModel.analyzeTerminalTail(tail)
+            activeDigest = result
+            if (speakImmediately) {
+                voiceEngine.speakAndListen(result.spokenSummary)
+            }
+        }
+    }
     var measuredSize by remember { mutableStateOf<TerminalSize?>(null) }
     var ctrlLatched by remember { mutableStateOf(false) }
     var altLatched by remember { mutableStateOf(false) }
@@ -566,6 +604,26 @@ internal fun SessionTabBody(
             screenText =
                 emulator?.screen?.getSelectedText(0, 0, emulator.mColumns, emulator.mRows)
                     ?.trimEnd() ?: ""
+        }
+    }
+
+    // Ambient AI question prompt detection (e.g. [y/N], (y/n))
+    LaunchedEffect(summary.connection) {
+        summary.connection.outputTick.sample(1000).collect {
+            val emulator = terminalEmulator ?: return@collect
+            val screen = emulator.screen ?: return@collect
+            if (activeDigest != null) return@collect
+            val lastRow = screen.screenRows - 1
+            val startRow = (lastRow - 2).coerceAtLeast(0)
+            val recentText = runCatching {
+                screen.getSelectedText(0, startRow, screen.columns, lastRow, true, true)
+            }.getOrNull() ?: ""
+            val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
+            if (yesNoRegex.containsMatchIn(recentText)) {
+                val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 60)
+                val result = AgentDigestModel.analyzeTerminalTail(tail)
+                activeDigest = result
+            }
         }
     }
 
@@ -746,8 +804,6 @@ internal fun SessionTabBody(
             sendWheelLines(notches, col, row)
         }
     }
-
-    val localContext = LocalContext.current
 
     fun shareSelection(text: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -1031,6 +1087,39 @@ internal fun SessionTabBody(
         if (preKeyBarGap > 0.dp) Spacer(modifier = Modifier
             .fillMaxWidth()
             .height(preKeyBarGap))
+
+        activeDigest?.let { digest ->
+            AgentDigestCapsule(
+                digest = digest,
+                isListening = isVoiceListening,
+                onListenClick = {
+                    voiceEngine.speakAndListen(digest.spokenSummary)
+                },
+                onMicClick = {
+                    if (isVoiceListening) {
+                        voiceEngine.stopListening()
+                    } else {
+                        voiceEngine.startListeningWindow()
+                    }
+                },
+                onActionClick = { actionText ->
+                    val emulator = terminalEmulator
+                    if (emulator != null) {
+                        emulator.paste(actionText)
+                    } else {
+                        summary.connection.write(actionText)
+                    }
+                    summary.connection.write("\r")
+                    activeDigest = null
+                    voiceEngine.stopListening()
+                },
+                onDismiss = {
+                    activeDigest = null
+                    voiceEngine.stopListening()
+                },
+            )
+        }
+
         // `imePadding()` belongs here, on the key bar alone, never on the outer Column. With it on
         // the Column - whose other child is a `weight(1f)` Box - each frame of the IME-hide
         // animation recomputes the remaining-space split from a bottom padding that is itself still
@@ -1061,6 +1150,7 @@ internal fun SessionTabBody(
                 tabPromptComposerOpen = true
             },
             onOpenQuickResponse = { tabQuickResponseOpen = true },
+            onOpenDigest = { triggerDigest(speakImmediately = false) },
             keys = keyBarKeys,
             rows = keyBarRows,
             modifier = Modifier.imePadding(),
@@ -1086,6 +1176,9 @@ internal fun SessionTabBody(
                     tabQuickResponseOpen = false
                     tabComposerInitialText = initialText
                     tabPromptComposerOpen = true
+                },
+                onSummarize = {
+                    triggerDigest(speakImmediately = true)
                 },
                 onDismiss = {
                     tabQuickResponseOpen = false

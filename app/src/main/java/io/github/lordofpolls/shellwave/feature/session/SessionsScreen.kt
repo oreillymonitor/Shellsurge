@@ -3,6 +3,11 @@ package io.github.lordofpolls.shellwave.feature.session
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.LocalActivity
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +55,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -482,6 +488,9 @@ internal fun SessionTabBody(
     // rounding to zero every frame.
     var topRow by remember { mutableStateOf(0) }
     var scrollDragRemainderPx by remember { mutableStateOf(0f) }
+    var transcriptRows by remember(sessionId) {
+        mutableIntStateOf(summary.connection.emulatorOrNull?.screen?.activeTranscriptRows ?: 0)
+    }
 
     var searchQuery by remember(sessionId) { mutableStateOf("") }
     var searchMatches by remember(sessionId) { mutableStateOf(emptyList<TerminalMatch>()) }
@@ -572,6 +581,7 @@ internal fun SessionTabBody(
             // scroll.
             val emulator = terminalEmulator
             if (emulator != null) {
+                transcriptRows = emulator.screen.activeTranscriptRows
                 val scrolled = emulator.scrollCounter
                 if (scrolled != 0) {
                     if (topRow < 0) {
@@ -589,11 +599,14 @@ internal fun SessionTabBody(
 
     LaunchedEffect(summary.connection, summary.status) {
         if (summary.status == SessionStatus.CONNECTED) {
-            terminalEmulator = summary.connection.emulatorOrNull
+            val emulator = summary.connection.emulatorOrNull
+            terminalEmulator = emulator
+            transcriptRows = emulator?.screen?.activeTranscriptRows ?: 0
             redrawRequests.trySend(Unit)
         } else if (summary.status == SessionStatus.CONNECTING) {
             // Fresh connection and emulator: drop the old buffer and anything pointing into it.
             terminalEmulator = null
+            transcriptRows = 0
             topRow = 0
             selectionState.clear()
         }
@@ -773,6 +786,7 @@ internal fun SessionTabBody(
                         onDrag = { dy ->
                             val cellHeightPx = measuredSize?.cellHeightPx ?: return@terminalGestures
                             val maxScrollback = terminalEmulator?.screen?.activeTranscriptRows ?: 0
+                            transcriptRows = maxScrollback
                             val (rows, remainder) = dragRows(scrollDragRemainderPx + dy, cellHeightPx)
                             scrollDragRemainderPx = remainder
                             if (rows != 0) topRow = (topRow - rows).coerceIn(-maxScrollback, 0)
@@ -821,6 +835,7 @@ internal fun SessionTabBody(
                         },
                         onMouseClick = ::sendMouseClick,
                         onMouseWheel = ::sendMouseWheel,
+                        excludeRightEdgePx = with(LocalDensity.current) { 48.dp.toPx() },
                     ),
             ) {
                 TerminalCanvas(
@@ -886,12 +901,12 @@ internal fun SessionTabBody(
                 }
             }
             // Interactive scrollbar for fast scrubbing through scrollback history
-            terminalEmulator?.let { emulator ->
-                val maxScrollback = emulator.screen.activeTranscriptRows
-                if (maxScrollback > 0) {
+            val scrollbackRows = transcriptRows
+            if (scrollbackRows > 0) {
+                terminalEmulator?.let { emulator ->
                     TerminalScrollbar(
                         topRow = topRow,
-                        maxScrollback = maxScrollback,
+                        maxScrollback = scrollbackRows,
                         screenRows = emulator.mRows,
                         onScrollToRow = { newRow -> topRow = newRow },
                         modifier = Modifier
@@ -901,23 +916,24 @@ internal fun SessionTabBody(
                 }
             }
 
-            // A sibling of the gesture-bearing Box, not a descendant of it - terminalGestures
-            // consumes every down on the Initial pass, which would otherwise swallow the tap.
-            if (topRow < 0) {
-                val emulator = terminalEmulator
-                val maxScrollback = emulator?.screen?.activeTranscriptRows ?: 0
+            // Scrollback position, line steppers, and jump-to-bottom pill: shown only while scrolled back.
+            AnimatedVisibility(
+                visible = topRow < 0,
+                enter = fadeIn() + slideInVertically { it / 2 },
+                exit = fadeOut() + slideOutVertically { it / 2 },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 56.dp, bottom = 12.dp),
+            ) {
                 ScrollbackStepperPill(
                     linesBack = -topRow,
                     onStepUp = {
-                        topRow = (topRow - 10).coerceIn(-maxScrollback, 0)
+                        topRow = (topRow - 10).coerceIn(-scrollbackRows, 0)
                     },
                     onStepDown = {
-                        topRow = (topRow + 10).coerceIn(-maxScrollback, 0)
+                        topRow = (topRow + 10).coerceIn(-scrollbackRows, 0)
                     },
                     onJumpToBottom = { topRow = 0 },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 24.dp, bottom = 12.dp),
                 )
             }
             if (showLayoutToggle) {

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -194,31 +195,33 @@ fun TerminalScrollbar(
                     contentDescription = "Terminal scrollbar scrubber"
                 },
         ) {
-            // Track background visible while scrubbing
-            if (isScrubbing) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 2.dp)
-                        .fillMaxHeight()
-                        .width(4.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                            shape = CircleShape,
-                        ),
-                )
-            }
+            // Subtle track background line along the edge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 4.dp)
+                    .fillMaxHeight()
+                    .width(3.dp)
+                    .background(
+                        color = if (isScrubbing) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                        },
+                        shape = CircleShape,
+                    ),
+            )
 
             // Animated thumb width and opacity
             val thumbWidth by animateDpAsState(
-                targetValue = if (isScrubbing) 8.dp else 5.dp,
+                targetValue = if (isScrubbing) 12.dp else 8.dp,
                 label = "thumbWidth",
             )
             val thumbAlpha by animateFloatAsState(
                 targetValue = when {
                     isScrubbing -> 1.0f
-                    topRow < 0 -> 0.75f
-                    else -> 0.35f
+                    topRow < 0 -> 0.95f
+                    else -> 0.70f
                 },
                 label = "thumbAlpha",
             )
@@ -226,7 +229,7 @@ fun TerminalScrollbar(
             val thumbColor = if (isScrubbing || topRow < 0) {
                 MaterialTheme.colorScheme.primary.copy(alpha = thumbAlpha)
             } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = thumbAlpha)
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = thumbAlpha)
             }
 
             // Scrollbar Thumb
@@ -241,7 +244,16 @@ fun TerminalScrollbar(
                     )
                     .background(
                         color = thumbColor,
-                        shape = CircleShape,
+                        shape = RoundedCornerShape(4.dp),
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = if (isScrubbing || topRow < 0) {
+                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)
+                        } else {
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                        },
+                        shape = RoundedCornerShape(4.dp),
                     ),
             )
         }

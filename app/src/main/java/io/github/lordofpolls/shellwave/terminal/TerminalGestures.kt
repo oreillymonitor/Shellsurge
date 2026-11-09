@@ -45,10 +45,15 @@ fun Modifier.terminalGestures(
     isMouseReportingActive: () -> Boolean = { false },
     onMouseClick: (Offset) -> Unit = {},
     onMouseWheel: (Offset, dy: Float) -> Unit = { _, _ -> },
+    excludeRightEdgePx: Float = 0f,
 ): Modifier =
-    pointerInput(Unit) {
+    pointerInput(excludeRightEdgePx) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (excludeRightEdgePx > 0f && down.position.x >= size.width - excludeRightEdgePx) {
+                // Let the dedicated scrollbar track handle edge touches without interference
+                return@awaitEachGesture
+            }
             down.consume()
             val pointer1 = down.id
             var pointer2: PointerId? = null

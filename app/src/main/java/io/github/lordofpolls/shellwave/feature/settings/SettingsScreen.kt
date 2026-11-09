@@ -244,9 +244,16 @@ fun SettingsScreen(
                 ConfigImportRow(onImport = onImportConfig)
             }
 
-            // 6. SUPPORT (when available)
-            if (supporterState != SupporterState.Unavailable) {
-                SettingsGroupCard(title = "Support", icon = Icons.Outlined.FavoriteBorder) {
+            // 6. SUPPORT
+            SettingsGroupCard(title = "Support", icon = Icons.Outlined.FavoriteBorder) {
+                SettingsRow(
+                    title = "GitHub",
+                    description = "https://github.com/oreillymonitor/Shellwave",
+                    chevron = true,
+                    onClick = { runCatching { uriHandler.openUri("https://github.com/oreillymonitor/Shellwave") } },
+                )
+                if (supporterState != SupporterState.Unavailable) {
+                    SettingsCardDivider()
                     SupporterRow(state = supporterState, onBecomeSupporter = onBecomeSupporter)
                 }
             }

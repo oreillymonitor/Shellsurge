@@ -12,6 +12,6 @@
          Values are the brand pairs from the icon concept board: paper/deep-lime on light,
          near-black-green/bright-lime on dark. Both pairs were picked for contrast against their
          own ground, so neither can be swapped independently of the other. -->
-    <color name="brand_icon_ground">#F4F7EF</color>
+    <color name="brand_icon_ground">#0D0D0D</color>
     <color name="brand_icon_mark">#4D7C0F</color>
 </resources>

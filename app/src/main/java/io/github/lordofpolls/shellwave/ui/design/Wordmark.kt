@@ -11,7 +11,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 
 private const val WORDMARK_PREFIX = "~/"
-private const val WORDMARK_SPOKEN = "Shellwave"
+private const val WORDMARK_SPOKEN = "ShellSurge"
 
 /**
  * `~/shellwave`, where the tilde is both home and a wave.

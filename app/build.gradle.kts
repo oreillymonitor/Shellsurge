@@ -79,8 +79,8 @@ android {
         applicationId = "io.github.lordofpolls.shellwave.fork"
         minSdk = 31
         targetSdk = 37
-        versionCode = 11000
-        versionName = "1.10.0"
+        versionCode = 11001
+        versionName = "1.10.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -98,6 +98,15 @@ android {
     }
 
     signingConfigs {
+        getByName("debug") {
+            val debugKeyFile = rootProject.file("keystore/debug.keystore")
+            if (debugKeyFile.exists()) {
+                storeFile = debugKeyFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         if (hasReleaseSigningConfig) {
             create("release") {
                 storeFile = File(releaseStoreFilePath!!)

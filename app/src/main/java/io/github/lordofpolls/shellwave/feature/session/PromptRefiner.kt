@@ -79,7 +79,7 @@ internal object PromptRefiner {
                                 onProgress("Gemini Nano ready. Generating…")
                             }
                             is DownloadStatus.DownloadFailed -> {
-                                Log.w(TAG, "Download failed: ${dStatus.exception}")
+                                Log.w(TAG, "Download failed: $dStatus")
                             }
                             else -> {}
                         }
@@ -118,6 +118,7 @@ internal object PromptRefiner {
                     FeatureStatus.DOWNLOADABLE -> "Gemini Nano download required in AICore."
                     FeatureStatus.UNAVAILABLE -> "Gemini Nano unavailable. Enable AICore in Developer Options."
                     null -> "AICore model service uninitialized on device."
+                    else -> "AICore status: $status"
                 }
                 Log.d(TAG, reason)
                 nanoNotice = reason

@@ -240,6 +240,9 @@ dependencies {
     // and Compose Material3's copy of the same CAM16/HCT solver is `internal`.
     implementation(libs.google.material)
 
+    // On-device Gemini Nano inference via Android AICore for Pixel 9 and supported devices
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta5")
+
     // play flavour only - see productFlavors above.
     "playImplementation"(libs.google.billing)
 

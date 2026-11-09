@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -130,8 +132,9 @@ fun KeyBar(
             }
         }
 
-    // A cluster has already made the strip two rows tall, so a second row of flat keys is free.
-    val freeSecondRow = hasCluster && buttons.size >= MIN_BUTTONS_FOR_FREE_SECOND_ROW
+    // A cluster or stacked AI controls make the strip two rows tall, so a second row of flat keys is free.
+    val hasTwoRowPinned = hasCluster || (onOpenQuickResponse != null || onOpenPromptComposer != null)
+    val freeSecondRow = hasTwoRowPinned && buttons.size >= MIN_BUTTONS_FOR_FREE_SECOND_ROW
     val rowCount = maxOf(rows.coerceIn(1, MAX_KEY_BAR_ROWS), if (freeSecondRow) 2 else 1)
     // Ceiling division puts the longer row first: the bar grows away from the terminal.
     val perRow = ((buttons.size + rowCount - 1) / rowCount).coerceAtLeast(1)
@@ -163,13 +166,34 @@ fun KeyBar(
             }
         }
         if (hasCluster) CursorCluster(onSpecialKey = onSpecialKey)
-        if (onOpenQuickResponse != null) {
-            AgentQuickResponseKey(onClick = onOpenQuickResponse)
+
+        // Pinned controls at the right edge: Prompt Composer and Robot sit above the regular keyboard icon.
+        Column(
+            verticalArrangement = Arrangement.spacedBy(KeyGap),
+            horizontalAlignment = Alignment.End,
+        ) {
+            val hasAiControls = onOpenQuickResponse != null || onOpenPromptComposer != null
+            if (hasAiControls) {
+                Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
+                    if (onOpenQuickResponse != null) {
+                        AgentQuickResponseKey(onClick = onOpenQuickResponse)
+                    }
+                    if (onOpenPromptComposer != null) {
+                        PromptComposerKey(onClick = onOpenPromptComposer)
+                    }
+                }
+            }
+            val bothAiPresent = onOpenQuickResponse != null && onOpenPromptComposer != null
+            KeyboardKey(
+                visible = keyboardVisible,
+                onClick = onKeyboardToggle,
+                modifier = if (bothAiPresent) {
+                    Modifier.width(ClusterKeySize * 2 + KeyGap).height(ClusterKeySize)
+                } else {
+                    Modifier.size(ClusterKeySize)
+                },
+            )
         }
-        if (onOpenPromptComposer != null) {
-            PromptComposerKey(onClick = onOpenPromptComposer)
-        }
-        KeyboardKey(visible = keyboardVisible, onClick = onKeyboardToggle)
     }
 }
 
@@ -241,17 +265,19 @@ private fun AgentQuickResponseKey(onClick: () -> Unit) {
  * it, since a screen reader gets no glyph to read.
  */
 @Composable
-private fun KeyboardKey(visible: Boolean, onClick: () -> Unit) {
+private fun KeyboardKey(
+    visible: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier.size(ClusterKeySize),
+) {
     FilledTonalButton(
         onClick = onClick,
         // Square at the cluster's size so the pinned right-hand edge of the bar reads as one block
         // of controls rather than as a key of an odd width that wandered out of the flow.
         modifier =
-            Modifier
-                .size(ClusterKeySize)
-                .semantics {
-                    contentDescription = if (visible) "Hide the keyboard" else "Show the keyboard"
-                },
+            modifier.semantics {
+                contentDescription = if (visible) "Hide the keyboard" else "Show the keyboard"
+            },
         contentPadding = PaddingValues(0.dp),
     ) {
         Icon(

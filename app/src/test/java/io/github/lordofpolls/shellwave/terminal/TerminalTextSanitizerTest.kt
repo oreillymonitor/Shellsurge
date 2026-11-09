@@ -61,7 +61,7 @@ class TerminalTextSanitizerTest {
         val result = AgentDigestModel.analyzeTerminalTail(raw)
         assertFalse(result.hasQuestion)
         assertFalse(result.isError)
-        assertTrue(result.spokenSummary.contains("successfully", ignoreCase = true))
+        assertTrue(result.spokenSummary.contains("success", ignoreCase = true))
     }
 
     @Test

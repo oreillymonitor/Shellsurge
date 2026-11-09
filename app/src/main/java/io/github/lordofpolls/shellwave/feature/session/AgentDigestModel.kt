@@ -209,7 +209,7 @@ internal object AgentDigestModel {
         }
         if (successLine != null) {
             return AgentDigestResult(
-                spokenSummary = "Agent completed task: $successLine",
+                spokenSummary = "Agent completed task successfully: $successLine",
                 hasQuestion = false,
                 isError = false,
                 usedAi = false,

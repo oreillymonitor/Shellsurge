@@ -68,8 +68,8 @@ fun TerminalInputCapture(
     onBackspace: (count: Int) -> Unit,
     accessibilityLabel: String,
     screenText: String,
-    enhancedInput: Boolean = true,
     modifier: Modifier = Modifier,
+    enhancedInput: Boolean = true,
 ) {
     val state = remember(resetKey) { TextFieldState(PLACEHOLDER, TextRange(1)) }
     val currentOnText by rememberUpdatedState(onText)

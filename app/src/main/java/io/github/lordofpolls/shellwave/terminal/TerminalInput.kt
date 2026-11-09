@@ -68,6 +68,7 @@ fun TerminalInputCapture(
     onBackspace: (count: Int) -> Unit,
     accessibilityLabel: String,
     screenText: String,
+    enhancedInput: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val state = remember(resetKey) { TextFieldState(PLACEHOLDER, TextRange(1)) }
@@ -110,12 +111,20 @@ fun TerminalInputCapture(
             textStyle = TextStyle(color = Color.Transparent),
             cursorBrush = SolidColor(Color.Transparent),
             keyboardOptions =
-                KeyboardOptions(
-                    autoCorrectEnabled = false,
-                    capitalization = KeyboardCapitalization.None,
-                    // Prevent keyboard from autocorrect/suggestions
-                    keyboardType = KeyboardType.PasswordVisible,
-                ),
+                if (enhancedInput) {
+                    KeyboardOptions(
+                        autoCorrectEnabled = true,
+                        capitalization = KeyboardCapitalization.None,
+                        keyboardType = KeyboardType.Text,
+                    )
+                } else {
+                    KeyboardOptions(
+                        autoCorrectEnabled = false,
+                        capitalization = KeyboardCapitalization.None,
+                        // Prevent keyboard from autocorrect/suggestions
+                        keyboardType = KeyboardType.PasswordVisible,
+                    )
+                },
         )
     }
 }

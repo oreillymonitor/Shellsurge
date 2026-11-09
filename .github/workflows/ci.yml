@@ -4,6 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -49,3 +50,13 @@ jobs:
 
       - name: Test and lint
         run: ./gradlew --no-daemon testFossDebugUnitTest lintFossDebug
+
+      - name: Build Debug APK
+        run: ./gradlew --no-daemon assembleFossDebug
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: shellwave-debug-apk
+          path: app/build/outputs/apk/foss/debug/*.apk
+          if-no-files-found: error

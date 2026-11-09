@@ -26,6 +26,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
 import io.github.lordofpolls.shellwave.core.prefs.BellMode
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SessionLayoutPreferences
+import io.github.lordofpolls.shellwave.core.prefs.TerminalInputPreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_COLOR_SCHEME
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_TERMINAL_PROFILE
@@ -52,6 +53,7 @@ fun TerminalSettingsScreen(
     val context = LocalContext.current
     val bellMode by rememberPrefState { BellPreferences.get(it) }
     val fullWidthTerminal by rememberPrefState { SessionLayoutPreferences.getFullWidthTerminal(it) }
+    val keyboardEnhancedInput by rememberPrefState { TerminalInputPreferences.getKeyboardEnhancedInput(it) }
 
     var profile by remember { mutableStateOf(DEFAULT_TERMINAL_PROFILE) }
     LaunchedEffect(Unit) {
@@ -102,6 +104,14 @@ fun TerminalSettingsScreen(
 
             SettingsSectionHeader("Colour scheme")
             ColorSchemeFields(scheme = scheme, onChange = ::saveScheme)
+
+            SettingsSectionHeader("Input")
+            SettingsSwitch(
+                title = "Keyboard suggestions & voice typing",
+                description = "Allow native keyboard autocorrect, predictive text, swipe typing, and speech-to-text voice dictation in the terminal. When disabled, the keyboard operates in password mode.",
+                checked = keyboardEnhancedInput,
+                onCheckedChange = { TerminalInputPreferences.setKeyboardEnhancedInput(context, it) },
+            )
 
             SettingsSectionHeader("Key bar")
             Text(

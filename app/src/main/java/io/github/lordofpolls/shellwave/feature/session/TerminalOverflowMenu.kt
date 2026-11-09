@@ -6,6 +6,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Notifications
@@ -53,6 +54,7 @@ internal fun TerminalOverflowMenu(
     onUpload: (SshConnection) -> Unit,
     onBrowseFiles: (SshConnection) -> Unit,
     onRunScript: (() -> Unit)?,
+    onPromptComposer: (() -> Unit)? = null,
     onClose: (() -> Unit)?,
     onSearch: () -> Unit,
     isLogging: Boolean,
@@ -133,6 +135,21 @@ internal fun TerminalOverflowMenu(
                             onClick = {
                                 expanded = false
                                 onRunScript()
+                            },
+                        )
+                    }
+                    if (onPromptComposer != null) {
+                        DropdownMenuItem(
+                            text = { Text("Compose prompt…") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.EditNote,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onPromptComposer()
                             },
                         )
                     }

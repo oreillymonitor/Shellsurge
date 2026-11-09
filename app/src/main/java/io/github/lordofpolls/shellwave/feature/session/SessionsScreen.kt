@@ -62,6 +62,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.ScriptEntity
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SessionLayoutPreferences
+import io.github.lordofpolls.shellwave.core.prefs.TerminalInputPreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.core.ui.FoldPosture
 import io.github.lordofpolls.shellwave.core.ui.rememberFoldPosture
@@ -218,6 +219,7 @@ fun SessionsScreen(
 
         // Hoisted above the rail, whose overflow opens it.
         var scriptPickerOpen by remember(current?.id) { mutableStateOf(false) }
+        var promptComposerOpen by remember(current?.id) { mutableStateOf(false) }
 
         // A capture script pinned to another host is left out: "run it here" and "run it on that
         // other machine" are opposite instructions, and honouring the script's own target would run
@@ -269,6 +271,7 @@ fun SessionsScreen(
                     onRunScript = if (runnableHere.isEmpty()) null else ({
                         scriptPickerOpen = true
                     }),
+                    onPromptComposer = { promptComposerOpen = true },
                     onClose = current?.let { { sessionManager.closeSession(it.id) } },
                     onSearch = searchController::show,
                     isLogging = isLogging,
@@ -304,6 +307,24 @@ fun SessionsScreen(
                     onRunScript(script, current.connection)
                 },
                 onDismiss = { scriptPickerOpen = false },
+            )
+        }
+
+        if (promptComposerOpen && current != null) {
+            PromptComposerDialog(
+                onSend = { prompt, enter ->
+                    val conn = current.connection
+                    val emulator = conn.emulatorOrNull
+                    if (emulator != null) {
+                        emulator.paste(prompt)
+                    } else {
+                        conn.write(prompt.replace("\n", "\r"))
+                    }
+                    if (enter) {
+                        conn.write("\r")
+                    }
+                },
+                onDismiss = { promptComposerOpen = false },
             )
         }
 
@@ -407,6 +428,8 @@ internal fun SessionTabBody(
     var measuredSize by remember { mutableStateOf<TerminalSize?>(null) }
     var ctrlLatched by remember { mutableStateOf(false) }
     var altLatched by remember { mutableStateOf(false) }
+    val keyboardEnhancedInput by rememberPrefState { TerminalInputPreferences.getKeyboardEnhancedInput(it) }
+    var tabPromptComposerOpen by remember { mutableStateOf(false) }
 
     // topRow <= 0 is how far into the scrollback the view is; scrollDragRemainderPx carries a
     // drag's sub-cell remainder between events, so slow swipes accumulate to a full row instead of
@@ -784,6 +807,7 @@ internal fun SessionTabBody(
                     // agree.
                     accessibilityLabel = "Terminal, ${summary.label}",
                     screenText = screenText,
+                    enhancedInput = keyboardEnhancedInput,
                     modifier = Modifier.matchParentSize(),
                 )
                 TerminalSelectionOverlay(
@@ -864,10 +888,31 @@ internal fun SessionTabBody(
                     keyboardController?.show()
                 }
             },
+            onOpenPromptComposer = { tabPromptComposerOpen = true },
             keys = keyBarKeys,
             rows = keyBarRows,
             modifier = Modifier.imePadding(),
         )
+
+        if (tabPromptComposerOpen) {
+            PromptComposerDialog(
+                onSend = { prompt, enter ->
+                    val emulator = terminalEmulator
+                    if (emulator != null) {
+                        emulator.paste(prompt)
+                    } else {
+                        summary.connection.write(prompt.replace("\n", "\r"))
+                    }
+                    if (enter) {
+                        summary.connection.write("\r")
+                    }
+                },
+                onDismiss = {
+                    tabPromptComposerOpen = false
+                    focusRequester.requestFocus()
+                },
+            )
+        }
     }
 
     LaunchedEffect(sessionId) { focusRequester.requestFocus() }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.outlined.KeyboardDoubleArrowUp
@@ -84,6 +85,7 @@ fun KeyBar(
     onMacro: (text: String) -> Unit,
     keyboardVisible: Boolean = false,
     onKeyboardToggle: () -> Unit = {},
+    onOpenPromptComposer: (() -> Unit)? = null,
     keys: List<KeyBarKey> = DEFAULT_KEY_BAR_KEYS,
     rows: Int = 1,
     modifier: Modifier = Modifier,
@@ -159,6 +161,9 @@ fun KeyBar(
             }
         }
         if (hasCluster) CursorCluster(onSpecialKey = onSpecialKey)
+        if (onOpenPromptComposer != null) {
+            PromptComposerKey(onClick = onOpenPromptComposer)
+        }
         KeyboardKey(visible = keyboardVisible, onClick = onKeyboardToggle)
     }
 }
@@ -169,6 +174,29 @@ fun KeyBar(
  * for two of it, so in practice this only holds back a layout stripped down to one or two keys.
  */
 private const val MIN_BUTTONS_FOR_FREE_SECOND_ROW = 4
+
+/**
+ * Opens the multi-line Prompt Composer dialog for drafting complex AI commands or dictating prompts.
+ */
+@Composable
+private fun PromptComposerKey(onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier =
+            Modifier
+                .size(ClusterKeySize)
+                .semantics {
+                    contentDescription = "Compose prompt for AI agent"
+                },
+        contentPadding = PaddingValues(0.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.EditNote,
+            contentDescription = null,
+            modifier = Modifier.size(KeyIconSize),
+        )
+    }
+}
 
 /**
  * Shows the soft keyboard, or hides it when it is already up.

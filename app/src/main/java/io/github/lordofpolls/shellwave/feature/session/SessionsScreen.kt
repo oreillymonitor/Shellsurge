@@ -1084,8 +1084,7 @@ private fun ScrollbackStepperPill(
             ) {
                 MachineText(
                     "$linesBack ↓",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                 )
             }
         }

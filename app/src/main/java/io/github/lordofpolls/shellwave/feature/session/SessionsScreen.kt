@@ -2,6 +2,7 @@ package io.github.lordofpolls.shellwave.feature.session
 
 import android.content.Intent
 import android.net.Uri
+import android.view.KeyEvent
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement

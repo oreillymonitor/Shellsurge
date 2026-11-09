@@ -176,35 +176,34 @@ fun KeyBar(
         }
         if (hasCluster) CursorCluster(onSpecialKey = onSpecialKey)
 
-        // Pinned controls at the right edge: Digest, Prompt Composer, and Robot sit above the regular keyboard icon.
+        // Pinned controls at the right edge: 2x2 grid of circular controls (Composer, Robot, Digest, Keyboard)
         Column(
             verticalArrangement = Arrangement.spacedBy(KeyGap),
             horizontalAlignment = Alignment.End,
         ) {
-            val aiCount = listOfNotNull(onOpenDigest, onOpenPromptComposer, onOpenQuickResponse).size
-            val hasAiControls = aiCount > 0
-            if (hasAiControls) {
-                Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
-                    if (onOpenDigest != null) {
-                        AgentDigestKey(onClick = onOpenDigest)
-                    }
-                    if (onOpenPromptComposer != null) {
-                        PromptComposerKey(onClick = onOpenPromptComposer)
-                    }
-                    if (onOpenQuickResponse != null) {
-                        AgentQuickResponseKey(onClick = onOpenQuickResponse)
-                    }
+            val topRowKeys: List<@Composable () -> Unit> = buildList {
+                if (onOpenPromptComposer != null) add { PromptComposerKey(onClick = onOpenPromptComposer) }
+                if (onOpenQuickResponse != null) add { AgentQuickResponseKey(onClick = onOpenQuickResponse) }
+            }
+            val bottomRowKeys: List<@Composable () -> Unit> = buildList {
+                if (onOpenDigest != null) add { AgentDigestKey(onClick = onOpenDigest) }
+                add {
+                    KeyboardKey(
+                        visible = keyboardVisible,
+                        onClick = onKeyboardToggle,
+                        modifier = Modifier.size(ClusterKeySize),
+                    )
                 }
             }
-            KeyboardKey(
-                visible = keyboardVisible,
-                onClick = onKeyboardToggle,
-                modifier = if (aiCount > 1) {
-                    Modifier.width(ClusterKeySize * aiCount + KeyGap * (aiCount - 1)).height(ClusterKeySize)
-                } else {
-                    Modifier.size(ClusterKeySize)
-                },
-            )
+
+            if (topRowKeys.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
+                    topRowKeys.forEach { it() }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
+                bottomRowKeys.forEach { it() }
+            }
         }
     }
 }

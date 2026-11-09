@@ -76,7 +76,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.lordofpolls.shellwave"
+        applicationId = "io.github.lordofpolls.shellwave.fork"
         minSdk = 31
         targetSdk = 37
         versionCode = 11000

@@ -381,7 +381,7 @@ internal fun ColorSchemeFields(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
                                     Text(
-                                        text = "$_",
+                                        text = ">_",
                                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                         color = Color(builtin.foreground),
                                     )

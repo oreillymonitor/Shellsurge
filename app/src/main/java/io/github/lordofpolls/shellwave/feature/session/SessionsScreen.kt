@@ -613,10 +613,10 @@ internal fun SessionTabBody(
             val emulator = terminalEmulator ?: return@collect
             val screen = emulator.screen ?: return@collect
             if (activeDigest != null) return@collect
-            val lastRow = screen.screenRows - 1
+            val lastRow = emulator.mRows - 1
             val startRow = (lastRow - 2).coerceAtLeast(0)
             val recentText = runCatching {
-                screen.getSelectedText(0, startRow, screen.columns, lastRow, true, true)
+                screen.getSelectedText(0, startRow, emulator.mColumns, lastRow, true, true)
             }.getOrNull() ?: ""
             val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
             if (yesNoRegex.containsMatchIn(recentText)) {

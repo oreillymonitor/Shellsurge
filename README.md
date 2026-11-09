@@ -1,126 +1,101 @@
-<h1 align="center">
-  <img src="fastlane/metadata/android/en-US/images/featureGraphic.png" width="640" alt="Shellwave - an SSH client for Android">
-</h1>
+# ShellSurge ⚡
 
 <p align="center">
-  Built because every mobile SSH client makes you choose between convenient and trustworthy,
-  and that's a stupid choice.
+  <b>A modern, AI-enhanced SSH client for Android, engineered for vibecoding and remote development.</b>
   <br>
+  <i>A modernized fork of Shellwave with on-device Gemini Nano intelligence, hands-free voice controls, and unified tmux navigation.</i>
+  <br><br>
   Requires Android 12 (API 31) or later. GPLv3.
 </p>
 
 <p align="center">
-  <a href="https://github.com/LordOfPolls/Shellwave/releases">
-    <img src="https://img.shields.io/github/v/release/LordOfPolls/Shellwave?label=Release" alt="Latest release">
+  <a href="https://github.com/oreillymonitor/Shellwave/releases">
+    <img src="https://img.shields.io/github/v/release/oreillymonitor/Shellwave?label=Release" alt="Latest release">
   </a>
-  <a href="https://github.com/LordOfPolls/Shellwave/actions/workflows/release.yml">
-    <img src="https://github.com/LordOfPolls/Shellwave/actions/workflows/release.yml/badge.svg" alt="Release build status">
+  <a href="https://github.com/oreillymonitor/Shellwave/actions/workflows/ci.yml">
+    <img src="https://github.com/oreillymonitor/Shellwave/actions/workflows/ci.yml/badge.svg" alt="CI build status">
   </a>
   <img src="https://img.shields.io/badge/Android-12%2B-3ddc84?logo=android&logoColor=white" alt="Android 12 or later">
+  <img src="https://img.shields.io/badge/AI-Gemini%20Nano%20On--Device-4285F4?logo=google" alt="Gemini Nano On-Device">
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/LordOfPolls/Shellwave?label=Licence" alt="Licence">
-  </a>
-  <br>
-  <a href="https://play.google.com/store/apps/details?id=io.github.lordofpolls.shellwave">
-    <img src="https://img.shields.io/badge/Google%20Play-414141?logo=googleplay&logoColor=white" alt="Get it on Google Play">
-  </a>
-  <a href="https://f-droid.org/packages/io.github.lordofpolls.shellwave">
-    <img src="https://img.shields.io/f-droid/v/io.github.lordofpolls.shellwave?logo=fdroid&label=F-Droid" alt="Get it on F-Droid">
+    <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="Licence">
   </a>
 </p>
 
-## Screenshots
+---
 
-<p>
-  <img src="assets/screenshots/terminal.png" width="205" alt="A session tailing a coloured log, with three session tabs above it">
-  <img src="assets/screenshots/hosts.png" width="205" alt="The host list with a quick-connect field">
-  <img src="assets/screenshots/ansi-truecolour.png" width="205" alt="16-colour, 256-colour and 24-bit ramps rendered in a session">
-  <img src="assets/screenshots/per-host-settings.png" width="205" alt="Per-host settings: tmux reattach, profile and colour scheme overrides, key bar, ProxyJump">
-</p>
+## ⚡ What Makes ShellSurge Different?
 
-Unfolded, the session list and the terminal share the screen; collapsing the split gives the
-terminal the full width.
+**ShellSurge** builds upon the rock-solid security and cryptographic foundations of the original Shellwave, but reimagines the mobile terminal for **vibecoding with AI coding agents** (Antigravity CLI, Claude Code, Aider, OpenCode) and modern ergonomics:
 
-<p>
-  <img src="fastlane/metadata/android/en-US/images/tenInchScreenshots/02_split_view.png" width="410" alt="Session list and terminal side by side on an unfolded device">
-  <img src="fastlane/metadata/android/en-US/images/tenInchScreenshots/01_terminal_full_width.png" width="410" alt="The terminal filling the full width of an unfolded device">
-</p>
+### 1. 🧠 On-Device Gemini Nano Terminal Digest & Voice Loop
+* **1-to-3 Sentence Digest**: Reads recent terminal scrollback directly from the buffer without screen capture or cloud roundtrips. Gives you a concise spoken verdict of what the agent did.
+* **Novelty & Self-Correction Detection**: If the agent hit a build error it self-corrected or devised an unexpected workaround, Nano specifically adds a sentence highlighting the fix.
+* **🔊 Audio Read-Aloud**: Tap `[ 🔊 Listen ]` to hear the summary read aloud offline via native Android Text-to-Speech (TTS).
+* **🔔 Chime & 3-Second Voice Reply**: When speech finishes, an alert chime sounds and a 3-second microphone window opens. Speak *"Yes"*, *"Proceed"*, or *"No"* to instantly execute terminal commands hands-free.
+* **Ambient Inline Capsule**: Automatically detects pending agent prompts (`[y/N]`) and pops a sleek, auto-dismissing card right above your keyboard with 1-tap `[ YES ]` and `[ NO ]` chips.
 
-## Features
+### 2. 🎙️ AI Voice Prompt Composer
+* Multi-line prompt composer with voice dictation and on-device Gemini Nano structuring.
+* Spoken macros: saying *"slash goal"* formats `/goal`, *"slash plan"* formats `/plan`, and *"bullet point"* creates clean markdown lists.
 
-- Dropped connections reconnect on their own, without re-prompting for a password; optional
-  `tmux`-backed sessions reattach with scrollback intact.
-- Host key verification on first connect, with the fingerprint shown. A changed key blocks the
-  connection; there is no accept-all mode, and a background run never answers a prompt for you.
-- Credentials encrypted with the Android Keystore, hardware-backed where available, with an
-  optional biometric unlock per credential.
-- Key enrolment: generate a key, install it in the host's `authorized_keys`, replace the saved
-  credential. The private key never leaves the device.
-- Password, private key (imported or generated on device), and keyboard-interactive auth.
-- Local and remote port forwarding, SOCKS5, ProxyJump chaining, `~/.ssh/config` import.
-- SSH agent forwarding from the keys stored in the app.
-- Saved scripts, run from the app, a widget, an app shortcut, a Quick Settings tile, or another app.
-- SFTP upload and download.
-- Per-host terminal profile, colour scheme and key bar layout, each overriding a global default.
-- 256-colour and truecolour output, wide characters, alternate screen.
-- No analytics, no telemetry, no crash reporting. It talks to the hosts you give it, and nothing
-  else.
+### 3. 🤖 Agent Quick Response System
+* 1-tap instant responses (`[ y ]`, `[ n ]`, `[ 1 ]`, `[ 2 ]`, `[ Enter ]`, `[ Ctrl+C ]`).
+* Launch shortcuts for CLI coding agents (`antigravity-cli`, `opencode`, `claude`, `aider`).
+* One-tap terminal summarizer shortcut.
 
-## Install
+### 4. 📜 Unified Tmux & Local Scroll Engine
+* **Full Tmux Mouse-Tracking Support**: Smoothly scroll through tmux copy-mode, `less`, or `vim` on the scrollbar track and floating stepper pills (`[ ▲10 ]`, `[ ▼10 ]`).
+* **Instant Prompt Return**: In tmux, tapping `[ linesBack ↓ ]` sends `"q"` to immediately exit copy-mode and return to the live prompt.
 
-- [Google Play](https://play.google.com/store/apps/details?id=io.github.lordofpolls.shellwave)
-- [F-Droid](https://f-droid.org/packages/io.github.lordofpolls.shellwave)
-- [GitHub releases](https://github.com/LordOfPolls/Shellwave/releases/latest)
+### 5. ⌨️ Refined KeyBar & Edge-to-Edge Ergonomics
+* **Uniform Circular Keys**: Every key (`Ctrl`, `Alt`, `Esc`, `Tab`, `Home`, `End`, arrow cluster, and AI tools) is sized to a consistent 48dp circular touch target.
+* **Zero Wasted Space**: Eliminated the dead black inset gap above soft keyboards—the KeyBar sits flush against your keyboard's paste/suggestions row, reclaiming ~3 vertical lines of terminal output.
 
-> [!NOTE]
-> Forwarded ports and the SOCKS5 proxy bind to loopback unless you say otherwise. Binding wider is
-> a choice you have to make on purpose, which is rather the point. The coffee shop Wi-Fi does not
-> need a route into your homelab.
+### 6. 🎨 Modern Structured Settings
+* Beautifully reorganized settings menu grouped into structured cards: *Connection & Shell*, *Terminal Canvas*, *Navigation & KeyBar*, *Security & Vault*, and *Support*.
+* Zero loss of any existing customization or advanced SSH option.
 
-## Building
+---
 
-Two product flavours, identical but for one dependency:
+## 🔒 Core Security & Terminal Features (from upstream)
 
+* **Resilient Connections**: Automatic re-connection without re-prompting for passwords; optional `tmux`-backed sessions reattach with scrollback intact.
+* **Hardware-Backed Keystore**: Credentials encrypted with Android Keystore with optional per-credential biometric unlock.
+* **Strict Host Key Verification**: Fingerprints displayed on first connect; changed keys strictly block connections with no blind "accept-all".
+* **Key Enrolment**: Generate keys on-device and install directly into the host's `authorized_keys`.
+* **Port Forwarding & Chaining**: Local and remote port forwarding, SOCKS5 dynamic proxy, ProxyJump chaining, and `~/.ssh/config` import.
+* **SFTP & Remote Edit**: Built-in file browsing and remote editing with syntax highlighting.
+* **Zero Telemetry**: No analytics, no crash tracking, and no external pings. All AI runs 100% on-device via Android AICore.
+
+---
+
+## 🚀 Installation
+
+* **Releases**: Download the latest signed APK from [GitHub Releases](https://github.com/oreillymonitor/Shellwave/releases).
+* **Package Name**: `io.github.oreillymonitor.shellsurge`
+
+---
+
+## 🛠️ Building
+
+Two product flavours:
+
+```bash
+./gradlew assembleFossRelease   # FOSS build without proprietary dependencies
+./gradlew assemblePlayRelease   # Adds Play Billing for optional tips
 ```
-./gradlew assembleFossRelease   # no proprietary dependencies - the F-Droid build
-./gradlew assemblePlayRelease   # adds Play Billing, for the optional one-time tip
-```
 
-`SupporterBilling` is an interface in `:app`'s main source set with one implementation per
-flavour, so only `play` links `com.android.billingclient`.
-On `foss` the Support section of Settings does not exist.
+To run checks and unit tests:
 
-Debug builds, unit tests and lint:
-
-```
-./gradlew assembleFossDebug
+```bash
+./tools/check-invariants.sh
 ./gradlew testFossDebugUnitTest
 ./gradlew lintFossDebug
 ```
 
-Run `just hooks` once to wire up a pre-commit hook that runs the same invariant checks as CI,
-plus a secret scan of your staged changes if `gitleaks` is installed.
+---
 
-The Room migration and Keystore tests are instrumented, so they want a real device or emulator -
-which is to say the two things you least want quietly broken are the two that take the most effort
-to check.
+## 📜 Licence
 
-## Terminal engine
-
-Writing a VT parser from scratch is a fine way to lose a year, so this one is borrowed.
-
-`:terminal-core` contains twelve files from termux-app's `terminal-emulator` module, ten of them
-byte-identical to upstream. `TerminalRenderer.kt` in `:app` is a Kotlin port of upstream's
-`TerminalRenderer.java`. The package is left as `com.termux.terminal` so the vendored files stay a
-mergeable diff.
-
-`terminal-core/VENDORING.md` records the upstream commit, the file list and the edits made. The
-engine's pty/JNI subprocess code is not used; sessions are remote shells over SSH.
-
-Third-party attribution lives in `NOTICE`, which a Gradle task copies into `res/raw` for the in-app
-licence screen.
-
-## Licence
-
-GPLv3 - see `LICENSE`. The vendored terminal engine is GPLv3 from termux-app; `NOTICE` has the
-details.
+GPLv3 — see [LICENSE](LICENSE). Terminal core vendored from termux-app under GPLv3. Third-party attribution lives in `NOTICE`.

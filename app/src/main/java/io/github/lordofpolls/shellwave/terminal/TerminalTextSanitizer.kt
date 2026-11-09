@@ -17,10 +17,10 @@ object TerminalTextSanitizer {
         val screen = emulator.screen ?: return ""
         val activeTranscript = screen.activeTranscriptRows
         val startRow = (-activeTranscript).coerceAtLeast(-maxLines)
-        val endRow = screen.screenRows - 1
+        val endRow = emulator.mRows - 1
 
         val rawText = try {
-            screen.getSelectedText(0, startRow, screen.columns, endRow, true, true)
+            screen.getSelectedText(0, startRow, emulator.mColumns, endRow, true, true)
         } catch (_: Throwable) {
             screen.transcriptText ?: ""
         }

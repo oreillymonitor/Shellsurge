@@ -758,12 +758,10 @@ class MainActivity : FragmentActivity() {
                             LocalReadableInset provides if (fullWidth) 0.dp else readableInset(maxWidth),
                         ) {
                             Column(
-                                modifier =
-                                    if (fullWidth) Modifier.fillMaxSize()
-                                    else Modifier
-                                        .fillMaxSize()
-                                        .consumeWindowInsets(innerPadding)
-                                        .imePadding()
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .consumeWindowInsets(innerPadding)
+                                    .then(if (fullWidth) Modifier else Modifier.imePadding())
                             ) {
                                 val notificationsBannerVisible by notificationsGranted
                                 // Never over the terminal, whose chrome is fixed at two strips - this

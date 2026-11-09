@@ -107,6 +107,7 @@ fun KeyBar(
             add { LatchButton(label = "Alt", latched = altLatched, onClick = onAltToggle) }
             keys.filter { it.type != KeyBarKeyType.CURSOR_CLUSTER }.forEach { key ->
                 add {
+                    val isLong = key.label.length > 4
                     FilledTonalButton(
                         onClick = {
                             haptics.keyTap()
@@ -117,11 +118,17 @@ fun KeyBar(
                             }
                         },
                         modifier =
-                            Modifier
-                                .minimumInteractiveComponentSize()
-                                .widthIn(min = MinKeyWidth)
-                                .semantics { contentDescription = keyBarKeyDescription(key) },
-                        contentPadding = KeyContentPadding,
+                            if (isLong) {
+                                Modifier
+                                    .height(ClusterKeySize)
+                                    .widthIn(min = ClusterKeySize)
+                                    .semantics { contentDescription = keyBarKeyDescription(key) }
+                            } else {
+                                Modifier
+                                    .size(ClusterKeySize)
+                                    .semantics { contentDescription = keyBarKeyDescription(key) }
+                            },
+                        contentPadding = if (isLong) KeyContentPadding else PaddingValues(0.dp),
                     ) {
                         MachineText(
                             key.label.uppercase(Locale.ROOT),
@@ -410,13 +417,6 @@ private val KeyGap = 4.dp
 private val KeyContentPadding =
     androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
 
-/**
- * Tightening the padding makes a long bar fit, but a single-glyph key then falls under the 48dp
- * minimum. `minimumInteractiveComponentSize` does not save it: that reserves a touch target around
- * the component, while a pointer has to hit the button's own bounds. A floor and not a fixed width,
- * so `CTRL` and macro keys still size to their text.
- */
-private val MinKeyWidth = 48.dp
 
 @Composable
 private fun LatchButton(label: String, latched: Boolean, onClick: () -> Unit) {
@@ -439,13 +439,12 @@ private fun LatchButton(label: String, latched: Boolean, onClick: () -> Unit) {
         // announced after the label ("Ctrl, active") with no role change away from Button.
         modifier =
             Modifier
-                .minimumInteractiveComponentSize()
-                .widthIn(min = MinKeyWidth)
+                .size(ClusterKeySize)
                 .semantics {
                     contentDescription = "$label modifier key"
                     stateDescription = if (latched) "active" else "inactive"
                 },
-        contentPadding = KeyContentPadding,
+        contentPadding = PaddingValues(0.dp),
     ) {
         MachineText(label.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelMedium)
     }

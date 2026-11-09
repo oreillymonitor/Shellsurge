@@ -79,8 +79,8 @@ android {
         applicationId = "io.github.lordofpolls.shellwave.fork"
         minSdk = 31
         targetSdk = 37
-        versionCode = 11009
-        versionName = "1.10.9"
+        versionCode = 11010
+        versionName = "1.10.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

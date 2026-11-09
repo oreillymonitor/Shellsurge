@@ -176,7 +176,7 @@ fun TerminalScrollbar(
                     )
                     .background(
                         color = thumbColor,
-                        shape = RoundedCornerShape(full = 100),
+                        shape = CircleShape,
                     ),
             )
 

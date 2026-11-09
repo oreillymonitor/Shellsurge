@@ -58,7 +58,9 @@ fun Modifier.terminalGestures(
             val pointer1 = down.id
             var pointer2: PointerId? = null
             var lastPos1 = down.position
-            var pinchStartDistance = 0f
+            var pinchBaselineDistance = 0f
+            var pinchLastDistance = 0f
+            var pinchEngaged = false
             var mode = GestureMode.UNDECIDED
             val downTimeMillis = System.currentTimeMillis()
 
@@ -99,14 +101,21 @@ fun Modifier.terminalGestures(
                 }
                 val event = withTimeoutOrNull(remaining) { awaitPointerEvent() } ?: continue
                 val pressed = event.changes.filter { it.pressed }
+                val activeTouches = pressed.filter { p ->
+                    excludeRightEdgePx <= 0f || p.position.x < (size.width - excludeRightEdgePx)
+                }
 
-                if (pointer2 == null && pressed.size >= 2) {
-                    val p1 = pressed.first { it.id == pointer1 }
-                    val p2 = pressed.first { it.id != pointer1 }
-                    pointer2 = p2.id
-                    pinchStartDistance = distanceBetween(p1.position, p2.position).coerceAtLeast(1f)
-                    mode = GestureMode.PINCH
-                    break
+                if (pointer2 == null && activeTouches.size >= 2) {
+                    val p1 = activeTouches.firstOrNull { it.id == pointer1 }
+                    val p2 = activeTouches.firstOrNull { it.id != pointer1 }
+                    if (p1 != null && p2 != null) {
+                        pointer2 = p2.id
+                        pinchBaselineDistance = distanceBetween(p1.position, p2.position).coerceAtLeast(1f)
+                        pinchLastDistance = pinchBaselineDistance
+                        pinchEngaged = false
+                        mode = GestureMode.PINCH
+                        break
+                    }
                 }
 
                 val change1 = event.changes.firstOrNull { it.id == pointer1 } ?: break
@@ -133,8 +142,20 @@ fun Modifier.terminalGestures(
                         val p2 = event.changes.firstOrNull { it.id == pointer2 }
                         if (p1 == null || p2 == null || !p1.pressed || !p2.pressed) return@awaitEachGesture
                         val distance = distanceBetween(p1.position, p2.position).coerceAtLeast(1f)
-                        if (pinchStartDistance > 0f) onPinch(distance / pinchStartDistance)
-                        pinchStartDistance = distance
+                        if (!pinchEngaged) {
+                            if (kotlin.math.abs(distance - pinchBaselineDistance) > TOUCH_SLOP_PX) {
+                                pinchEngaged = true
+                                pinchLastDistance = distance
+                            }
+                        } else {
+                            val deltaDist = distance - pinchLastDistance
+                            if (kotlin.math.abs(deltaDist) >= 4f && pinchLastDistance > 0f) {
+                                val rawScale = distance / pinchLastDistance
+                                val dampedScale = 1f + (rawScale - 1f) * 0.6f
+                                onPinch(dampedScale)
+                                pinchLastDistance = distance
+                            }
+                        }
                         p1.consume()
                         p2.consume()
                     }

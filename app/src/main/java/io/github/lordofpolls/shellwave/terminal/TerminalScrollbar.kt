@@ -67,8 +67,7 @@ fun TerminalScrollbar(
     onScrollToRow: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (maxScrollback <= 0) return
-
+    val hasScrollback = maxScrollback > 0
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
 
@@ -86,18 +85,27 @@ fun TerminalScrollbar(
         val trackHeightPx = constraints.maxHeight.toFloat()
         if (trackHeightPx <= 0f) return@BoxWithConstraints
 
-        val totalRows = maxScrollback + screenRows
-        val visibleRatio = (screenRows.toFloat() / totalRows.toFloat()).coerceIn(0.04f, 1f)
+        val totalRows = if (hasScrollback) maxScrollback + screenRows else screenRows
+        val visibleRatio = if (hasScrollback) (screenRows.toFloat() / totalRows.toFloat()).coerceIn(0.04f, 1f) else 1f
         val minThumbHeightPx = with(density) { 48.dp.toPx() }
-        val thumbHeightPx = (trackHeightPx * visibleRatio).coerceIn(minThumbHeightPx, trackHeightPx * 0.75f)
+        val thumbHeightPx = if (hasScrollback) {
+            (trackHeightPx * visibleRatio).coerceIn(minThumbHeightPx, trackHeightPx * 0.75f)
+        } else {
+            trackHeightPx * 0.4f
+        }
         val availableTravelPx = (trackHeightPx - thumbHeightPx).coerceAtLeast(1f)
 
         val activeRow = if (isScrubbing) scrubRow else topRow
-        val scrollProgress = ((activeRow + maxScrollback).toFloat() / maxScrollback.toFloat()).coerceIn(0f, 1f)
+        val scrollProgress = if (hasScrollback) {
+            ((activeRow + maxScrollback).toFloat() / maxScrollback.toFloat()).coerceIn(0f, 1f)
+        } else {
+            1f
+        }
         val thumbTopPx = scrollProgress * availableTravelPx
 
         // Trigger haptics on milestone rows (every 5-10 rows or boundaries) for a crisp ratchet feel
         fun checkHaptic(row: Int) {
+            if (!hasScrollback) return
             val threshold = if (maxScrollback > 500) 10 else 5
             if (abs(row - lastHapticRow) >= threshold || row == 0 || row == -maxScrollback) {
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -107,6 +115,7 @@ fun TerminalScrollbar(
 
         // Relative drag accumulator with progressive power curve
         fun updateFromRelativeDrag(initialRow: Int, totalDeltaY: Float, pullLeftPx: Float) {
+            if (!hasScrollback) return
             // If the user drags their finger left (away from edge), activate ultra-fine scrubbing
             val fineMode = pullLeftPx > with(density) { 40.dp.toPx() }
             isFineScrubbing = fineMode
@@ -136,27 +145,17 @@ fun TerminalScrollbar(
             }
         }
 
-        fun updateFromDirectTap(touchY: Float) {
-            val targetThumbTop = (touchY - thumbHeightPx / 2f).coerceIn(0f, availableTravelPx)
-            val newProgress = targetThumbTop / availableTravelPx
-            val newRow = (-maxScrollback + (newProgress * maxScrollback).roundToInt()).coerceIn(-maxScrollback, 0)
-            if (newRow != scrubRow) {
-                scrubRow = newRow
-                checkHaptic(newRow)
-                onScrollToRow(newRow)
-            }
-        }
-
         // Dedicated 48dp right-aligned touch track
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
                 .width(48.dp)
-                .pointerInput(maxScrollback, trackHeightPx, thumbHeightPx) {
+                .pointerInput(maxScrollback, trackHeightPx, thumbHeightPx, hasScrollback) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         down.consume()
+                        if (!hasScrollback) return@awaitEachGesture
                         isScrubbing = true
                         lastHapticRow = topRow
                         scrubRow = topRow
@@ -165,15 +164,6 @@ fun TerminalScrollbar(
                         val startY = down.position.y
                         val startX = down.position.x
                         val initialRow = topRow
-
-                        // If touch was far from the thumb, jump to that position first
-                        val touchDistanceToThumb = abs(startY - (thumbTopPx + thumbHeightPx / 2f))
-                        val isNearThumb = touchDistanceToThumb <= (thumbHeightPx / 2f + 20f)
-                        if (!isNearThumb) {
-                            updateFromDirectTap(startY)
-                        }
-
-                        var currentInitialRow = if (!isNearThumb) scrubRow else initialRow
 
                         while (true) {
                             val event = awaitPointerEvent()
@@ -185,7 +175,7 @@ fun TerminalScrollbar(
                             change.consume()
                             val totalDeltaY = change.position.y - startY
                             val pullLeftPx = (startX - change.position.x).coerceAtLeast(0f)
-                            updateFromRelativeDrag(currentInitialRow, totalDeltaY, pullLeftPx)
+                            updateFromRelativeDrag(initialRow, totalDeltaY, pullLeftPx)
                         }
                         isScrubbing = false
                         isFineScrubbing = false
@@ -195,18 +185,18 @@ fun TerminalScrollbar(
                     contentDescription = "Terminal scrollbar scrubber"
                 },
         ) {
-            // Subtle track background line along the edge
+            // Track guide line along the edge
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .padding(end = 4.dp)
                     .fillMaxHeight()
-                    .width(3.dp)
+                    .width(4.dp)
                     .background(
                         color = if (isScrubbing) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.40f)
                         } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.20f)
                         },
                         shape = CircleShape,
                     ),
@@ -221,7 +211,8 @@ fun TerminalScrollbar(
                 targetValue = when {
                     isScrubbing -> 1.0f
                     topRow < 0 -> 0.95f
-                    else -> 0.70f
+                    hasScrollback -> 0.70f
+                    else -> 0.40f
                 },
                 label = "thumbAlpha",
             )

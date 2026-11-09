@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -502,9 +503,11 @@ internal fun SessionTabBody(
     }
 
     var fontSizeSp by remember { mutableStateOf(DEFAULT_TERMINAL_TEXT_SIZE_SP) }
-    // Keyed on the row's id alone, so a later settings edit doesn't stomp an in-progress
-    // pinch-to-resize.
-    LaunchedEffect(profileOrDefault.id) { fontSizeSp = profileOrDefault.fontSizeSp.sp }
+    var lastTapTimeMs by remember { mutableLongStateOf(0L) }
+    // Keyed on both id and fontSizeSp, so adjustments in Settings apply immediately.
+    LaunchedEffect(profileOrDefault.id, profileOrDefault.fontSizeSp) {
+        fontSizeSp = profileOrDefault.fontSizeSp.sp
+    }
 
     // Coordinates are the external row system, same as topRow.
     val selectionState = rememberTerminalSelectionState()
@@ -793,23 +796,32 @@ internal fun SessionTabBody(
                             ).sp
                         },
                         onTap = { offset ->
-                            val emulator = terminalEmulator
-                            val size = measuredSize
-                            val link =
-                                if (emulator != null && size != null) {
-                                    val col = (offset.x / size.cellWidthPx).toInt()
-                                        .coerceIn(0, emulator.mColumns - 1)
-                                    val screenRow = (offset.y / size.cellHeightPx).toInt()
-                                        .coerceIn(0, emulator.mRows - 1)
-                                    linkAt(emulator, screenRow + topRow, col)
-                                } else {
-                                    null
-                                }
-                            if (link != null) {
-                                detectedLink = link
+                            val now = System.currentTimeMillis()
+                            val isZoomed = abs(fontSizeSp.value - profileOrDefault.fontSizeSp) > 0.5f
+                            if (now - lastTapTimeMs < 350L && isZoomed) {
+                                // Double-tap resets zoom back to default font size
+                                fontSizeSp = profileOrDefault.fontSizeSp.sp
+                                lastTapTimeMs = 0L
                             } else {
-                                focusRequester.requestFocus()
-                                selectionState.clear() // tapping outside a selection dismisses it, same as Android's own text selection
+                                lastTapTimeMs = now
+                                val emulator = terminalEmulator
+                                val size = measuredSize
+                                val link =
+                                    if (emulator != null && size != null) {
+                                        val col = (offset.x / size.cellWidthPx).toInt()
+                                            .coerceIn(0, emulator.mColumns - 1)
+                                        val screenRow = (offset.y / size.cellHeightPx).toInt()
+                                            .coerceIn(0, emulator.mRows - 1)
+                                        linkAt(emulator, screenRow + topRow, col)
+                                    } else {
+                                        null
+                                    }
+                                if (link != null) {
+                                    detectedLink = link
+                                } else {
+                                    focusRequester.requestFocus()
+                                    selectionState.clear() // tapping outside a selection dismisses it, same as Android's own text selection
+                                }
                             }
                         },
                         onLongPress = { offset ->
@@ -897,21 +909,19 @@ internal fun SessionTabBody(
             }
             // Interactive scrollbar for fast scrubbing through scrollback history
             val scrollbackRows = transcriptRows
-            if (scrollbackRows > 0) {
-                terminalEmulator?.let { emulator ->
-                    TerminalScrollbar(
-                        topRow = topRow,
-                        maxScrollback = scrollbackRows,
-                        screenRows = emulator.mRows,
-                        onScrollToRow = { newRow -> topRow = newRow },
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(bottom = if (topRow < 0) 56.dp else 8.dp, top = 8.dp),
-                    )
-                }
+            terminalEmulator?.let { emulator ->
+                TerminalScrollbar(
+                    topRow = topRow,
+                    maxScrollback = scrollbackRows,
+                    screenRows = emulator.mRows,
+                    onScrollToRow = { newRow -> topRow = newRow },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(bottom = 8.dp, top = 8.dp),
+                )
             }
 
-            // Scrollback position, line steppers, and jump-to-bottom pill: shown only while scrolled back.
+            // Scrollback position, line steppers, and jump-to-bottom pill:
             if (topRow < 0) {
                 ScrollbackStepperPill(
                     linesBack = -topRow,
@@ -922,6 +932,15 @@ internal fun SessionTabBody(
                         topRow = (topRow + 10).coerceIn(-scrollbackRows, 0)
                     },
                     onJumpToBottom = { topRow = 0 },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 56.dp, bottom = 12.dp),
+                )
+            } else if (scrollbackRows > 0) {
+                ScrollbackJumpPill(
+                    onJumpUp = {
+                        topRow = (-10).coerceIn(-scrollbackRows, 0)
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 56.dp, bottom = 12.dp),
@@ -1092,6 +1111,42 @@ private fun ScrollbackStepperPill(
                 MachineText(
                     "$linesBack ↓",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                )
+            }
+        }
+    }
+}
+
+/** Quick 1-tap jump pill to step 10 lines back into history from the live bottom. */
+@Composable
+private fun ScrollbackJumpPill(
+    onJumpUp: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 6.dp,
+        tonalElevation = 2.dp,
+        modifier = modifier.semantics {
+            contentDescription = "Step back 10 lines into scrollback history"
+        },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+        ) {
+            FilledTonalIconButton(
+                onClick = onJumpUp,
+                modifier = Modifier.size(34.dp),
+            ) {
+                Text(
+                    text = "▲10",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
                 )
             }
         }

@@ -175,11 +175,11 @@ fun KeyBar(
             val hasAiControls = onOpenQuickResponse != null || onOpenPromptComposer != null
             if (hasAiControls) {
                 Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
-                    if (onOpenQuickResponse != null) {
-                        AgentQuickResponseKey(onClick = onOpenQuickResponse)
-                    }
                     if (onOpenPromptComposer != null) {
                         PromptComposerKey(onClick = onOpenPromptComposer)
+                    }
+                    if (onOpenQuickResponse != null) {
+                        AgentQuickResponseKey(onClick = onOpenQuickResponse)
                     }
                 }
             }

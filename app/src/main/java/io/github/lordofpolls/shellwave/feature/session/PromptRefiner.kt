@@ -31,6 +31,7 @@ internal object PromptRefiner {
     fun applyVoiceMacros(text: String): String {
         var result = text
         val macros = listOf(
+            Regex("(?i)\\b(slash\\s*models?)\\b") to "/models",
             Regex("(?i)\\b(slash\\s*usage)\\b") to "/usage",
             Regex("(?i)\\b(slash\\s*goal)\\b") to "/goal",
             Regex("(?i)\\b(slash\\s*plan)\\b") to "/plan",

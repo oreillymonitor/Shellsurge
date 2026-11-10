@@ -200,6 +200,7 @@ internal fun PromptComposerDialog(
     }
 
     val aiShortcuts = listOf(
+        "/models",
         "/usage",
         "/goal",
         "/plan",

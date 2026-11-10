@@ -58,14 +58,11 @@ internal object AgentDigestModel {
 
             if (status == FeatureStatus.AVAILABLE) {
                 val prompt = """
-                    You are a voice assistant for a developer reading recent terminal output from an AI coding agent (e.g. Claude Code, Antigravity, Aider) or shell command.
-                    
-                    Instructions:
-                    1. Provide a clear, natural spoken summary in 3 to 4 conversational sentences explaining what was accomplished, what files or changes were made, and the current operational status.
-                    2. Highlight key specifics: mention specific tools/commands executed, test results, build outcomes, or any self-corrections and workarounds devised by the agent.
-                    3. If the terminal ends with a question, pending decision, or confirmation prompt (like [y/n]), state that question clearly at the end.
+                    Brief the developer on this terminal status in 3 to 4 spoken sentences.
+                    State what ran or finished, any errors or modified files, and what it's waiting on.
+                    No greetings, intros, or meta-talk. Begin directly with the status.
 
-                    Terminal Output:
+                    Terminal:
                     $trimmed
                 """.trimIndent()
 
@@ -88,7 +85,7 @@ internal object AgentDigestModel {
      * Parses Gemini Nano's response into an AgentDigestResult, gracefully handling
      * JSON, markdown, or plain conversational speech.
      */
-    private fun extractStructuredResult(response: String): AgentDigestResult {
+    internal fun extractStructuredResult(response: String): AgentDigestResult {
         // Attempt JSON extraction first if model generated JSON
         val jsonMatch = Regex("\\{.*\\}", RegexOption.DOT_MATCHES_ALL).find(response)?.value
         if (jsonMatch != null) {
@@ -120,11 +117,21 @@ internal object AgentDigestModel {
         }
 
         // Handle conversational text or markdown response
-        val cleanText = response
+        var cleanText = response
             .replace(Regex("```[a-z]*"), "")
             .replace("```", "")
             .replace(Regex("[*#_]"), "")
             .trim()
+
+        // Strip conversational SLM preambles if the model ever leaks them
+        cleanText = cleanText.replace(
+            Regex("^(Sure[,!]|Certainly[,!]|Okay[,!]|Here('s| is| are)|Based on|According to|In this summary|Summary:|Situation report:)[^:\n]*[:\n]\\s*", RegexOption.IGNORE_CASE),
+            ""
+        ).trim()
+
+        if (cleanText.startsWith("\"") && cleanText.endsWith("\"") && cleanText.length > 2) {
+            cleanText = cleanText.substring(1, cleanText.length - 1).trim()
+        }
 
         val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
         val lines = cleanText.lines().map { it.trim() }.filter { it.isNotEmpty() }

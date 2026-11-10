@@ -89,4 +89,20 @@ class TerminalTextSanitizerTest {
         assertFalse(result.spokenSummary.contains("idle", ignoreCase = true))
         assertTrue(result.spokenSummary.contains("passed", ignoreCase = true))
     }
+
+    @Test
+    fun extractStructuredResultStripsChatbotPreambles() {
+        val rawChatbot = "Sure! Here is a summary of the terminal:\nThe build completed successfully with all tests passing."
+        val result = AgentDigestModel.extractStructuredResult(rawChatbot)
+        assertEquals("The build completed successfully with all tests passing.", result.spokenSummary)
+
+        val basedOn = "Based on the terminal output:\nCompilation failed with 2 errors in SettingsScreen.kt."
+        val result2 = AgentDigestModel.extractStructuredResult(basedOn)
+        assertEquals("Compilation failed with 2 errors in SettingsScreen.kt.", result2.spokenSummary)
+        assertTrue(result2.isError)
+
+        val quoted = "\"Gradle task :app:assembleDebug finished in 14 seconds.\""
+        val result3 = AgentDigestModel.extractStructuredResult(quoted)
+        assertEquals("Gradle task :app:assembleDebug finished in 14 seconds.", result3.spokenSummary)
+    }
 }

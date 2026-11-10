@@ -39,6 +39,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -60,6 +61,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -75,6 +77,7 @@ internal fun AgentQuickResponseSheet(
     onSendRaw: (control: String) -> Unit,
     onOpenComposerWithText: (initialText: String) -> Unit,
     onSummarize: (() -> Unit)? = null,
+    isSummarizing: Boolean = false,
     onDismiss: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
@@ -112,6 +115,9 @@ internal fun AgentQuickResponseSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -126,16 +132,20 @@ internal fun AgentQuickResponseSheet(
                             text = "Agent Quick Response",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "1-tap replies, system prompts & vibe directives",
+                            text = "1-tap replies & vibe directives",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
 
-                AssistChip(
+                FilledTonalButton(
                     onClick = {
                         scope.launch {
                             sheetState.hide()
@@ -143,16 +153,20 @@ internal fun AgentQuickResponseSheet(
                             onOpenComposerWithText("")
                         }
                     },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Outlined.EditNote,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    },
-                    label = { Text("Composer", style = MaterialTheme.typography.labelSmall) },
-                    modifier = Modifier.height(30.dp),
-                )
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier.height(32.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.EditNote,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "Composer",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    )
+                }
             }
 
             // Summarize & Listen Card
@@ -160,7 +174,7 @@ internal fun AgentQuickResponseSheet(
                 Card(
                     onClick = { execute { onSummarize() } },
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        containerColor = if (isSummarizing) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -171,13 +185,36 @@ internal fun AgentQuickResponseSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.AutoAwesome,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(20.dp),
-                        )
+                        if (isSummarizing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                         Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isSummarizing) "Gemini is summarizing terminal..." else "Summarize Terminal & Listen",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSummarizing) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            Text(
+                                text = if (isSummarizing) "Analyzing terminal output with Gemini..." else "On-device digest, read aloud & voice reply",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = (if (isSummarizing) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer).copy(alpha = 0.85f),
+                            )
+                        }
+                    }
+                }
+            }
                             Text(
                                 text = "Summarize Terminal & Listen",
                                 style = MaterialTheme.typography.labelLarge,

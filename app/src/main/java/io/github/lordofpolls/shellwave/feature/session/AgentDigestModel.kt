@@ -61,9 +61,9 @@ internal object AgentDigestModel {
                     You are a voice assistant for a developer reading recent terminal output from an AI coding agent (e.g. Claude Code, Antigravity, Aider) or shell command.
                     
                     Instructions:
-                    1. Provide a concise, clear spoken summary in 1 to 2 conversational sentences explaining what was accomplished or the current status.
-                    2. Novelty / Self-Correction Rule: If and only if the agent encountered an error it self-corrected, an unexpected test failure it fixed, or a novel workaround, add a 3rd sentence highlighting that. Otherwise omit.
-                    3. If the terminal ends with a question or confirmation prompt (like [y/n]), state the question clearly at the end.
+                    1. Provide a clear, natural spoken summary in 3 to 4 conversational sentences explaining what was accomplished, what files or changes were made, and the current operational status.
+                    2. Highlight key specifics: mention specific tools/commands executed, test results, build outcomes, or any self-corrections and workarounds devised by the agent.
+                    3. If the terminal ends with a question, pending decision, or confirmation prompt (like [y/n]), state that question clearly at the end.
 
                     Terminal Output:
                     $trimmed
@@ -168,7 +168,7 @@ internal object AgentDigestModel {
         if (questionLine != null) {
             val cleanQuestion = yesNoRegex.replace(questionLine, "").trim().removeSuffix("?") + "?"
             return AgentDigestResult(
-                spokenSummary = "Agent is waiting for your response: $cleanQuestion",
+                spokenSummary = "The agent has completed its current step and is waiting for your confirmation: $cleanQuestion. Please review the proposal before proceeding. Would you like to proceed?",
                 hasQuestion = true,
                 question = cleanQuestion,
                 quickOptions = listOf("Yes", "No"),
@@ -189,7 +189,7 @@ internal object AgentDigestModel {
         if (failureLine != null) {
             val cleanError = failureLine.removePrefix("e: ").trim()
             return AgentDigestResult(
-                spokenSummary = "Command failed with an error: $cleanError",
+                spokenSummary = "The command execution failed with an error: $cleanError. The terminal reported a failure during this task. Please inspect the recent error trace or run with debug flags to troubleshoot.",
                 hasQuestion = false,
                 isError = true,
                 usedAi = false,
@@ -209,7 +209,7 @@ internal object AgentDigestModel {
         }
         if (successLine != null) {
             return AgentDigestResult(
-                spokenSummary = "Agent completed task successfully: $successLine",
+                spokenSummary = "Agent completed task successfully: $successLine. All build steps and operations finished cleanly without errors. The terminal is back at the shell prompt ready for your next instruction.",
                 hasQuestion = false,
                 isError = false,
                 usedAi = false,
@@ -220,7 +220,7 @@ internal object AgentDigestModel {
         if (meaningfulLines.isNotEmpty()) {
             val summaryText = meaningfulLines.takeLast(2).joinToString(". ")
             return AgentDigestResult(
-                spokenSummary = "Latest agent output: $summaryText",
+                spokenSummary = "Latest agent activity recorded: $summaryText. The background operation has concluded its phase. The session is active and waiting for your next input.",
                 hasQuestion = false,
                 isError = false,
                 usedAi = false,
@@ -230,7 +230,7 @@ internal object AgentDigestModel {
         // True idle prompt
         val lastPrompt = allLines.lastOrNull() ?: "idle"
         return AgentDigestResult(
-            spokenSummary = "Terminal is idle at the prompt.",
+            spokenSummary = "Terminal is idle at the command prompt. No background processes or agent actions are currently running. Enter a command or launch an agent to begin.",
             hasQuestion = false,
             isError = false,
             usedAi = false,

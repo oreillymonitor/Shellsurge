@@ -50,9 +50,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -473,8 +475,10 @@ internal fun SessionTabBody(
         }
     val lineHeightMultiplier = profileOrDefault.lineHeightMultiplier
 
+    val haptics = LocalHapticFeedback.current
     var isVoiceListening by remember { mutableStateOf(false) }
     var activeDigest by remember { mutableStateOf<AgentDigestResult?>(null) }
+    var isAnalyzingDigest by remember { mutableStateOf(false) }
 
     var terminalEmulator by remember { mutableStateOf<TerminalEmulator?>(null) }
 
@@ -501,12 +505,19 @@ internal fun SessionTabBody(
 
     fun triggerDigest(speakImmediately: Boolean = false) {
         val emulator = terminalEmulator ?: return
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        isAnalyzingDigest = true
+        activeDigest = null
         val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 100)
         coroutineScope.launch {
-            val result = AgentDigestModel.analyzeTerminalTail(tail)
-            activeDigest = result
-            if (speakImmediately) {
-                voiceEngine.speakAndListen(result.spokenSummary)
+            try {
+                val result = AgentDigestModel.analyzeTerminalTail(tail)
+                activeDigest = result
+                if (speakImmediately) {
+                    voiceEngine.speakAndListen(result.spokenSummary)
+                }
+            } finally {
+                isAnalyzingDigest = false
             }
         }
     }
@@ -1088,36 +1099,42 @@ internal fun SessionTabBody(
             .fillMaxWidth()
             .height(preKeyBarGap))
 
-        activeDigest?.let { digest ->
-            AgentDigestCapsule(
-                digest = digest,
-                isListening = isVoiceListening,
-                onListenClick = {
-                    voiceEngine.speakAndListen(digest.spokenSummary)
-                },
-                onMicClick = {
-                    if (isVoiceListening) {
-                        voiceEngine.stopListening()
-                    } else {
-                        voiceEngine.startListeningWindow()
-                    }
-                },
-                onActionClick = { actionText ->
-                    val emulator = terminalEmulator
-                    if (emulator != null) {
-                        emulator.paste(actionText)
-                    } else {
-                        summary.connection.write(actionText)
-                    }
-                    summary.connection.write("\r")
-                    activeDigest = null
-                    voiceEngine.stopListening()
-                },
-                onDismiss = {
-                    activeDigest = null
-                    voiceEngine.stopListening()
-                },
+        if (isAnalyzingDigest) {
+            AgentDigestLoadingCapsule(
+                onDismiss = { isAnalyzingDigest = false },
             )
+        } else {
+            activeDigest?.let { digest ->
+                AgentDigestCapsule(
+                    digest = digest,
+                    isListening = isVoiceListening,
+                    onListenClick = {
+                        voiceEngine.speakAndListen(digest.spokenSummary)
+                    },
+                    onMicClick = {
+                        if (isVoiceListening) {
+                            voiceEngine.stopListening()
+                        } else {
+                            voiceEngine.startListeningWindow()
+                        }
+                    },
+                    onActionClick = { actionText ->
+                        val emulator = terminalEmulator
+                        if (emulator != null) {
+                            emulator.paste(actionText)
+                        } else {
+                            summary.connection.write(actionText)
+                        }
+                        summary.connection.write("\r")
+                        activeDigest = null
+                        voiceEngine.stopListening()
+                    },
+                    onDismiss = {
+                        activeDigest = null
+                        voiceEngine.stopListening()
+                    },
+                )
+            }
         }
 
         // `imePadding()` belongs here, on the key bar alone, never on the outer Column. With it on
@@ -1180,6 +1197,7 @@ internal fun SessionTabBody(
                 onSummarize = {
                     triggerDigest(speakImmediately = true)
                 },
+                isSummarizing = isAnalyzingDigest,
                 onDismiss = {
                     tabQuickResponseOpen = false
                     focusRequester.requestFocus()

@@ -215,21 +215,6 @@ internal fun AgentQuickResponseSheet(
                     }
                 }
             }
-                            Text(
-                                text = "Summarize Terminal & Listen",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                            Text(
-                                text = "On-device digest, read aloud & voice reply",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
-                            )
-                        }
-                    }
-                }
-            }
 
             // Section 1: Immediate Decisions & Controls (Tightened)
             Card(

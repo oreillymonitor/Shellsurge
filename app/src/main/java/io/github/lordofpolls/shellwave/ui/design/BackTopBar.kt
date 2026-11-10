@@ -1,5 +1,6 @@
 package io.github.lordofpolls.shellwave.ui.design
 
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -17,7 +18,11 @@ import androidx.compose.runtime.Composable
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackTopBar(title: String, onBack: () -> Unit) {
+fun BackTopBar(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
@@ -25,6 +30,7 @@ fun BackTopBar(title: String, onBack: () -> Unit) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
             }
         },
+        actions = actions,
         windowInsets = WindowInsets(0, 0, 0, 0),
     )
 }

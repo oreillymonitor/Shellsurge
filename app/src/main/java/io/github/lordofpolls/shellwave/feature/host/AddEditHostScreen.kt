@@ -5,34 +5,52 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.NetworkCheck
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.SettingsEthernet
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +73,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -82,6 +101,8 @@ import io.github.lordofpolls.shellwave.feature.keys.credentialLabel
 import io.github.lordofpolls.shellwave.feature.keys.keyDescription
 import io.github.lordofpolls.shellwave.feature.home.nextGroupColor
 import io.github.lordofpolls.shellwave.feature.settings.ColorSchemeFields
+import io.github.lordofpolls.shellwave.feature.settings.SettingsCardDivider
+import io.github.lordofpolls.shellwave.feature.settings.SettingsGroupCard
 import io.github.lordofpolls.shellwave.feature.settings.SettingsRadioGroup
 import io.github.lordofpolls.shellwave.feature.settings.SettingsRow
 import io.github.lordofpolls.shellwave.feature.settings.SettingsSectionHeader
@@ -105,18 +126,23 @@ import io.github.lordofpolls.shellwave.ssh.resolveProxyHops
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_COLOR_SCHEME
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_TERMINAL_PROFILE
 import io.github.lordofpolls.shellwave.ui.design.BackTopBar
-import io.github.lordofpolls.shellwave.ui.design.CollapsibleSection
 import io.github.lordofpolls.shellwave.ui.design.ColorPickerDialog
 import io.github.lordofpolls.shellwave.ui.design.ColorSwatch
 import io.github.lordofpolls.shellwave.ui.design.LocalReadableInset
 import io.github.lordofpolls.shellwave.ui.design.MachineText
 import io.github.lordofpolls.shellwave.ui.design.PickerRow
 import io.github.lordofpolls.shellwave.ui.design.RadioRow
+import io.github.lordofpolls.shellwave.ui.design.StatusColors
+import io.github.lordofpolls.shellwave.ui.design.ok
 import io.github.lordofpolls.shellwave.ui.design.rememberFormState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.InetSocketAddress
+import java.net.Socket
 
 internal enum class AuthKind { PASSWORD, STORED_KEY, IMPORT_KEY, GENERATE_KEY, KEYBOARD_INTERACTIVE }
 
@@ -124,6 +150,46 @@ private enum class OverrideEditor(val title: String) {
     TERMINAL_PROFILE("Terminal profile"),
     COLOUR_SCHEME("Colour scheme"),
 }
+
+private data class ConnectionTestResult(
+    val success: Boolean,
+    val message: String,
+    val latencyMs: Long? = null,
+)
+
+private suspend fun testHostReachability(hostname: String, port: Int): ConnectionTestResult =
+    withContext(Dispatchers.IO) {
+        val start = System.currentTimeMillis()
+        try {
+            Socket().use { socket ->
+                socket.soTimeout = 4000
+                socket.connect(InetSocketAddress(hostname, port), 4000)
+                val latency = System.currentTimeMillis() - start
+                val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
+                val line = runCatching { reader.readLine() }.getOrNull()
+                val banner = if (!line.isNullOrBlank()) line.trim().take(60) else "Port is open"
+                ConnectionTestResult(
+                    success = true,
+                    message = "Reachable (${latency}ms) • $banner",
+                    latencyMs = latency,
+                )
+            }
+        } catch (e: Exception) {
+            val latency = System.currentTimeMillis() - start
+            val rawMsg = e.localizedMessage ?: e.message ?: "Connection failed"
+            val readableMsg = when {
+                e is java.net.UnknownHostException -> "Host not found ($hostname)"
+                e is java.net.SocketTimeoutException -> "Timed out after 4s"
+                e is java.net.ConnectException -> "Connection refused (port $port)"
+                else -> rawMsg
+            }
+            ConnectionTestResult(
+                success = false,
+                message = "Failed (${latency}ms): $readableMsg",
+                latencyMs = latency,
+            )
+        }
+    }
 
 /**
  * Add or edit a host. Editing seals a fresh credential and repoints the host at it; the previous
@@ -185,6 +251,8 @@ fun AddEditHostScreen(
     val storedKeys = storedKeysOrNull.orEmpty()
     var storedKeyId by rememberFormState<Long?>(existing?.id) { null }
     var detectingMac by remember { mutableStateOf(false) }
+    var testingConnection by remember { mutableStateOf(false) }
+    var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
     // Not saved: the override rows it edits are entities that can't be, so a restored editor
     // would open empty.
     var overrideEditor by remember(existing?.id) { mutableStateOf<OverrideEditor?>(null) }
@@ -720,6 +788,15 @@ fun AddEditHostScreen(
             BackTopBar(
                 title = if (existing == null) "Add host" else "Edit host",
                 onBack = ::leave,
+                actions = {
+                    Button(
+                        onClick = ::save,
+                        enabled = canSave(),
+                        modifier = Modifier.padding(end = 8.dp),
+                    ) {
+                        Text("Save")
+                    }
+                },
             )
 
             Column(
@@ -727,86 +804,129 @@ fun AddEditHostScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = LocalReadableInset.current)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                OutlinedTextField(
-                    value = label,
-                    onValueChange = { label = it },
-                    label = { Text("Label (optional)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                val group = groups.firstOrNull { it.id == groupId }
-                PickerRow(
-                    title = "Group",
-                    value = {
-                        if (group == null) DimText("No group") else GroupChoice(group)
-                    },
-                ) { dismiss ->
-                    DropdownMenuItem(
-                        text = { Text("No group") },
-                        onClick = { groupId = null; dismiss() },
+                // 1. HOST & IDENTITY
+                SettingsGroupCard(title = "Host & Identity", icon = Icons.Outlined.Dns) {
+                    OutlinedTextField(
+                        value = label,
+                        onValueChange = { label = it },
+                        label = { Text("Label (optional)") },
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    groups.forEach { candidate ->
-                        DropdownMenuItem(
-                            text = { GroupChoice(candidate) },
-                            onClick = { groupId = candidate.id; dismiss() },
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = hostname,
+                            onValueChange = {
+                                hostname = it
+                                connectionTestResult = null
+                            },
+                            label = { Text("Hostname") },
+                            keyboardOptions =
+                                KeyboardOptions(
+                                    keyboardType = KeyboardType.Uri,
+                                    autoCorrectEnabled = false,
+                                ),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = port,
+                            onValueChange = {
+                                port = it
+                                connectionTestResult = null
+                            },
+                            label = { Text("Port") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.width(96.dp),
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("+ New group") },
-                        onClick = { newGroupDialog = true; dismiss() },
-                    )
+
+                    // QoL 2: Port Presets Quick-Chips
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Port presets:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        listOf("22", "2222", "8022", "2200").forEach { presetPort ->
+                            val isSelected = port == presetPort
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    port = presetPort
+                                    connectionTestResult = null
+                                },
+                                label = { Text(presetPort, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.height(32.dp),
+                            )
+                        }
+                    }
+
+                    val group = groups.firstOrNull { it.id == groupId }
+                    PickerRow(
+                        title = "Group",
+                        value = {
+                            if (group == null) DimText("No group") else GroupChoice(group)
+                        },
+                    ) { dismiss ->
+                        DropdownMenuItem(
+                            text = { Text("No group") },
+                            onClick = { groupId = null; dismiss() },
+                        )
+                        groups.forEach { candidate ->
+                            DropdownMenuItem(
+                                text = { GroupChoice(candidate) },
+                                onClick = { groupId = candidate.id; dismiss() },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("+ New group") },
+                            onClick = { newGroupDialog = true; dismiss() },
+                        )
+                    }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+                // 2. AUTHENTICATION & CREDENTIALS
+                SettingsGroupCard(title = "Authentication & Credentials", icon = Icons.Outlined.VpnKey) {
                     OutlinedTextField(
-                        value = hostname,
-                        onValueChange = { hostname = it },
-                        label = { Text("Hostname") },
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text("Username") },
                         keyboardOptions =
                             KeyboardOptions(
-                                keyboardType = KeyboardType.Uri,
+                                keyboardType = KeyboardType.PasswordVisible,
                                 autoCorrectEnabled = false,
                             ),
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentType = ContentType.Username },
                     )
-                    OutlinedTextField(
-                        value = port,
-                        onValueChange = { port = it },
-                        label = { Text("Port") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.width(96.dp),
-                    )
-                }
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("Username") },
-                    keyboardOptions =
-                        KeyboardOptions(
-                            keyboardType = KeyboardType.PasswordVisible,
-                            autoCorrectEnabled = false,
-                        ),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { contentType = ContentType.Username },
-                )
 
-                SettingsSectionHeader("Authentication")
-                if (!storedSecretPresent) {
-                    Text(
-                        "This host came from an imported configuration, which carries no secrets. Enter " +
-                                "its password or key below before connecting.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Column {
+                    if (!storedSecretPresent) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "This host came from an imported configuration, which carries no secrets. Enter " +
+                                        "its password or key below before connecting.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(10.dp),
+                            )
+                        }
+                    }
+
                     SettingsRadioGroup(
-                        label = null,
+                        label = "Method",
                         options = AuthKind.entries.filter {
                             it != AuthKind.STORED_KEY || storedKeysOrNull == null ||
                                     loginKeys.isNotEmpty() || authKind == AuthKind.STORED_KEY
@@ -823,185 +943,274 @@ fun AddEditHostScreen(
                             }
                         },
                     )
-                }
 
-                when (authKind) {
-                    AuthKind.STORED_KEY -> {
-                        if (storedKeysOrNull != null && loginKeys.isEmpty()) {
-                            DimText(
-                                if (storedKeys.any { it.type == CredentialType.PRIVATE_KEY.name }) {
-                                    "No keys that can sign in yet. Pick Import key or Generate key instead."
-                                } else {
-                                    "No keys yet. Pick Import key or Generate key instead."
-                                },
-                            )
-                        }
-                        loginKeys.forEach { key ->
-                            RadioRow(
-                                selected = key.id == storedKeyId,
-                                onClick = {
-                                    if (storedKeyId != key.id) resetCertificate(key.certificate)
-                                    storedKeyId = key.id
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) { KeyChoice(key) }
-                        }
-                        loginKeys.firstOrNull { it.id == storedKeyId }?.let { key ->
-                            CertificateControls(key.publicKeyText)
-                            DimText("A certificate belongs to the key, so this applies to every host that uses it.")
-                        }
-                    }
+                    SettingsCardDivider()
 
-                    AuthKind.PASSWORD ->
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
-                            label = { Text("Password") },
-                            singleLine = true,
-                            trailingIcon = {
-                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(
-                                        imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
-                                    )
-                                }
-                            },
-                            supportingText = if (existing != null && originalAuthKind == AuthKind.PASSWORD && storedSecretPresent) {
-                                { Text("Leave blank to keep the saved password") }
-                            } else null,
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.None,
-                                autoCorrectEnabled = false,
-                                keyboardType = KeyboardType.Password,
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .semantics { contentType = ContentType.Password },
-                        )
-
-                    AuthKind.IMPORT_KEY -> {
-                        Button(onClick = { pickDocument.launch(arrayOf("*/*")) }) { Text("Pick key file") }
-                        // PuTTY .ppk has always worked - sshj registers PuTTYKeyFile and the picker takes
-                        // any MIME type - but nothing said so, and users asked for a feature already there.
-                        // Ed25519 .ppk is the one exception, refused with its own message.
-                        Text(
-                            "OpenSSH, PEM/PKCS#8 or PuTTY .ppk.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        OutlinedTextField(
-                            value = importedPem,
-                            onValueChange = { setImportedPem(it) },
-                            label = { Text("Or paste private key") },
-                            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 3,
-                        )
-                        OutlinedTextField(
-                            value = importedPassphrase,
-                            onValueChange = { importedPassphrase = it },
-                            label = { Text("Passphrase (if encrypted)") },
-                            singleLine = true,
-                            trailingIcon = {
-                                IconButton(onClick = { importedPassphraseVisible = !importedPassphraseVisible }) {
-                                    Icon(
-                                        imageVector = if (importedPassphraseVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                        contentDescription = if (importedPassphraseVisible) "Hide passphrase" else "Show passphrase",
-                                    )
-                                }
-                            },
-                            visualTransformation = if (importedPassphraseVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.None,
-                                autoCorrectEnabled = false,
-                                keyboardType = KeyboardType.Password,
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .semantics { contentType = ContentType.Password },
-                        )
-                        importedKeyError?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        }
-                        Button(
-                            onClick = { showParsedKey(parseImportedKey()) },
-                            enabled = importedPem.isNotBlank(),
-                        ) { Text("Validate key") }
-                        // The parsed key line is machine truth; the "Parsed:" label in front of it is
-                        // prose.
-                        importedPublicKeyPreview?.let {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text("Parsed:", style = MaterialTheme.typography.bodySmall)
-                                MachineText(it, style = MaterialTheme.typography.bodySmall)
+                    when (authKind) {
+                        AuthKind.STORED_KEY -> {
+                            if (storedKeysOrNull != null && loginKeys.isEmpty()) {
+                                DimText(
+                                    if (storedKeys.any { it.type == CredentialType.PRIVATE_KEY.name }) {
+                                        "No keys that can sign in yet. Pick Import key or Generate key instead."
+                                    } else {
+                                        "No keys yet. Pick Import key or Generate key instead."
+                                    },
+                                )
+                            }
+                            loginKeys.forEach { key ->
+                                RadioRow(
+                                    selected = key.id == storedKeyId,
+                                    onClick = {
+                                        if (storedKeyId != key.id) resetCertificate(key.certificate)
+                                        storedKeyId = key.id
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { KeyChoice(key) }
+                            }
+                            loginKeys.firstOrNull { it.id == storedKeyId }?.let { key ->
+                                CertificateControls(key.publicKeyText)
+                                DimText("A certificate belongs to the key, so this applies to every host that uses it.")
                             }
                         }
 
-                        CertificateControls(importedPublicKeyPreview ?: existingPublicKeyText)
+                        AuthKind.PASSWORD ->
+                            OutlinedTextField(
+                                value = password,
+                                onValueChange = { password = it },
+                                label = { Text("Password") },
+                                singleLine = true,
+                                trailingIcon = {
+                                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                        Icon(
+                                            imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                            contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                        )
+                                    }
+                                },
+                                supportingText = if (existing != null && originalAuthKind == AuthKind.PASSWORD && storedSecretPresent) {
+                                    { Text("Leave blank to keep the saved password") }
+                                } else null,
+                                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.None,
+                                    autoCorrectEnabled = false,
+                                    keyboardType = KeyboardType.Password,
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .semantics { contentType = ContentType.Password },
+                            )
+
+                        AuthKind.IMPORT_KEY -> {
+                            Button(onClick = { pickDocument.launch(arrayOf("*/*")) }) { Text("Pick key file") }
+                            // PuTTY .ppk has always worked - sshj registers PuTTYKeyFile and the picker takes
+                            // any MIME type - but nothing said so, and users asked for a feature already there.
+                            // Ed25519 .ppk is the one exception, refused with its own message.
+                            Text(
+                                "OpenSSH, PEM/PKCS#8 or PuTTY .ppk.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            OutlinedTextField(
+                                value = importedPem,
+                                onValueChange = { setImportedPem(it) },
+                                label = { Text("Or paste private key") },
+                                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                            )
+                            OutlinedTextField(
+                                value = importedPassphrase,
+                                onValueChange = { importedPassphrase = it },
+                                label = { Text("Passphrase (if encrypted)") },
+                                singleLine = true,
+                                trailingIcon = {
+                                    IconButton(onClick = { importedPassphraseVisible = !importedPassphraseVisible }) {
+                                        Icon(
+                                            imageVector = if (importedPassphraseVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                            contentDescription = if (importedPassphraseVisible) "Hide passphrase" else "Show passphrase",
+                                        )
+                                    }
+                                },
+                                visualTransformation = if (importedPassphraseVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.None,
+                                    autoCorrectEnabled = false,
+                                    keyboardType = KeyboardType.Password,
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .semantics { contentType = ContentType.Password },
+                            )
+                            importedKeyError?.let {
+                                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Button(
+                                onClick = { showParsedKey(parseImportedKey()) },
+                                enabled = importedPem.isNotBlank(),
+                            ) { Text("Validate key") }
+                            // The parsed key line is machine truth; the "Parsed:" label in front of it is
+                            // prose.
+                            importedPublicKeyPreview?.let {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text("Parsed:", style = MaterialTheme.typography.bodySmall)
+                                    MachineText(it, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+
+                            CertificateControls(importedPublicKeyPreview ?: existingPublicKeyText)
+                        }
+
+                        AuthKind.GENERATE_KEY -> {
+                            PickerRow(
+                                title = "Algorithm",
+                                value = { DimText(generateAlgorithm.label) },
+                            ) { dismiss ->
+                                GeneratedKeyAlgorithm.entries.forEach { algorithm ->
+                                    DropdownMenuItem(
+                                        text = { Text(algorithm.label) },
+                                        onClick = { generateAlgorithm = algorithm; dismiss() },
+                                    )
+                                }
+                            }
+                            Button(onClick = {
+                                generatedKey = generateKeyPair(generateAlgorithm, hostKeyLabel(label))
+                            }) { Text(if (generatedKey == null) "Generate key" else "Generate another") }
+                            generatedKey?.let { key ->
+                                Text(
+                                    "Next, add this public key to ~/.ssh/authorized_keys on the server, then save:",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                MachineText(key.publicKeyLine, style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        clipboard.setClipEntry(
+                                            ClipEntry(
+                                                ClipData.newPlainText("public key", key.publicKeyLine)
+                                            )
+                                        )
+                                    }
+                                }) {
+                                    Text("Copy public key")
+                                }
+                            }
+                        }
+
+                        AuthKind.KEYBOARD_INTERACTIVE ->
+                            Text(
+                                "The server will prompt for whatever it needs (password, TOTP code, ...) when connecting.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                     }
 
-                    AuthKind.GENERATE_KEY -> {
-                        PickerRow(
-                            title = "Algorithm",
-                            value = { DimText(generateAlgorithm.label) },
-                        ) { dismiss ->
-                            GeneratedKeyAlgorithm.entries.forEach { algorithm ->
-                                DropdownMenuItem(
-                                    text = { Text(algorithm.label) },
-                                    onClick = { generateAlgorithm = algorithm; dismiss() },
+                    if (authKind != AuthKind.KEYBOARD_INTERACTIVE && authKind != AuthKind.STORED_KEY) {
+                        SettingsCardDivider()
+                        SettingsSwitch(
+                            title = "Require biometric unlock",
+                            description =
+                                if (keepExistingCredential) {
+                                    "Enter the password or key again to change this."
+                                } else {
+                                    "Ask for a fingerprint before this credential is used."
+                                },
+                            checked = requireBiometric,
+                            onCheckedChange = { requireBiometric = it },
+                            enabled = !keepExistingCredential,
+                        )
+                    }
+                }
+
+                // 3. CONNECTION & RESILIENCE
+                SettingsGroupCard(title = "Connection & Resilience", icon = Icons.Outlined.Sync) {
+                    // QoL 4: Test Connection Probe
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Test connection",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                            )
+                            Text(
+                                text = "Probe host reachability and inspect SSH handshake.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val hostToTest = hostname.trim()
+                                val portToTest = port.toIntOrNull() ?: 22
+                                testingConnection = true
+                                connectionTestResult = null
+                                scope.launch {
+                                    val res = testHostReachability(hostToTest, portToTest)
+                                    connectionTestResult = res
+                                    testingConnection = false
+                                }
+                            },
+                            enabled = !testingConnection && hostname.isNotBlank() && port.toIntOrNull() != null,
+                        ) {
+                            if (testingConnection) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Testing...")
+                            } else {
+                                Icon(Icons.Outlined.NetworkCheck, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Test")
+                            }
+                        }
+                    }
+
+                    connectionTestResult?.let { result ->
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (result.success) StatusColors.ok().copy(alpha = 0.15f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, if (result.success) StatusColors.ok().copy(alpha = 0.5f) else MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = if (result.success) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = if (result.success) StatusColors.ok() else MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    text = result.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (result.success) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onErrorContainer,
                                 )
                             }
                         }
-                        Button(onClick = {
-                            generatedKey = generateKeyPair(generateAlgorithm, hostKeyLabel(label))
-                        }) { Text(if (generatedKey == null) "Generate key" else "Generate another") }
-                        generatedKey?.let { key ->
-                            Text(
-                                "Next, add this public key to ~/.ssh/authorized_keys on the server, then save:",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            MachineText(key.publicKeyLine, style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = {
-                                scope.launch {
-                                    clipboard.setClipEntry(
-                                        ClipEntry(
-                                            ClipData.newPlainText("public key", key.publicKeyLine)
-                                        )
-                                    )
-                                }
-                            }) {
-                                Text("Copy public key")
-                            }
-                        }
                     }
 
-                    AuthKind.KEYBOARD_INTERACTIVE ->
-                        Text(
-                            "The server will prompt for whatever it needs (password, TOTP code, ...) when connecting.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                }
+                    SettingsCardDivider()
 
-                if (authKind != AuthKind.KEYBOARD_INTERACTIVE && authKind != AuthKind.STORED_KEY) {
                     SettingsSwitch(
-                        title = "Require biometric unlock",
-                        description =
-                            if (keepExistingCredential) {
-                                "Enter the password or key again to change this."
-                            } else {
-                                "Ask for a fingerprint before this credential is used."
-                            },
-                        checked = requireBiometric,
-                        onCheckedChange = { requireBiometric = it },
-                        enabled = !keepExistingCredential,
+                        title = "Resilient session",
+                        description = "Reattach to the same tmux session after a reconnect. Falls back " +
+                                "to a plain shell without tmux.",
+                        checked = resilientSession,
+                        onCheckedChange = { resilientSession = it },
                     )
-                }
 
-                // Every var read below is `remember`'d above this call, not inside it: state has to
-                // survive collapse and expand. See this file's doc.
-                CollapsibleSection("Connection") {
+                    SettingsCardDivider()
+
                     // Excludes this host itself - an immediate one-host cycle is the only case cheap to
                     // rule out.
                     val jumpHost = allHosts.firstOrNull { it.id == proxyJumpHostId }
@@ -1029,13 +1238,7 @@ fun AddEditHostScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
-                    SettingsSwitch(
-                        title = "Resilient session",
-                        description = "Reattach to the same tmux session after a reconnect. Falls back " +
-                                "to a plain shell without tmux.",
-                        checked = resilientSession,
-                        onCheckedChange = { resilientSession = it },
-                    )
+                    SettingsCardDivider()
 
                     SettingsSwitch(
                         title = "Agent forwarding",
@@ -1075,36 +1278,9 @@ fun AddEditHostScreen(
                     }
                 }
 
-                CollapsibleSection("Appearance") {
-                    SettingsSwitch(
-                        title = "Terminal profile override",
-                        description = "Font, cursor and scrollback for this host only.",
-                        checked = terminalProfileOverride != null,
-                        onCheckedChange = { on -> if (on) enableProfileOverride() else disableProfileOverride() },
-                    )
-                    if (terminalProfileOverride != null) {
-                        SettingsRow(
-                            title = "Edit terminal profile",
-                            chevron = true,
-                            onClick = { overrideEditor = OverrideEditor.TERMINAL_PROFILE },
-                        )
-                    }
-
-                    SettingsSwitch(
-                        title = "Colour scheme override",
-                        description = "A different palette for this host only.",
-                        checked = colorSchemeOverride != null,
-                        onCheckedChange = { on -> if (on) enableSchemeOverride() else disableSchemeOverride() },
-                    )
-                    if (colorSchemeOverride != null) {
-                        SettingsRow(
-                            title = "Edit colour scheme",
-                            chevron = true,
-                            onClick = { overrideEditor = OverrideEditor.COLOUR_SCHEME },
-                        )
-                    }
-
-                    Text("Colour", style = MaterialTheme.typography.labelLarge)
+                // 4. APPEARANCE & TERMINAL
+                SettingsGroupCard(title = "Appearance & Terminal", icon = Icons.Outlined.Palette) {
+                    Text("Host accent colour", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium))
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -1136,6 +1312,8 @@ fun AddEditHostScreen(
                     }
                     DimText("Marks this host in the list. Blank follows its group's colour.")
 
+                    SettingsCardDivider()
+
                     val layoutName = keyBarLayouts.firstOrNull { it.id == keyBarLayoutId }?.name
                     PickerRow(
                         title = "Key bar layout",
@@ -1152,9 +1330,42 @@ fun AddEditHostScreen(
                             )
                         }
                     }
+
+                    SettingsCardDivider()
+
+                    SettingsSwitch(
+                        title = "Terminal profile override",
+                        description = "Font, cursor and scrollback for this host only.",
+                        checked = terminalProfileOverride != null,
+                        onCheckedChange = { on -> if (on) enableProfileOverride() else disableProfileOverride() },
+                    )
+                    if (terminalProfileOverride != null) {
+                        SettingsRow(
+                            title = "Edit terminal profile",
+                            chevron = true,
+                            onClick = { overrideEditor = OverrideEditor.TERMINAL_PROFILE },
+                        )
+                    }
+
+                    SettingsCardDivider()
+
+                    SettingsSwitch(
+                        title = "Colour scheme override",
+                        description = "A different palette for this host only.",
+                        checked = colorSchemeOverride != null,
+                        onCheckedChange = { on -> if (on) enableSchemeOverride() else disableSchemeOverride() },
+                    )
+                    if (colorSchemeOverride != null) {
+                        SettingsRow(
+                            title = "Edit colour scheme",
+                            chevron = true,
+                            onClick = { overrideEditor = OverrideEditor.COLOUR_SCHEME },
+                        )
+                    }
                 }
 
-                CollapsibleSection("Wake-on-LAN") {
+                // 5. WAKE-ON-LAN
+                SettingsGroupCard(title = "Wake-on-LAN", icon = Icons.Outlined.SettingsEthernet) {
                     OutlinedTextField(
                         value = macAddress,
                         // Clears the rejection this field caused, so the red line cannot outlive a fix.
@@ -1202,33 +1413,85 @@ fun AddEditHostScreen(
                     }
                 }
 
+                // 6 & 7. PORT FORWARDING & KEY ENROLMENT
                 if (existing != null) {
-                    CollapsibleSection("Port forwarding") {
+                    SettingsGroupCard(title = "Port Forwarding", icon = Icons.Outlined.SwapHoriz) {
                         TunnelsSection(
                             host = existing,
                             portForwardDao = portForwardDao,
-                            sessionManager = sessionManager
+                            sessionManager = sessionManager,
                         )
                     }
-                    CollapsibleSection("Key enrolment") {
+                    SettingsGroupCard(title = "Key Enrolment", icon = Icons.Outlined.Security) {
                         KeyEnrolmentSection(
                             host = existing,
                             credentialVault = credentialVault,
                             hostDao = hostDao,
                             keyEnrolment = keyEnrolment,
-                            activity = activity
+                            activity = activity,
                         )
                     }
                 } else {
-                    DimText("Port forwarding and key enrolment appear here once the host is saved.")
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                "Port forwarding tunnels and server key enrolment appear here once the host is saved.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
 
-                if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = ::leave) { Text("Cancel") }
-                    Button(onClick = ::save, enabled = canSave()) { Text("Save") }
+                if (error != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = error!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
                 }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedButton(
+                        onClick = ::leave,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = ::save,
+                        enabled = canSave(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Save")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }

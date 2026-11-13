@@ -2,20 +2,24 @@ package io.github.lordofpolls.shellwave.terminal
 
 import android.view.KeyEvent
 import android.view.ViewConfiguration
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Keyboard
@@ -27,6 +31,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,10 +39,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -92,6 +100,10 @@ fun KeyBar(
     onOpenPromptComposer: (() -> Unit)? = null,
     onOpenQuickResponse: (() -> Unit)? = null,
     onOpenDigest: (() -> Unit)? = null,
+    quickDrawerActive: Boolean = false,
+    onToggleQuickDrawer: (() -> Unit)? = null,
+    onQuickAction: ((text: String, sendEnter: Boolean) -> Unit)? = null,
+    onSendRaw: ((control: String) -> Unit)? = null,
     keys: List<KeyBarKey> = DEFAULT_KEY_BAR_KEYS,
     rows: Int = 1,
     modifier: Modifier = Modifier,
@@ -162,35 +174,75 @@ fun KeyBar(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(KeyGap),
         ) {
-            buttons.chunked(perRow).forEach { rowButtons ->
-                // Two rows can still be wider than the window; scroll rather than crowd.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(KeyGap),
-                ) {
-                    rowButtons.forEach { it() }
+            if (quickDrawerActive && onQuickAction != null) {
+                QuickResponseDrawerRows(
+                    onQuickAction = onQuickAction,
+                    onSendRaw = onSendRaw,
+                    onToggleQuickDrawer = onToggleQuickDrawer,
+                )
+            } else {
+                buttons.chunked(perRow).forEach { rowButtons ->
+                    // Two rows can still be wider than the window; scroll rather than crowd.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(KeyGap),
+                    ) {
+                        rowButtons.forEach { it() }
+                    }
                 }
             }
         }
         if (hasCluster) CursorCluster(onSpecialKey = onSpecialKey)
 
-        // Pinned controls at the right edge: 2x2 grid of circular controls (Composer, Robot, Digest, Keyboard)
+        // Pinned controls at the right edge: 2x2 grid of circular controls (Composer/Enter, Robot, Digest, Keyboard)
         Column(
             verticalArrangement = Arrangement.spacedBy(KeyGap),
             horizontalAlignment = Alignment.End,
         ) {
             val topRowKeys: List<@Composable () -> Unit> = buildList {
-                if (onOpenPromptComposer != null) add { PromptComposerKey(onClick = onOpenPromptComposer) }
-                if (onOpenQuickResponse != null) add { AgentQuickResponseKey(onClick = onOpenQuickResponse) }
+                if (onOpenPromptComposer != null) {
+                    if (quickDrawerActive) {
+                        add {
+                            DedicatedEnterKey(
+                                onClick = { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
+                                onLongClick = onOpenPromptComposer,
+                            )
+                        }
+                    } else {
+                        add {
+                            PromptComposerKey(
+                                onClick = onOpenPromptComposer,
+                                onLongClick = { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
+                            )
+                        }
+                    }
+                }
+                if (onOpenQuickResponse != null) {
+                    add {
+                        AgentQuickResponseKey(
+                            onClick = onOpenQuickResponse,
+                            onLongClick = onToggleQuickDrawer,
+                            active = quickDrawerActive,
+                        )
+                    }
+                }
             }
             val bottomRowKeys: List<@Composable () -> Unit> = buildList {
-                if (onOpenDigest != null) add { AgentDigestKey(onClick = onOpenDigest) }
+                if (onOpenDigest != null) {
+                    add {
+                        AgentDigestKey(
+                            onClick = onOpenDigest,
+                            onLongClick = onToggleQuickDrawer,
+                        )
+                    }
+                }
                 add {
                     KeyboardKey(
                         visible = keyboardVisible,
                         onClick = onKeyboardToggle,
+                        onLongClick = { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
                         modifier = Modifier.size(ClusterKeySize),
                     )
                 }
@@ -216,19 +268,179 @@ fun KeyBar(
 private const val MIN_BUTTONS_FOR_FREE_SECOND_ROW = 4
 
 /**
- * Triggers the on-device Gemini Nano terminal output digest.
+ * Two-row Quick Response Drawer replacing the left-side terminal keys when flipped on,
+ * giving immediate 1-tap access to Enter, y/n, numbered choices 1-4, and Ctrl+C.
  */
 @Composable
-private fun AgentDigestKey(onClick: () -> Unit) {
+private fun QuickResponseDrawerRows(
+    onQuickAction: (text: String, sendEnter: Boolean) -> Unit,
+    onSendRaw: ((control: String) -> Unit)?,
+    onToggleQuickDrawer: (() -> Unit)?,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(KeyGap),
+    ) {
+        QuickDrawerButton(
+            label = "↵ ENTER",
+            contentDescription = "Send Enter key",
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            onClick = { onQuickAction("", true) },
+        )
+        QuickDrawerButton(
+            label = "YES (Y)",
+            contentDescription = "Send y and Enter",
+            onClick = { onQuickAction("y", true) },
+        )
+        QuickDrawerButton(
+            label = "NO (N)",
+            contentDescription = "Send n and Enter",
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            onClick = { onQuickAction("n", true) },
+        )
+        QuickDrawerButton(
+            label = "^C",
+            contentDescription = "Send Ctrl+C interrupt",
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError,
+            onClick = {
+                if (onSendRaw != null) {
+                    onSendRaw("\u0003")
+                } else {
+                    onQuickAction("\u0003", false)
+                }
+            },
+        )
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(KeyGap),
+    ) {
+        (1..4).forEach { num ->
+            QuickDrawerButton(
+                label = "$num",
+                contentDescription = "Send $num and Enter",
+                onClick = { onQuickAction("$num", true) },
+            )
+        }
+        if (onToggleQuickDrawer != null) {
+            QuickDrawerButton(
+                label = "⇄ KEYS",
+                contentDescription = "Switch back to standard keys",
+                onClick = onToggleQuickDrawer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickDrawerButton(
+    label: String,
+    contentDescription: String,
+    onClick: () -> Unit,
+    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
+    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+) {
+    val haptics = LocalHapticFeedback.current
+    val isWide = label.length > 2
     FilledTonalButton(
-        onClick = onClick,
-        modifier =
+        onClick = {
+            haptics.keyTap()
+            onClick()
+        },
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        modifier = if (isWide) {
+            Modifier
+                .height(ClusterKeySize)
+                .widthIn(min = ClusterKeySize)
+                .semantics { this.contentDescription = contentDescription }
+        } else {
             Modifier
                 .size(ClusterKeySize)
-                .semantics {
-                    contentDescription = "Summarize terminal output"
+                .semantics { this.contentDescription = contentDescription }
+        },
+        contentPadding = if (isWide) PaddingValues(horizontal = 10.dp, vertical = 0.dp) else PaddingValues(0.dp),
+    ) {
+        MachineText(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+        )
+    }
+}
+
+/**
+ * Shared circular button in the pinned right-hand 2x2 grid supporting both tap and long-press.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PinnedActionKey(
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
+    onLongClickLabel: String? = null,
+    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
+    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+    content: @Composable () -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
+    Surface(
+        shape = CircleShape,
+        color = containerColor,
+        contentColor = contentColor,
+        modifier = modifier
+            .size(ClusterKeySize)
+            .minimumInteractiveComponentSize()
+            .clip(CircleShape)
+            .combinedClickable(
+                onClick = {
+                    haptics.keyTap()
+                    onClick()
                 },
-        contentPadding = PaddingValues(0.dp),
+                onLongClick = onLongClick?.let { longAction ->
+                    {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        longAction()
+                    }
+                },
+                onClickLabel = onClickLabel,
+                onLongClickLabel = onLongClickLabel,
+                role = Role.Button,
+            )
+            .semantics {
+                this.contentDescription = contentDescription
+            },
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            content()
+        }
+    }
+}
+
+/**
+ * Triggers the on-device Gemini Nano terminal output digest; long-press flips the quick response drawer.
+ */
+@Composable
+private fun AgentDigestKey(
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
+    PinnedActionKey(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        contentDescription = "Summarize terminal output",
+        onClickLabel = "Summarize terminal output",
+        onLongClickLabel = "Toggle quick response drawer",
     ) {
         Icon(
             imageVector = Icons.Outlined.AutoAwesome,
@@ -239,19 +451,19 @@ private fun AgentDigestKey(onClick: () -> Unit) {
 }
 
 /**
- * Opens the multi-line Prompt Composer dialog for drafting complex AI commands or dictating prompts.
+ * Opens the multi-line Prompt Composer dialog; long-press immediately sends Enter.
  */
 @Composable
-private fun PromptComposerKey(onClick: () -> Unit) {
-    FilledTonalButton(
+private fun PromptComposerKey(
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
+    PinnedActionKey(
         onClick = onClick,
-        modifier =
-            Modifier
-                .size(ClusterKeySize)
-                .semantics {
-                    contentDescription = "Compose prompt for AI agent"
-                },
-        contentPadding = PaddingValues(0.dp),
+        onLongClick = onLongClick,
+        contentDescription = "Compose prompt for AI agent, hold to send Enter",
+        onClickLabel = "Open prompt composer",
+        onLongClickLabel = "Send Enter",
     ) {
         Icon(
             imageVector = Icons.Outlined.EditNote,
@@ -262,19 +474,61 @@ private fun PromptComposerKey(onClick: () -> Unit) {
 }
 
 /**
- * Opens the Quick Response menu for immediate 1-tap interaction with AI coding agents.
+ * Dedicated 1-tap Enter key shown in place of [PromptComposerKey] when the Quick Response Drawer is active;
+ * long-press opens the Prompt Composer.
  */
 @Composable
-private fun AgentQuickResponseKey(onClick: () -> Unit) {
-    FilledTonalButton(
+private fun DedicatedEnterKey(
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    PinnedActionKey(
         onClick = onClick,
-        modifier =
-            Modifier
-                .size(ClusterKeySize)
-                .semantics {
-                    contentDescription = "Open agent quick response menu"
-                },
-        contentPadding = PaddingValues(0.dp),
+        onLongClick = onLongClick,
+        contentDescription = "Send Enter key, hold to open prompt composer",
+        onClickLabel = "Send Enter",
+        onLongClickLabel = "Open prompt composer",
+        containerColor = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Outlined.KeyboardReturn,
+            contentDescription = null,
+            modifier = Modifier.size(KeyIconSize),
+        )
+    }
+}
+
+/**
+ * Opens the Quick Response menu on tap; long-press flips the KeyBar between standard keys
+ * and the Quick Response Drawer.
+ */
+@Composable
+private fun AgentQuickResponseKey(
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    active: Boolean = false,
+) {
+    PinnedActionKey(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        contentDescription = if (active) {
+            "Open agent quick response menu, quick drawer active"
+        } else {
+            "Open agent quick response menu, hold to flip quick drawer"
+        },
+        onClickLabel = "Open agent quick response menu",
+        onLongClickLabel = "Toggle quick response drawer",
+        containerColor = if (active) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        },
+        contentColor = if (active) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        },
     ) {
         Icon(
             imageVector = Icons.Outlined.SmartToy,
@@ -285,7 +539,7 @@ private fun AgentQuickResponseKey(onClick: () -> Unit) {
 }
 
 /**
- * Shows the soft keyboard, or hides it when it is already up.
+ * Shows the soft keyboard, or hides it when it is already up; long-press sends Enter.
  *
  * This exists because focus is not visibility. The terminal's IME shim ([TerminalInputCapture]) is
  * focused for the whole life of a session, so once the keyboard has been dismissed - by the back
@@ -302,17 +556,20 @@ private fun AgentQuickResponseKey(onClick: () -> Unit) {
 private fun KeyboardKey(
     visible: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    FilledTonalButton(
+    PinnedActionKey(
         onClick = onClick,
-        // Square at the cluster's size so the pinned right-hand edge of the bar reads as one block
-        // of controls rather than as a key of an odd width that wandered out of the flow.
-        modifier =
-            modifier.semantics {
-                contentDescription = if (visible) "Hide the keyboard" else "Show the keyboard"
-            },
-        contentPadding = PaddingValues(0.dp),
+        onLongClick = onLongClick,
+        contentDescription = if (visible) {
+            "Hide the keyboard, hold to send Enter"
+        } else {
+            "Show the keyboard, hold to send Enter"
+        },
+        onClickLabel = if (visible) "Hide keyboard" else "Show keyboard",
+        onLongClickLabel = "Send Enter",
+        modifier = modifier,
     ) {
         Icon(
             imageVector = if (visible) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,

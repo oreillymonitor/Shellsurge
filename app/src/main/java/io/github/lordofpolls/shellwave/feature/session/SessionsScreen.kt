@@ -528,6 +528,7 @@ internal fun SessionTabBody(
     var tabPromptComposerOpen by remember { mutableStateOf(false) }
     var tabComposerInitialText by remember { mutableStateOf("") }
     var tabQuickResponseOpen by remember { mutableStateOf(false) }
+    var quickDrawerActive by remember(sessionId) { mutableStateOf(false) }
 
     // topRow <= 0 is how far into the scrollback the view is; scrollDragRemainderPx carries a
     // drag's sub-cell remainder between events, so slow swipes accumulate to a full row instead of
@@ -1137,6 +1138,18 @@ internal fun SessionTabBody(
             }
         }
 
+        fun sendQuickText(text: String, sendEnter: Boolean) {
+            val emulator = terminalEmulator
+            if (emulator != null && text.isNotEmpty()) {
+                emulator.paste(text)
+            } else if (text.isNotEmpty()) {
+                summary.connection.write(text.replace("\n", "\r"))
+            }
+            if (sendEnter) {
+                summary.connection.write("\r")
+            }
+        }
+
         // `imePadding()` belongs here, on the key bar alone, never on the outer Column. With it on
         // the Column - whose other child is a `weight(1f)` Box - each frame of the IME-hide
         // animation recomputes the remaining-space split from a bottom padding that is itself still
@@ -1168,6 +1181,10 @@ internal fun SessionTabBody(
             },
             onOpenQuickResponse = { tabQuickResponseOpen = true },
             onOpenDigest = { triggerDigest(speakImmediately = false) },
+            quickDrawerActive = quickDrawerActive,
+            onToggleQuickDrawer = { quickDrawerActive = !quickDrawerActive },
+            onQuickAction = { text, sendEnter -> sendQuickText(text, sendEnter) },
+            onSendRaw = { control -> summary.connection.write(control) },
             keys = keyBarKeys,
             rows = keyBarRows,
             modifier = Modifier.imePadding(),
@@ -1175,17 +1192,7 @@ internal fun SessionTabBody(
 
         if (tabQuickResponseOpen) {
             AgentQuickResponseSheet(
-                onSendText = { text, sendEnter ->
-                    val emulator = terminalEmulator
-                    if (emulator != null && text.isNotEmpty()) {
-                        emulator.paste(text)
-                    } else if (text.isNotEmpty()) {
-                        summary.connection.write(text.replace("\n", "\r"))
-                    }
-                    if (sendEnter) {
-                        summary.connection.write("\r")
-                    }
-                },
+                onSendText = { text, sendEnter -> sendQuickText(text, sendEnter) },
                 onSendRaw = { control ->
                     summary.connection.write(control)
                 },
@@ -1198,6 +1205,8 @@ internal fun SessionTabBody(
                     triggerDigest(speakImmediately = true)
                 },
                 isSummarizing = isAnalyzingDigest,
+                isQuickBarActive = quickDrawerActive,
+                onToggleQuickBar = { quickDrawerActive = !quickDrawerActive },
                 onDismiss = {
                     tabQuickResponseOpen = false
                     focusRequester.requestFocus()
@@ -1208,17 +1217,7 @@ internal fun SessionTabBody(
         if (tabPromptComposerOpen) {
             PromptComposerDialog(
                 initialText = tabComposerInitialText,
-                onSend = { prompt, enter ->
-                    val emulator = terminalEmulator
-                    if (emulator != null) {
-                        emulator.paste(prompt)
-                    } else {
-                        summary.connection.write(prompt.replace("\n", "\r"))
-                    }
-                    if (enter) {
-                        summary.connection.write("\r")
-                    }
-                },
+                onSend = { prompt, enter -> sendQuickText(prompt, enter) },
                 onDismiss = {
                     tabPromptComposerOpen = false
                     tabComposerInitialText = ""

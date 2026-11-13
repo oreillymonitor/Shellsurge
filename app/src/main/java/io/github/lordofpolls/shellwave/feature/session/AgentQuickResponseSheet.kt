@@ -1,8 +1,8 @@
 package io.github.lordofpolls.shellwave.feature.session
 
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,8 +32,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -42,7 +41,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -57,7 +55,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -67,8 +67,133 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
 /**
- * Compact bottom sheet menu providing immediate 1-tap responses, accessible slash commands
- * (/models, /usage, etc.), tight vibe directives, and quick controls for AI coding agents.
+ * Supported AI coding agent CLIs whose common slash commands differ (e.g. `/model` in `agy`
+ * vs `/models` in `opencode`).
+ */
+internal enum class AgentCliFlavor(
+    val id: String,
+    val displayName: String,
+    val slashCommands: List<String>,
+    val highlightedCommands: Set<String>,
+) {
+    AGY(
+        id = "agy",
+        displayName = "agy",
+        slashCommands = listOf(
+            "/model",
+            "/usage",
+            "/plan",
+            "/goal",
+            "/compact",
+            "/diff",
+            "/grill-me",
+            "/boost",
+            "/teamwork",
+            "/browser",
+            "/learn",
+            "/resume",
+            "/btw",
+            "/help",
+        ),
+        highlightedCommands = setOf("/model", "/usage", "/plan", "/goal"),
+    ),
+    OPENCODE(
+        id = "opencode",
+        displayName = "opencode",
+        slashCommands = listOf(
+            "/models",
+            "/compact",
+            "/sessions",
+            "/new",
+            "/undo",
+            "/redo",
+            "/review",
+            "/init",
+            "/share",
+            "/mcps",
+            "/connect",
+            "/help",
+            "/clear",
+        ),
+        highlightedCommands = setOf("/models", "/compact", "/sessions", "/new"),
+    ),
+}
+
+internal object AgentCliPreferences {
+    private const val PREFS_NAME = "agent_cli_prefs"
+    private const val KEY_CLI_FLAVOR = "cli_flavor"
+
+    fun getFlavor(context: Context): AgentCliFlavor {
+        val stored = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_CLI_FLAVOR, AgentCliFlavor.AGY.id)
+        return AgentCliFlavor.entries.firstOrNull { it.id == stored } ?: AgentCliFlavor.AGY
+    }
+
+    fun setFlavor(context: Context, flavor: AgentCliFlavor) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CLI_FLAVOR, flavor.id)
+            .apply()
+    }
+}
+
+/**
+ * Compact segmented pill for switching slash command presets between `agy` and `opencode`.
+ */
+@Composable
+internal fun AgentCliTogglePill(
+    selected: AgentCliFlavor,
+    onSelect: (AgentCliFlavor) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = modifier.height(24.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(2.dp),
+        ) {
+            AgentCliFlavor.entries.forEach { flavor ->
+                val isSelected = flavor == selected
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onSelect(flavor) },
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = flavor.displayName,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Compact bottom sheet menu providing immediate 1-tap responses, switchable slash commands
+ * (`agy` vs `opencode`), tight vibe directives, and quick controls for AI coding agents.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -78,12 +203,21 @@ internal fun AgentQuickResponseSheet(
     onOpenComposerWithText: (initialText: String) -> Unit,
     onSummarize: (() -> Unit)? = null,
     isSummarizing: Boolean = false,
+    isQuickBarActive: Boolean = false,
+    onToggleQuickBar: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var autoDismiss by remember { mutableStateOf(true) }
+    var cliFlavor by remember { mutableStateOf(AgentCliPreferences.getFlavor(context)) }
+
+    fun selectFlavor(flavor: AgentCliFlavor) {
+        cliFlavor = flavor
+        AgentCliPreferences.setFlavor(context, flavor)
+    }
 
     fun execute(action: () -> Unit) {
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -145,27 +279,59 @@ internal fun AgentQuickResponseSheet(
                     }
                 }
 
-                FilledTonalButton(
-                    onClick = {
-                        scope.launch {
-                            sheetState.hide()
-                            onDismiss()
-                            onOpenComposerWithText("")
-                        }
-                    },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    modifier = Modifier.height(32.dp),
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        Icons.Outlined.EditNote,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "Composer",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    )
+                    if (onToggleQuickBar != null) {
+                        FilledTonalButton(
+                            onClick = { execute { onToggleQuickBar() } },
+                            colors = if (isQuickBarActive) {
+                                ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            } else {
+                                ButtonDefaults.filledTonalButtonColors()
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.SwapHoriz,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                            )
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                text = "Quick Bar",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            )
+                        }
+                    }
+
+                    FilledTonalButton(
+                        onClick = {
+                            scope.launch {
+                                sheetState.hide()
+                                onDismiss()
+                                onOpenComposerWithText("")
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        modifier = Modifier.height(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.EditNote,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "Composer",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        )
+                    }
                 }
             }
 
@@ -331,42 +497,45 @@ internal fun AgentQuickResponseSheet(
             // Section 2: Standard System Prompts & Slash Commands (Prominent & Accessible)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Icon(
-                        Icons.Outlined.Code,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        text = "SYSTEM PROMPTS & SLASH COMMANDS",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Code,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = "SLASH COMMANDS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    AgentCliTogglePill(
+                        selected = cliFlavor,
+                        onSelect = { selectFlavor(it) },
                     )
                 }
-
-                val slashCommands = listOf(
-                    "/models",
-                    "/usage",
-                    "/compact",
-                    "/plan",
-                    "/goal",
-                    "/review",
-                    "/browser",
-                    "/learn",
-                    "/help",
-                    "/clear",
-                )
 
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    slashCommands.forEach { slash ->
+                    cliFlavor.slashCommands.forEach { slash ->
                         CompactDirectiveChip(
                             label = slash,
                             command = slash,
@@ -379,7 +548,7 @@ internal fun AgentQuickResponseSheet(
                                 }
                             },
                             isMonospace = true,
-                            highlight = slash in listOf("/models", "/usage", "/plan", "/goal"),
+                            highlight = slash in cliFlavor.highlightedCommands,
                         )
                     }
                 }
@@ -456,7 +625,10 @@ internal fun AgentQuickResponseSheet(
 
                 // agy
                 FilledTonalButton(
-                    onClick = { execute { onSendText("agy", true) } },
+                    onClick = {
+                        selectFlavor(AgentCliFlavor.AGY)
+                        execute { onSendText("agy", true) }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .height(30.dp),
@@ -469,7 +641,10 @@ internal fun AgentQuickResponseSheet(
 
                 // agy -c
                 FilledTonalButton(
-                    onClick = { execute { onSendText("agy -c", true) } },
+                    onClick = {
+                        selectFlavor(AgentCliFlavor.AGY)
+                        execute { onSendText("agy -c", true) }
+                    },
                     modifier = Modifier
                         .weight(1.2f)
                         .height(30.dp),
@@ -482,7 +657,10 @@ internal fun AgentQuickResponseSheet(
 
                 // opencode
                 FilledTonalButton(
-                    onClick = { execute { onSendText("opencode", true) } },
+                    onClick = {
+                        selectFlavor(AgentCliFlavor.OPENCODE)
+                        execute { onSendText("opencode", true) }
+                    },
                     modifier = Modifier
                         .weight(1.3f)
                         .height(30.dp),

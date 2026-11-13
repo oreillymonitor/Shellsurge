@@ -1,6 +1,7 @@
 package io.github.lordofpolls.shellwave.feature.session
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -130,10 +131,9 @@ internal object AgentCliPreferences {
     }
 
     fun setFlavor(context: Context, flavor: AgentCliFlavor) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_CLI_FLAVOR, flavor.id)
-            .apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putString(KEY_CLI_FLAVOR, flavor.id)
+        }
     }
 }
 

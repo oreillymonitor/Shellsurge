@@ -95,6 +95,7 @@ fun KeyBar(
     onAltToggle: () -> Unit,
     onSpecialKey: (keyCode: Int) -> Unit,
     onMacro: (text: String) -> Unit,
+    modifier: Modifier = Modifier,
     keyboardVisible: Boolean = false,
     onKeyboardToggle: () -> Unit = {},
     onOpenPromptComposer: (() -> Unit)? = null,
@@ -106,7 +107,6 @@ fun KeyBar(
     onSendRaw: ((control: String) -> Unit)? = null,
     keys: List<KeyBarKey> = DEFAULT_KEY_BAR_KEYS,
     rows: Int = 1,
-    modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
 
@@ -556,8 +556,8 @@ private fun AgentQuickResponseKey(
 private fun KeyboardKey(
     visible: Boolean,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
 ) {
     PinnedActionKey(
         onClick = onClick,

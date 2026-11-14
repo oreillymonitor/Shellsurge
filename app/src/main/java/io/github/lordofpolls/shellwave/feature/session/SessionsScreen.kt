@@ -576,6 +576,7 @@ internal fun SessionTabBody(
         hideKeyBarPref,
         configuration.keyboard,
         configuration.hardKeyboardHidden,
+        rememberKeyboardDevices(),
     )
     LaunchedEffect(keyBarHidden) {
         if (keyBarHidden) {

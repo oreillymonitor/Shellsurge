@@ -1,6 +1,24 @@
 # Changelog
 
 
+## 1.11.0 - 2026-11-23
+
+### New
+- Rebrand fork to ShellSurge (`io.github.oreillymonitor.shellsurge`) for side-by-side install
+- Add on-device Gemini Nano terminal digest with TTS read-aloud, guarded voice reply, and rule-based fallback
+- Add AI Voice Prompt Composer with spoken macros and on-device Gemini Nano prompt refinement
+- Add Agent Quick Response sheet and KeyBar quick-response drawer with per-agent toggles in Settings (`Claude Code`, `OpenCode`, `Codex CLI`, `Aider`, `Antigravity CLI`)
+- Add command & output notifications (`Completed` / `Response needed`) with idle settle and `OSC 133` / `9` / `777` support
+- Add unified tmux mouse-tracking & local scrollback scrollbar with 10-line stepper pills
+- Modernize Settings, Terminal configuration, and Host editor UI with Material 3 cards and public GitHub Releases update check
+
+### Fixed
+- Guard voice auto-listening with `RECORD_AUDIO` permission checks and prevent unconfirmed free-form speech execution
+- Prevent dismissed ambient `[y/N]` prompts from immediately re-opening on subsequent output ticks
+- Isolate Tasker automation intent actions/extras and remove committed debug keystore and store-only scaffolding
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.10.0...1.11.0)
+
 ## 1.10.0 - 2026-10-30
 
 ### Fixed

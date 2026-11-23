@@ -41,14 +41,18 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -73,6 +77,8 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
@@ -89,6 +95,7 @@ import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.OutputIdleDelay
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityInterval
 import io.github.lordofpolls.shellwave.core.prefs.ThemeMode
+import io.github.lordofpolls.shellwave.core.prefs.UpdatePreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.service.ACTION_RUN_SCRIPT
 import io.github.lordofpolls.shellwave.service.EXTRA_SCRIPT_ID
@@ -421,15 +428,26 @@ private fun AppUpdateSection(
     uriHandler: UriHandler,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val savedToken by rememberPrefState { UpdatePreferences.getGithubToken(it) }
     var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
+    var resolvingDownload by remember { mutableStateOf(false) }
+    var editingToken by rememberSaveable { mutableStateOf(false) }
+    var tokenDraft by remember { mutableStateOf("") }
+    var tokenVisible by remember { mutableStateOf(false) }
 
     val rowTitle = when (updateState) {
         is UpdateCheckState.UpdateAvailable -> "Update available"
         else -> "Check for updates"
     }
     val rowDescription = when (val state = updateState) {
-        UpdateCheckState.Idle -> "Check GitHub Releases for a newer APK."
+        UpdateCheckState.Idle ->
+            if (savedToken != null) {
+                "Check GitHub Releases for a newer APK."
+            } else {
+                "Check GitHub Releases (add a GitHub token below if this repo is private)."
+            }
         UpdateCheckState.Checking -> "Checking GitHub Releases…"
         is UpdateCheckState.UpToDate ->
             "You're on the latest release (${state.release.tagName})."
@@ -456,7 +474,7 @@ private fun AppUpdateSection(
                 if (updateState != UpdateCheckState.Checking) {
                     updateState = UpdateCheckState.Checking
                     scope.launch {
-                        updateState = checkForUpdate(BuildConfig.VERSION_NAME)
+                        updateState = checkForUpdate(BuildConfig.VERSION_NAME, savedToken)
                     }
                 }
             },
@@ -467,9 +485,23 @@ private fun AppUpdateSection(
             if (available != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(
+                        enabled = !resolvingDownload,
                         onClick = {
-                            val target = available.release.apkDownloadUrl ?: available.release.htmlUrl
-                            runCatching { uriHandler.openUri(target) }
+                            if (!resolvingDownload) {
+                                resolvingDownload = true
+                                scope.launch {
+                                    try {
+                                        val target = resolveApkDownloadUrl(
+                                            available.release,
+                                            savedToken,
+                                            BuildConfig.VERSION_NAME,
+                                        )
+                                        runCatching { uriHandler.openUri(target) }
+                                    } finally {
+                                        resolvingDownload = false
+                                    }
+                                }
+                            }
                         },
                     ) {
                         Icon(
@@ -478,7 +510,7 @@ private fun AppUpdateSection(
                             modifier = Modifier.size(ButtonDefaults.IconSize),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Download APK")
+                        Text(if (resolvingDownload) "Preparing…" else "Download APK")
                     }
                     OutlinedButton(
                         onClick = {
@@ -490,6 +522,103 @@ private fun AppUpdateSection(
                 }
             }
         }
+
+        SettingsCardDivider()
+
+        val tokenPreview = UpdatePreferences.maskedPreview(savedToken)
+        SettingsRow(
+            title = "GitHub update token",
+            description = if (tokenPreview != null) {
+                "Saved ($tokenPreview) · Authenticates private release checks and APK downloads."
+            } else {
+                "Optional fine-grained PAT (Contents: Read-only) required while this repo is private."
+            },
+            icon = Icons.Outlined.VpnKey,
+            badgeText = if (savedToken != null) "Saved" else null,
+            chevron = true,
+            onClick = {
+                tokenDraft = savedToken.orEmpty()
+                tokenVisible = false
+                editingToken = true
+            },
+        )
+    }
+
+    if (editingToken) {
+        AlertDialog(
+            onDismissRequest = { editingToken = false },
+            title = { Text("GitHub update token") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Paste a fine-grained GitHub Personal Access Token scoped to oreillymonitor/Shellwave with Contents: Read-only permission. Stored locally on this device and excluded from config exports.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = tokenDraft,
+                        onValueChange = { tokenDraft = it },
+                        label = { Text("Personal access token") },
+                        singleLine = true,
+                        visualTransformation = if (tokenVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                                Icon(
+                                    imageVector = if (tokenVisible) {
+                                        Icons.Outlined.VisibilityOff
+                                    } else {
+                                        Icons.Outlined.Visibility
+                                    },
+                                    contentDescription = if (tokenVisible) "Hide token" else "Show token",
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val cleaned = tokenDraft.trim().takeIf { it.isNotEmpty() }
+                        UpdatePreferences.setGithubToken(context, cleaned)
+                        editingToken = false
+                        if (cleaned != null) {
+                            updateState = UpdateCheckState.Checking
+                            scope.launch {
+                                updateState = checkForUpdate(BuildConfig.VERSION_NAME, cleaned)
+                            }
+                        } else {
+                            updateState = UpdateCheckState.Idle
+                        }
+                    },
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (savedToken != null) {
+                        TextButton(
+                            onClick = {
+                                UpdatePreferences.setGithubToken(context, null)
+                                updateState = UpdateCheckState.Idle
+                                editingToken = false
+                            },
+                        ) {
+                            Text("Clear")
+                        }
+                    }
+                    TextButton(onClick = { editingToken = false }) {
+                        Text("Cancel")
+                    }
+                }
+            },
+        )
     }
 }
 

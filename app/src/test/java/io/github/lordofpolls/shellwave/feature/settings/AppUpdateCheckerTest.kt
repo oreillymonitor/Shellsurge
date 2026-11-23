@@ -27,7 +27,7 @@ class AppUpdateCheckerTest {
     }
 
     @Test
-    fun `parseLatestReleaseJson extracts apk asset and preview`() {
+    fun `parseLatestReleaseJson extracts apk asset urls and preview`() {
         val json = """
             {
               "tag_name": "v1.10.36",
@@ -37,10 +37,12 @@ class AppUpdateCheckerTest {
               "assets": [
                 {
                   "name": "checksums.txt",
+                  "url": "https://api.github.com/repos/oreillymonitor/Shellwave/releases/assets/100",
                   "browser_download_url": "https://example.invalid/checksums.txt"
                 },
                 {
                   "name": "shellsurge-1.10.36.apk",
+                  "url": "https://api.github.com/repos/oreillymonitor/Shellwave/releases/assets/784226651",
                   "browser_download_url": "https://github.com/oreillymonitor/Shellwave/releases/download/v1.10.36/shellsurge-1.10.36.apk"
                 }
               ]
@@ -61,6 +63,10 @@ class AppUpdateCheckerTest {
             "https://github.com/oreillymonitor/Shellwave/releases/download/v1.10.36/shellsurge-1.10.36.apk",
             parsed.apkDownloadUrl,
         )
+        assertEquals(
+            "https://api.github.com/repos/oreillymonitor/Shellwave/releases/assets/784226651",
+            parsed.apkAssetApiUrl,
+        )
         assertEquals("Automated build from master.", parsed.notesPreview)
     }
 
@@ -77,6 +83,7 @@ class AppUpdateCheckerTest {
         val parsed = parseLatestReleaseJson(noAssetJson)
         assertNotNull(parsed)
         assertNull(parsed!!.apkDownloadUrl)
+        assertNull(parsed.apkAssetApiUrl)
         assertNull(parsed.notesPreview)
 
         assertNull(parseLatestReleaseJson("not json at all"))

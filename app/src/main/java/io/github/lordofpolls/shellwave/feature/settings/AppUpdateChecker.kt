@@ -10,6 +10,7 @@ import java.net.URL
 internal const val RELEASES_PAGE_URL = "$SOURCE_REPOSITORY_URL/releases/latest"
 private const val LATEST_RELEASE_API_URL =
     "https://api.github.com/repos/oreillymonitor/Shellwave/releases/latest"
+private const val GITHUB_API_VERSION = "2022-11-28"
 private const val HTTP_TIMEOUT_MS = 8_000
 
 /** Parsed metadata for the latest GitHub Release of this repository. */
@@ -20,6 +21,7 @@ data class AppReleaseInfo(
     val htmlUrl: String,
     val apkDownloadUrl: String?,
     val notesPreview: String?,
+    val apkAssetApiUrl: String? = null,
 )
 
 /** UI state for checking GitHub Releases from Settings. */
@@ -63,6 +65,7 @@ internal fun parseLatestReleaseJson(jsonBody: String): AppReleaseInfo? =
         val htmlUrl = json.optString("html_url", "").trim().ifEmpty { RELEASES_PAGE_URL }
 
         var apkUrl: String? = null
+        var apkApiUrl: String? = null
         val assets = json.optJSONArray("assets")
         if (assets != null) {
             for (i in 0 until assets.length()) {
@@ -70,8 +73,10 @@ internal fun parseLatestReleaseJson(jsonBody: String): AppReleaseInfo? =
                 val assetName = asset.optString("name", "")
                 if (assetName.endsWith(".apk", ignoreCase = true)) {
                     val downloadUrl = asset.optString("browser_download_url", "").trim()
-                    if (downloadUrl.isNotEmpty()) {
-                        apkUrl = downloadUrl
+                    val apiUrl = asset.optString("url", "").trim()
+                    if (downloadUrl.isNotEmpty() || apiUrl.isNotEmpty()) {
+                        apkUrl = downloadUrl.ifEmpty { null }
+                        apkApiUrl = apiUrl.ifEmpty { null }
                         break
                     }
                 }
@@ -95,12 +100,17 @@ internal fun parseLatestReleaseJson(jsonBody: String): AppReleaseInfo? =
             htmlUrl = htmlUrl,
             apkDownloadUrl = apkUrl,
             notesPreview = notesPreview,
+            apkAssetApiUrl = apkApiUrl,
         )
     }.getOrNull()
 
 /** Queries GitHub's latest-release endpoint and compares its tag against [currentVersion]. */
-suspend fun checkForUpdate(currentVersion: String = BuildConfig.VERSION_NAME): UpdateCheckState =
+suspend fun checkForUpdate(
+    currentVersion: String = BuildConfig.VERSION_NAME,
+    githubToken: String? = null,
+): UpdateCheckState =
     withContext(Dispatchers.IO) {
+        val token = githubToken?.trim()?.takeIf { it.isNotEmpty() }
         var connection: HttpURLConnection? = null
         try {
             connection = (URL(LATEST_RELEASE_API_URL).openConnection() as HttpURLConnection).apply {
@@ -108,14 +118,31 @@ suspend fun checkForUpdate(currentVersion: String = BuildConfig.VERSION_NAME): U
                 connectTimeout = HTTP_TIMEOUT_MS
                 readTimeout = HTTP_TIMEOUT_MS
                 setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("X-GitHub-Api-Version", GITHUB_API_VERSION)
                 setRequestProperty("User-Agent", "ShellSurge/$currentVersion")
+                if (token != null) {
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
             }
             when (val code = connection.responseCode) {
+                HttpURLConnection.HTTP_UNAUTHORIZED ->
+                    UpdateCheckState.Error("GitHub token was rejected (HTTP 401). Update or clear the token.")
+
                 HttpURLConnection.HTTP_NOT_FOUND ->
-                    UpdateCheckState.NoReleases("No GitHub releases have been published yet.")
+                    if (token == null) {
+                        UpdateCheckState.NoReleases(
+                            "Private repo or no releases visible. Add a GitHub token below or open the Releases page in your browser.",
+                        )
+                    } else {
+                        UpdateCheckState.NoReleases(
+                            "No releases found (or token lacks Contents: Read access to this repository).",
+                        )
+                    }
 
                 HttpURLConnection.HTTP_FORBIDDEN ->
-                    UpdateCheckState.Error("GitHub API rate limit reached. Open Releases page directly.")
+                    UpdateCheckState.Error(
+                        "Access denied or rate limit reached (HTTP 403). Check token permissions or open Releases page.",
+                    )
 
                 HttpURLConnection.HTTP_OK -> {
                     val body = connection.inputStream.bufferedReader().use { it.readText() }
@@ -135,4 +162,42 @@ suspend fun checkForUpdate(currentVersion: String = BuildConfig.VERSION_NAME): U
         } finally {
             connection?.disconnect()
         }
+    }
+
+/**
+ * Resolves a short-lived signed browser-download URL for a private GitHub release asset when an
+ * API token is configured; falls back to [AppReleaseInfo.apkDownloadUrl] or [AppReleaseInfo.htmlUrl].
+ */
+suspend fun resolveApkDownloadUrl(
+    release: AppReleaseInfo,
+    githubToken: String?,
+    currentVersion: String = BuildConfig.VERSION_NAME,
+): String =
+    withContext(Dispatchers.IO) {
+        val token = githubToken?.trim()?.takeIf { it.isNotEmpty() }
+        val assetApiUrl = release.apkAssetApiUrl?.takeIf { it.isNotBlank() }
+        if (token != null && assetApiUrl != null) {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(assetApiUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    instanceFollowRedirects = false
+                    connectTimeout = HTTP_TIMEOUT_MS
+                    readTimeout = HTTP_TIMEOUT_MS
+                    setRequestProperty("Authorization", "Bearer $token")
+                    setRequestProperty("Accept", "application/octet-stream")
+                    setRequestProperty("X-GitHub-Api-Version", GITHUB_API_VERSION)
+                    setRequestProperty("User-Agent", "ShellSurge/$currentVersion")
+                }
+                if (connection.responseCode in 300..399) {
+                    val location = connection.getHeaderField("Location")?.trim()?.takeIf { it.isNotEmpty() }
+                    if (location != null) return@withContext location
+                }
+            } catch (_: Exception) {
+                // Fall back to the browser URL below.
+            } finally {
+                connection?.disconnect()
+            }
+        }
+        release.apkDownloadUrl ?: release.htmlUrl
     }

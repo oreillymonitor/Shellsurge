@@ -67,21 +67,26 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import io.github.lordofpolls.shellwave.core.prefs.AgentCli
+import io.github.lordofpolls.shellwave.core.prefs.AgentCliPreferences
+import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import kotlinx.coroutines.launch
 
 /**
  * Multi-line prompt composer for drafting commands or natural-language prompts
- * for AI CLI agents (like antigravity-cli or opencode) using voice dictation,
- * on-device Gemini Nano structuring (Pixel 9), and mobile keyboard conveniences.
+ * for configurable AI coding agent CLIs (such as Claude Code, OpenCode, Codex CLI,
+ * Aider, or Antigravity CLI) using voice dictation, on-device Gemini Nano structuring
+ * (Pixel 9+), and mobile keyboard conveniences.
  *
  * Compactly sized with a scrollable body and `.imePadding()` so the Send/Cancel
  * action row stays visible above the soft keyboard while typing.
  */
 @Composable
 internal fun PromptComposerDialog(
-    initialText: String = "",
     onSend: (prompt: String, sendEnter: Boolean) -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    initialText: String = "",
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -92,11 +97,11 @@ internal fun PromptComposerDialog(
     var isListening by remember { mutableStateOf(false) }
     var isPolishing by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
-    var cliFlavor by remember { mutableStateOf(AgentCliPreferences.getFlavor(context)) }
+    val enabledAgents by rememberPrefState { AgentCliPreferences.getEnabledAgents(it) }
+    val activeAgent by rememberPrefState { AgentCliPreferences.getSelectedAgent(it) }
 
-    fun selectFlavor(flavor: AgentCliFlavor) {
-        cliFlavor = flavor
-        AgentCliPreferences.setFlavor(context, flavor)
+    fun selectAgent(agent: AgentCli) {
+        AgentCliPreferences.setSelectedAgent(context, agent)
     }
 
     val speechRecognizer = remember {
@@ -221,11 +226,11 @@ internal fun PromptComposerDialog(
         }
     }
 
-    val aiShortcuts = cliFlavor.slashCommands + listOf(
-        "agy",
-        "agy -c",
-        "opencode",
-    )
+    val aiShortcuts = activeAgent?.let { agent ->
+        (agent.slashCommands + enabledAgents.flatMap { enabled ->
+            enabled.launchCommands.map { cmd -> cmd.command }
+        }).distinct()
+    }.orEmpty()
 
     val aiTemplates = listOf(
         "Fix errors" to "Please review the errors above and fix them.",
@@ -238,7 +243,7 @@ internal fun PromptComposerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier
+        modifier = modifier
             .imePadding()
             .padding(vertical = 8.dp),
         title = {
@@ -261,10 +266,32 @@ internal fun PromptComposerDialog(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                AgentCliTogglePill(
-                    selected = cliFlavor,
-                    onSelect = { selectFlavor(it) },
-                )
+                val currentAgent = activeAgent
+                if (enabledAgents.size > 1 && currentAgent != null) {
+                    AgentCliTogglePill(
+                        options = enabledAgents,
+                        selected = currentAgent,
+                        onSelect = { selectAgent(it) },
+                    )
+                } else if (currentAgent != null) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        ),
+                    ) {
+                        Text(
+                            text = currentAgent.shortName,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                }
             }
         },
         text = {
@@ -401,26 +428,28 @@ internal fun PromptComposerDialog(
                 }
 
                 // Quick insertion chips for AI CLI workflows
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    aiShortcuts.forEach { shortcut ->
-                        CompactComposerChip(
-                            label = shortcut,
-                            isMonospace = true,
-                            onClick = {
-                                text = if (text.isEmpty()) {
-                                    "$shortcut "
-                                } else if (text.endsWith(" ") || text.endsWith("\n")) {
-                                    "$text$shortcut "
-                                } else {
-                                    "$text $shortcut "
-                                }
-                            },
-                        )
+                if (aiShortcuts.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        aiShortcuts.forEach { shortcut ->
+                            CompactComposerChip(
+                                label = shortcut,
+                                isMonospace = true,
+                                onClick = {
+                                    text = if (text.isEmpty()) {
+                                        "$shortcut "
+                                    } else if (text.endsWith(" ") || text.endsWith("\n")) {
+                                        "$text$shortcut "
+                                    } else {
+                                        "$text $shortcut "
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
 

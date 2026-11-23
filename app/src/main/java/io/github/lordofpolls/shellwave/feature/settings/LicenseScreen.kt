@@ -41,7 +41,7 @@ import io.github.lordofpolls.shellwave.ui.design.LocalReadableInset
  * distributed, before that binary reaches anyone outside this project. Don't ship a build that
  * points here if that isn't true yet.
  */
-internal const val SOURCE_REPOSITORY_URL = "https://github.com/oreillymonitor/Shellwave"
+internal const val SOURCE_REPOSITORY_URL = "https://github.com/oreillymonitor/Shellsurge"
 
 /**
  * A literal and not read out of NOTICE at runtime: unlike the licence and attribution text below,
@@ -99,13 +99,14 @@ fun LicenseScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Shellwave", style = MaterialTheme.typography.titleMedium)
+                    Text("ShellSurge", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Shellwave is free software: you can redistribute it and/or modify it under the " +
-                                "terms of the GNU General Public License version 3 (GPLv3) as published by the " +
-                                "Free Software Foundation. It is distributed WITHOUT ANY WARRANTY, without even " +
-                                "the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. " +
-                                "The full licence text is reproduced below.",
+                        "ShellSurge is a modified fork of Shellwave and is free software: you can " +
+                                "redistribute it and/or modify it under the terms of the GNU General Public " +
+                                "License version 3 (GPLv3) as published by the Free Software Foundation. " +
+                                "It is distributed WITHOUT ANY WARRANTY, without even the implied warranty " +
+                                "of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. The full licence " +
+                                "text is reproduced below.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -127,7 +128,7 @@ fun LicenseScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                                 "commit $TERMUX_PINNED_COMMIT; see NOTICE below and terminal-core/VENDORING.md " +
                                 "in the source tree for the exact file list and what was changed to make it " +
                                 "compile without its original local-pty/JNI subprocess code, which this app " +
-                                "does not use (Shellwave connects over SSH instead).",
+                                "does not use (ShellSurge connects over SSH instead).",
                         style = MaterialTheme.typography.bodyMedium,
                         fontFamily = FontFamily.Monospace,
                     )

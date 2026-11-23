@@ -61,7 +61,7 @@ private fun TofuDialog(request: HostVerificationRequest, modifier: Modifier = Mo
                 )
                 FingerprintBlock(request.fingerprint)
                 Text(
-                    "First connection to this host. Shellwave will remember this key and warn you if it changes.",
+                    "First connection to this host. ShellSurge will remember this key and warn you if it changes.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -96,7 +96,7 @@ private fun MismatchDialog(request: HostVerificationRequest, modifier: Modifier 
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "This doesn't match the key Shellwave saw last time - a server rebuild, or " +
+                    "This doesn't match the key ShellSurge saw last time - a server rebuild, or " +
                             "someone intercepting the connection.",
                     color = MaterialTheme.colorScheme.error,
                 )

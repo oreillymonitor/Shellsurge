@@ -104,16 +104,16 @@ fun parseConfigImport(text: String): ParsedConfig {
         runCatching { JSONObject(text) }
             .getOrElse { throw IllegalArgumentException("That file is not JSON.") }
     if (root.optString("format") != "shellwave-config") {
-        throw IllegalArgumentException("That file is not a Shellwave configuration export.")
+        throw IllegalArgumentException("That file is not a ShellSurge configuration export.")
     }
     val version = root.optInt("version", 0)
     if (version < 1) {
-        throw IllegalArgumentException("That file is not a Shellwave configuration export.")
+        throw IllegalArgumentException("That file is not a ShellSurge configuration export.")
     }
     if (version > CONFIG_EXPORT_VERSION) {
         throw IllegalArgumentException(
             "That export is in format version $version and this build reads up to " +
-                "$CONFIG_EXPORT_VERSION. Update Shellwave first.",
+                "$CONFIG_EXPORT_VERSION. Update ShellSurge first.",
         )
     }
     return try {
@@ -128,7 +128,7 @@ fun parseConfigImport(text: String): ParsedConfig {
             settings = root.optJSONObject("settings").toImportedSettings(),
         )
     } catch (e: JSONException) {
-        throw IllegalArgumentException("That export is missing something Shellwave needs: ${e.message}")
+        throw IllegalArgumentException("That export is missing something ShellSurge needs: ${e.message}")
     }
 }
 

@@ -59,7 +59,7 @@ class ScriptWidget : GlanceAppWidget() {
                     .padding(12.dp),
             ) {
                 Text(
-                    "Shellwave",
+                    "ShellSurge",
                     style = TextStyle(
                         color = GlanceTheme.colors.onSurface,
                         fontWeight = FontWeight.Bold,

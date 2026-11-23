@@ -1,3 +1,0 @@
-Fixed:
-- Clamp scrollback viewport row to the live transcript when drawing
-- Notification reflects host being disconnected

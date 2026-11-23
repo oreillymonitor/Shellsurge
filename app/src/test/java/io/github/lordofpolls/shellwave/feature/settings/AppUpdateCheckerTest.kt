@@ -27,23 +27,21 @@ class AppUpdateCheckerTest {
     }
 
     @Test
-    fun `parseLatestReleaseJson extracts apk asset urls and preview`() {
+    fun `parseLatestReleaseJson extracts apk asset url and preview`() {
         val json = """
             {
               "tag_name": "v1.10.36",
               "name": "ShellSurge v1.10.36",
-              "html_url": "https://github.com/oreillymonitor/Shellwave/releases/tag/v1.10.36",
+              "html_url": "https://github.com/oreillymonitor/Shellsurge/releases/tag/v1.10.36",
               "body": "Automated build from master.\n\n### Latest Change\nAdded update link.",
               "assets": [
                 {
                   "name": "checksums.txt",
-                  "url": "https://api.github.com/repos/oreillymonitor/Shellwave/releases/assets/100",
                   "browser_download_url": "https://example.invalid/checksums.txt"
                 },
                 {
                   "name": "shellsurge-1.10.36.apk",
-                  "url": "https://api.github.com/repos/oreillymonitor/Shellwave/releases/assets/784226651",
-                  "browser_download_url": "https://github.com/oreillymonitor/Shellwave/releases/download/v1.10.36/shellsurge-1.10.36.apk"
+                  "browser_download_url": "https://github.com/oreillymonitor/Shellsurge/releases/download/v1.10.36/shellsurge-1.10.36.apk"
                 }
               ]
             }
@@ -56,16 +54,12 @@ class AppUpdateCheckerTest {
         assertEquals("1.10.36", parsed.versionName)
         assertEquals("ShellSurge v1.10.36", parsed.releaseName)
         assertEquals(
-            "https://github.com/oreillymonitor/Shellwave/releases/tag/v1.10.36",
+            "https://github.com/oreillymonitor/Shellsurge/releases/tag/v1.10.36",
             parsed.htmlUrl,
         )
         assertEquals(
-            "https://github.com/oreillymonitor/Shellwave/releases/download/v1.10.36/shellsurge-1.10.36.apk",
+            "https://github.com/oreillymonitor/Shellsurge/releases/download/v1.10.36/shellsurge-1.10.36.apk",
             parsed.apkDownloadUrl,
-        )
-        assertEquals(
-            "https://api.github.com/repos/oreillymonitor/Shellwave/releases/assets/784226651",
-            parsed.apkAssetApiUrl,
         )
         assertEquals("Automated build from master.", parsed.notesPreview)
     }
@@ -75,7 +69,7 @@ class AppUpdateCheckerTest {
         val noAssetJson = """
             {
               "tag_name": "v1.10.36",
-              "html_url": "https://github.com/oreillymonitor/Shellwave/releases/tag/v1.10.36",
+              "html_url": "https://github.com/oreillymonitor/Shellsurge/releases/tag/v1.10.36",
               "assets": []
             }
         """.trimIndent()
@@ -83,7 +77,6 @@ class AppUpdateCheckerTest {
         val parsed = parseLatestReleaseJson(noAssetJson)
         assertNotNull(parsed)
         assertNull(parsed!!.apkDownloadUrl)
-        assertNull(parsed.apkAssetApiUrl)
         assertNull(parsed.notesPreview)
 
         assertNull(parseLatestReleaseJson("not json at all"))

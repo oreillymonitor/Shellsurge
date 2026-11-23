@@ -1,7 +1,9 @@
 package io.github.lordofpolls.shellwave.feature.session
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Bundle
@@ -12,8 +14,26 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.util.Log
+import androidx.core.content.ContextCompat
 import java.util.Locale
+
+/**
+ * Maps recognized speech to an explicit terminal quick-reply token (`"y"`, `"n"`, `"1"`..`"4"`,
+ * or `""` for Enter), or `null` when the phrase is not a recognized quick confirmation.
+ */
+internal fun resolveQuickReply(spoken: String): String? {
+    val lower = spoken.trim().lowercase(Locale.ROOT)
+    return when {
+        lower in setOf("yes", "yeah", "yep", "proceed", "approve", "ok", "okay", "sure", "continue") -> "y"
+        lower in setOf("no", "nope", "cancel", "deny", "abort", "stop") -> "n"
+        lower in setOf("option 1", "one", "first", "1") -> "1"
+        lower in setOf("option 2", "two", "second", "2") -> "2"
+        lower in setOf("option 3", "three", "third", "3") -> "3"
+        lower in setOf("option 4", "four", "fourth", "4") -> "4"
+        lower in setOf("enter", "return") -> ""
+        else -> null
+    }
+}
 
 /**
  * Manages audio text-to-speech read-back, alert chime, and 3-second voice response recognition.
@@ -21,7 +41,8 @@ import java.util.Locale
 internal class AgentVoiceEngine(
     private val context: Context,
     private val onListeningStateChange: (Boolean) -> Unit = {},
-    private val onSpeechRecognized: (String) -> Unit = {},
+    private val onQuickReply: (String) -> Unit = {},
+    private val onFreeformSpeech: (String) -> Unit = {},
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
@@ -29,6 +50,7 @@ internal class AgentVoiceEngine(
     private var toneGenerator: ToneGenerator? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var stopListeningRunnable: Runnable? = null
+    private var activeListenAutoTriggered = false
 
     init {
         initTts()
@@ -76,11 +98,18 @@ internal class AgentVoiceEngine(
 
                     override fun onResults(results: Bundle?) {
                         onListeningStateChange(false)
+                        val autoTriggered = activeListenAutoTriggered
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         val spoken = matches?.firstOrNull()?.trim() ?: ""
                         if (spoken.isNotEmpty()) {
-                            val resolved = resolveQuickReply(spoken)
-                            onSpeechRecognized(resolved)
+                            val quickReply = resolveQuickReply(spoken)
+                            if (quickReply != null) {
+                                onQuickReply(quickReply)
+                            } else if (!autoTriggered) {
+                                // Only pass free-form dictation when the user explicitly tapped the
+                                // mic button; post-TTS auto-listen stays restricted to quick replies.
+                                onFreeformSpeech(spoken)
+                            }
                         }
                     }
 
@@ -92,13 +121,15 @@ internal class AgentVoiceEngine(
     }
 
     /**
-     * Reads aloud the spoken summary, chimes on finish, and opens a 3-second listening window.
+     * Reads aloud the spoken summary and optionally chimes and opens a 3-second listening window.
      */
-    fun speakAndListen(text: String) {
+    fun speak(text: String, listenAfter: Boolean = false) {
         val activeTts = tts
         if (activeTts == null || !ttsReady) {
-            playChime()
-            startListeningWindow()
+            if (listenAfter) {
+                playChime()
+                startListeningWindow(autoTriggered = true)
+            }
             return
         }
 
@@ -107,22 +138,30 @@ internal class AgentVoiceEngine(
             override fun onStart(utteranceId: String?) {}
 
             override fun onDone(utteranceId: String?) {
-                mainHandler.post {
-                    playChime()
-                    startListeningWindow()
+                if (listenAfter) {
+                    mainHandler.post {
+                        playChime()
+                        startListeningWindow(autoTriggered = true)
+                    }
                 }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
-                mainHandler.post {
-                    playChime()
-                    startListeningWindow()
+                if (listenAfter) {
+                    mainHandler.post {
+                        playChime()
+                        startListeningWindow(autoTriggered = true)
+                    }
                 }
             }
         })
 
         activeTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+    }
+
+    fun speakAndListen(text: String) {
+        speak(text, listenAfter = true)
     }
 
     fun playChime() {
@@ -131,10 +170,17 @@ internal class AgentVoiceEngine(
         }
     }
 
-    fun startListeningWindow(windowMs: Long = 3000L) {
+    fun startListeningWindow(windowMs: Long = 3000L, autoTriggered: Boolean = false) {
         val recognizer = speechRecognizer ?: return
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) return
+
         mainHandler.post {
             runCatching {
+                activeListenAutoTriggered = autoTriggered
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
@@ -142,7 +188,7 @@ internal class AgentVoiceEngine(
                 recognizer.startListening(intent)
                 onListeningStateChange(true)
 
-                // Schedule auto-stop after 3s
+                // Schedule auto-stop after windowMs
                 cancelStopTimer()
                 val runnable = Runnable {
                     stopListening()
@@ -164,18 +210,6 @@ internal class AgentVoiceEngine(
     private fun cancelStopTimer() {
         stopListeningRunnable?.let { mainHandler.removeCallbacks(it) }
         stopListeningRunnable = null
-    }
-
-    private fun resolveQuickReply(spoken: String): String {
-        val lower = spoken.lowercase(Locale.ROOT)
-        return when {
-            lower in listOf("yes", "yeah", "yep", "proceed", "approve", "ok", "sure", "continue") -> "y"
-            lower in listOf("no", "nope", "cancel", "deny", "abort", "stop") -> "n"
-            lower in listOf("option 1", "one", "first") -> "1"
-            lower in listOf("option 2", "two", "second") -> "2"
-            lower in listOf("option 3", "three", "third") -> "3"
-            else -> spoken
-        }
     }
 
     fun release() {

@@ -38,7 +38,7 @@ import javax.inject.Inject
 
 private const val CHANNEL_ID = "background_script_runs"
 private const val RUNNING_NOTIFICATION_ID = 100
-internal const val EXTRA_SCRIPT_ID = "io.github.lordofpolls.shellwave.extra.SCRIPT_ID"
+internal const val EXTRA_SCRIPT_ID = "io.github.oreillymonitor.shellsurge.extra.SCRIPT_ID"
 
 /**
  * Set only by AutomationTriggerActivity, and unforgeable from outside because this service stays
@@ -46,14 +46,14 @@ internal const val EXTRA_SCRIPT_ID = "io.github.lordofpolls.shellwave.extra.SCRI
  * this. Its presence turns on the one extra refusal in [backgroundTriggerRefusal]; its absence must
  * therefore mean "in-process trigger", which is exactly what an unexported service can guarantee.
  */
-private const val EXTRA_FROM_AUTOMATION = "io.github.lordofpolls.shellwave.extra.FROM_AUTOMATION"
+private const val EXTRA_FROM_AUTOMATION = "io.github.oreillymonitor.shellsurge.extra.FROM_AUTOMATION"
 
 /**
  * Set only by `WidgetTrampolineActivity`, to the single-use token it stashed this run's credentials
  * under. Absent, every credential falls through to the ordinary `activity = null` refusal. Ignored
  * outright under [EXTRA_FROM_AUTOMATION]: the exported path has no legitimate way to know it.
  */
-private const val EXTRA_AUTH_TOKEN = "io.github.lordofpolls.shellwave.extra.AUTH_TOKEN"
+private const val EXTRA_AUTH_TOKEN = "io.github.oreillymonitor.shellsurge.extra.AUTH_TOKEN"
 
 /**
  * `stopSelf(startId)` only stops the service for the most recently delivered startId, so a fast run

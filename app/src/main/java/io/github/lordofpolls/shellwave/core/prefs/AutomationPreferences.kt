@@ -39,13 +39,13 @@ internal fun automationRefusal(
     // Before the token, so "I never turned this on" never depends on comparing against a token that
     // does not exist yet.
     if (!enabled || storedToken.isNullOrEmpty()) {
-        return "Shellwave is not accepting automation requests. Turn on \"Let other apps run scripts\" in Settings first."
+        return "ShellSurge is not accepting automation requests. Turn on \"Let other apps run scripts\" in Settings first."
     }
     if (providedToken.isNullOrEmpty()) {
-        return "This request carried no token. Copy the token from Shellwave's Settings into the intent's \"token\" extra."
+        return "This request carried no token. Copy the token from ShellSurge's Settings into the intent's \"token\" extra."
     }
     if (!tokensMatch(storedToken, providedToken)) {
-        return "This request's token does not match. Copy the current token from Shellwave's Settings - generating a new one revokes the old."
+        return "This request's token does not match. Copy the current token from ShellSurge's Settings - generating a new one revokes the old."
     }
     return null
 }

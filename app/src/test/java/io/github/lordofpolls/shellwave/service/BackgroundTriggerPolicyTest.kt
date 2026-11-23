@@ -86,7 +86,7 @@ class BackgroundTriggerPolicyTest {
             assertNotNull(message)
             assertTrue(
                 "must name the app as the way out: $message",
-                message!!.contains("Shellwave")
+                message!!.contains("ShellSurge")
             )
         }
     }

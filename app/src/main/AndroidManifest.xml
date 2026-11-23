@@ -49,7 +49,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps connected SSH terminal sessions open and streaming output while Shellwave is backgrounded, so remote commands the user started keep running." />
+                android:value="Keeps connected SSH terminal sessions open and streaming output while ShellSurge is backgrounded, so remote commands the user started keep running." />
         </service>
 
         <!-- Runs a capture-mode script from the widget, the tile or a shortcut with no Activity on
@@ -73,7 +73,7 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <intent-filter>
-                <action android:name="io.github.lordofpolls.shellwave.action.RUN_SCRIPT" />
+                <action android:name="io.github.oreillymonitor.shellsurge.action.RUN_SCRIPT" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>

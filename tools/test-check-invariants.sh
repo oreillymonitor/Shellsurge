@@ -7,7 +7,7 @@ cd "$repo"
 git init -q
 git config user.email test@test
 git config user.name test
-mkdir -p app/src/main/java app/src/foss/java app/src/play/java terminal-core
+mkdir -p app/src/main/java app/src/foss/java terminal-core
 cp "$OLDPWD/tools/check-invariants.sh" check-invariants.sh
 echo 'class A' > app/src/main/java/A.kt
 echo 'x' > terminal-core/x

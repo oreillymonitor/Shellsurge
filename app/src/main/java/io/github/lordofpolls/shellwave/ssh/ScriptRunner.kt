@@ -139,7 +139,7 @@ constructor(
                 false,
                 false,
                 null,
-                error = "\"$runLabel\" needs a prompt (keyboard-interactive/2FA) only the app can answer - open Shellwave to run it.",
+                error = "\"$runLabel\" needs a prompt (keyboard-interactive/2FA) only the app can answer - open ShellSurge to run it.",
             )
         }
         val knownHosts = BackgroundKnownHostsVerifier(File(context.filesDir, KNOWN_HOSTS_FILE_NAME))
@@ -230,13 +230,13 @@ internal class BackgroundKnownHostsVerifier(file: File) : OpenSSHKnownHosts(file
 
     override fun hostKeyUnverifiableAction(hostname: String, key: PublicKey): Boolean {
         refusalReason =
-            "No trusted host key for $hostname yet - open Shellwave and connect once to trust it, then re-run this."
+            "No trusted host key for $hostname yet - open ShellSurge and connect once to trust it, then re-run this."
         return false
     }
 
     override fun hostKeyChangedAction(hostname: String, key: PublicKey): Boolean {
         refusalReason =
-            "The host key for $hostname has changed - a background run won't accept that automatically. Open Shellwave to review it."
+            "The host key for $hostname has changed - a background run won't accept that automatically. Open ShellSurge to review it."
         return false
     }
 }

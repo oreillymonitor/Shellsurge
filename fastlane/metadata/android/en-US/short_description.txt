@@ -1,1 +1,0 @@
-Open-source SSH client and terminal with SFTP, port forwarding and jump hosts

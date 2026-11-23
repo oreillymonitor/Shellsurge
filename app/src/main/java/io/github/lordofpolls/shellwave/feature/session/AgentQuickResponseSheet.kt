@@ -1,9 +1,8 @@
 package io.github.lordofpolls.shellwave.feature.session
 
-import android.content.Context
-import androidx.core.content.edit
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,85 +64,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.lordofpolls.shellwave.core.prefs.AgentCli
+import io.github.lordofpolls.shellwave.core.prefs.AgentCliPreferences
+import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import kotlinx.coroutines.launch
 
 /**
- * Supported AI coding agent CLIs whose common slash commands differ (e.g. `/model` in `agy`
- * vs `/models` in `opencode`).
- */
-internal enum class AgentCliFlavor(
-    val id: String,
-    val displayName: String,
-    val slashCommands: List<String>,
-    val highlightedCommands: Set<String>,
-) {
-    AGY(
-        id = "agy",
-        displayName = "agy",
-        slashCommands = listOf(
-            "/model",
-            "/usage",
-            "/plan",
-            "/goal",
-            "/compact",
-            "/diff",
-            "/grill-me",
-            "/boost",
-            "/teamwork",
-            "/browser",
-            "/learn",
-            "/resume",
-            "/btw",
-            "/help",
-        ),
-        highlightedCommands = setOf("/model", "/usage", "/plan", "/goal"),
-    ),
-    OPENCODE(
-        id = "opencode",
-        displayName = "opencode",
-        slashCommands = listOf(
-            "/models",
-            "/compact",
-            "/sessions",
-            "/new",
-            "/undo",
-            "/redo",
-            "/review",
-            "/init",
-            "/share",
-            "/mcps",
-            "/connect",
-            "/help",
-            "/clear",
-        ),
-        highlightedCommands = setOf("/models", "/compact", "/sessions", "/new"),
-    ),
-}
-
-internal object AgentCliPreferences {
-    private const val PREFS_NAME = "agent_cli_prefs"
-    private const val KEY_CLI_FLAVOR = "cli_flavor"
-
-    fun getFlavor(context: Context): AgentCliFlavor {
-        val stored = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_CLI_FLAVOR, AgentCliFlavor.AGY.id)
-        return AgentCliFlavor.entries.firstOrNull { it.id == stored } ?: AgentCliFlavor.AGY
-    }
-
-    fun setFlavor(context: Context, flavor: AgentCliFlavor) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
-            putString(KEY_CLI_FLAVOR, flavor.id)
-        }
-    }
-}
-
-/**
- * Compact segmented pill for switching slash command presets between `agy` and `opencode`.
+ * Compact segmented pill for switching slash command presets between enabled AI coding agent CLIs.
  */
 @Composable
 internal fun AgentCliTogglePill(
-    selected: AgentCliFlavor,
-    onSelect: (AgentCliFlavor) -> Unit,
+    options: List<AgentCli>,
+    selected: AgentCli,
+    onSelect: (AgentCli) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -154,10 +87,12 @@ internal fun AgentCliTogglePill(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(2.dp),
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(2.dp),
         ) {
-            AgentCliFlavor.entries.forEach { flavor ->
-                val isSelected = flavor == selected
+            options.forEach { agent ->
+                val isSelected = agent == selected
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = if (isSelected) {
@@ -167,14 +102,14 @@ internal fun AgentCliTogglePill(
                     },
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable { onSelect(flavor) },
+                        .clickable { onSelect(agent) },
                 ) {
                     Box(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = flavor.displayName,
+                            text = agent.shortName,
                             style = MaterialTheme.typography.labelSmall,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -183,6 +118,7 @@ internal fun AgentCliTogglePill(
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             },
+                            maxLines = 1,
                         )
                     }
                 }
@@ -193,7 +129,7 @@ internal fun AgentCliTogglePill(
 
 /**
  * Compact bottom sheet menu providing immediate 1-tap responses, switchable slash commands
- * (`agy` vs `opencode`), tight vibe directives, and quick controls for AI coding agents.
+ * for enabled AI CLI agents, tight vibe directives, and quick controls.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -201,6 +137,7 @@ internal fun AgentQuickResponseSheet(
     onSendText: (text: String, sendEnter: Boolean) -> Unit,
     onSendRaw: (control: String) -> Unit,
     onOpenComposerWithText: (initialText: String) -> Unit,
+    modifier: Modifier = Modifier,
     onSummarize: (() -> Unit)? = null,
     isSummarizing: Boolean = false,
     isQuickBarActive: Boolean = false,
@@ -212,11 +149,11 @@ internal fun AgentQuickResponseSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var autoDismiss by remember { mutableStateOf(true) }
-    var cliFlavor by remember { mutableStateOf(AgentCliPreferences.getFlavor(context)) }
+    val enabledAgents by rememberPrefState { AgentCliPreferences.getEnabledAgents(it) }
+    val activeAgent by rememberPrefState { AgentCliPreferences.getSelectedAgent(it) }
 
-    fun selectFlavor(flavor: AgentCliFlavor) {
-        cliFlavor = flavor
-        AgentCliPreferences.setFlavor(context, flavor)
+    fun selectAgent(agent: AgentCli) {
+        AgentCliPreferences.setSelectedAgent(context, agent)
     }
 
     fun execute(action: () -> Unit) {
@@ -233,6 +170,7 @@ internal fun AgentQuickResponseSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        modifier = modifier,
     ) {
         Column(
             modifier = Modifier
@@ -494,62 +432,85 @@ internal fun AgentQuickResponseSheet(
                 }
             }
 
-            // Section 2: Standard System Prompts & Slash Commands (Prominent & Accessible)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
+            // Section 2: Slash Commands (for enabled agents)
+            activeAgent?.let { agent ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 8.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Icon(
-                            Icons.Outlined.Code,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            text = "SLASH COMMANDS",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.Code,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                text = "SLASH COMMANDS",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        if (enabledAgents.size > 1) {
+                            AgentCliTogglePill(
+                                options = enabledAgents,
+                                selected = agent,
+                                onSelect = { selectAgent(it) },
+                            )
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                ),
+                            ) {
+                                Text(
+                                    text = agent.shortName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                )
+                            }
+                        }
                     }
 
-                    AgentCliTogglePill(
-                        selected = cliFlavor,
-                        onSelect = { selectFlavor(it) },
-                    )
-                }
-
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    cliFlavor.slashCommands.forEach { slash ->
-                        CompactDirectiveChip(
-                            label = slash,
-                            command = slash,
-                            onSend = { cmd -> execute { onSendText(cmd, true) } },
-                            onEdit = { cmd ->
-                                scope.launch {
-                                    sheetState.hide()
-                                    onDismiss()
-                                    onOpenComposerWithText(cmd)
-                                }
-                            },
-                            isMonospace = true,
-                            highlight = slash in cliFlavor.highlightedCommands,
-                        )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        agent.slashCommands.forEach { slash ->
+                            CompactDirectiveChip(
+                                label = slash,
+                                command = slash,
+                                onSend = { cmd -> execute { onSendText(cmd, true) } },
+                                onEdit = { cmd ->
+                                    scope.launch {
+                                        sheetState.hide()
+                                        onDismiss()
+                                        onOpenComposerWithText(cmd)
+                                    }
+                                },
+                                isMonospace = true,
+                                highlight = slash in agent.highlightedCommands,
+                            )
+                        }
                     }
                 }
             }
@@ -611,75 +572,61 @@ internal fun AgentQuickResponseSheet(
             }
 
             // Section 4: Launch Coding Agent CLI
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    text = "Launch:",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Medium,
-                )
-
-                // agy
-                FilledTonalButton(
-                    onClick = {
-                        selectFlavor(AgentCliFlavor.AGY)
-                        execute { onSendText("agy", true) }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(30.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(13.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text("agy", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    Text(
+                        text = "Launch:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium,
+                    )
+
+                    enabledAgents.forEach { agent ->
+                        agent.launchCommands.forEach { launchCmd ->
+                            FilledTonalButton(
+                                onClick = {
+                                    selectAgent(agent)
+                                    execute { onSendText(launchCmd.command, true) }
+                                },
+                                modifier = Modifier.height(30.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            ) {
+                                Icon(
+                                    imageVector = if (launchCmd.isResume) Icons.Outlined.History else Icons.Outlined.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp),
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = launchCmd.label,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                        }
+                    }
+
+                    FilledTonalButton(
+                        onClick = { execute { onSendText("clear", true) } },
+                        modifier = Modifier.height(30.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    ) {
+                        Text("clear", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    }
                 }
 
-                // agy -c
-                FilledTonalButton(
-                    onClick = {
-                        selectFlavor(AgentCliFlavor.AGY)
-                        execute { onSendText("agy -c", true) }
-                    },
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .height(30.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                ) {
-                    Icon(Icons.Outlined.History, contentDescription = null, modifier = Modifier.size(13.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text("agy -c", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                }
-
-                // opencode
-                FilledTonalButton(
-                    onClick = {
-                        selectFlavor(AgentCliFlavor.OPENCODE)
-                        execute { onSendText("opencode", true) }
-                    },
-                    modifier = Modifier
-                        .weight(1.3f)
-                        .height(30.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                ) {
-                    Icon(Icons.Outlined.Code, contentDescription = null, modifier = Modifier.size(13.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text("opencode", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                }
-
-                // clear
-                FilledTonalButton(
-                    onClick = { execute { onSendText("clear", true) } },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(30.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                ) {
-                    Text("clear", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                if (enabledAgents.isEmpty()) {
+                    Text(
+                        text = "Enable CLI agents in Settings → AI Coding Agents to show slash commands and launch shortcuts.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

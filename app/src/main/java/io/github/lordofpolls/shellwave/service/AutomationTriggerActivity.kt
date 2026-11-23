@@ -7,10 +7,10 @@ import android.widget.Toast
 import io.github.lordofpolls.shellwave.core.prefs.AutomationPreferences
 
 /** Tasker's "Send Intent" with Target = Activity, MacroDroid, Automate and `adb shell am start -a` all reach this the same way. */
-const val ACTION_RUN_SCRIPT = "io.github.lordofpolls.shellwave.action.RUN_SCRIPT"
+const val ACTION_RUN_SCRIPT = "io.github.oreillymonitor.shellsurge.action.RUN_SCRIPT"
 
 /** The shared secret from Settings. The fully-qualified form is what goes into Tasker's extras field. */
-const val EXTRA_TOKEN = "io.github.lordofpolls.shellwave.extra.TOKEN"
+const val EXTRA_TOKEN = "io.github.oreillymonitor.shellsurge.extra.TOKEN"
 
 /**
  * The one component in this app another app can address. It validates, hands off to

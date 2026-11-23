@@ -148,7 +148,7 @@ internal object AgentDigestModel {
         )
     }
 
-    private fun fallbackAnalyze(output: String): AgentDigestResult {
+    internal fun fallbackAnalyze(output: String): AgentDigestResult {
         val allLines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
         if (allLines.isEmpty()) {
             return AgentDigestResult(

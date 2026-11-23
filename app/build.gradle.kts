@@ -85,28 +85,14 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // Play Billing is proprietary, and F-Droid will not build an app that links a proprietary
-    // library - so the donation lives behind a flavour rather than in `main`. `foss` is the
-    // flavour F-Droid builds (see fdroid/io.github.lordofpolls.shellwave.yml); `play` is the only
-    // one with com.android.billingclient on its classpath. The two are otherwise identical, down
-    // to the applicationId, so a user can move between the builds without reinstalling.
+    // Keep only the `foss` flavour for GitHub Releases and clean merges with upstream.
     flavorDimensions += "distribution"
 
     productFlavors {
-        create("play") { dimension = "distribution" }
         create("foss") { dimension = "distribution" }
     }
 
     signingConfigs {
-        getByName("debug") {
-            val debugKeyFile = rootProject.file("keystore/debug.keystore")
-            if (debugKeyFile.exists()) {
-                storeFile = debugKeyFile
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
-            }
-        }
         if (hasReleaseSigningConfig) {
             create("release") {
                 storeFile = File(releaseStoreFilePath!!)
@@ -251,9 +237,6 @@ dependencies {
 
     // On-device Gemini Nano inference via Android AICore for Pixel 9 and supported devices
     implementation(libs.mlkit.genai.prompt)
-
-    // play flavour only - see productFlavors above.
-    "playImplementation"(libs.google.billing)
 
     coreLibraryDesugaring(libs.android.desugar.jdk.libs)
 

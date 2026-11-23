@@ -293,7 +293,7 @@ private fun AutomationOptIn(scriptId: Long, allowed: Boolean, onAllowedChange: (
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         SettingsSwitch(
             title = "Let other apps run this script",
-            description = "Lets Tasker trigger this script without opening Shellwave, if automation is on in Settings.",
+            description = "Lets Tasker trigger this script without opening ShellSurge, if automation is on in Settings.",
             checked = allowed,
             onCheckedChange = onAllowedChange,
         )

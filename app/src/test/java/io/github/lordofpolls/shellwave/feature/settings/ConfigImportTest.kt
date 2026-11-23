@@ -228,7 +228,7 @@ class ConfigImportTest {
 
         val thrown =
             assertThrows(IllegalArgumentException::class.java) { parseConfigImport(newer) }
-        assertTrue(thrown.message!!.contains("Update Shellwave"))
+        assertTrue(thrown.message!!.contains("Update ShellSurge"))
     }
 
     @Test

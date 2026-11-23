@@ -1,5 +1,6 @@
-Shellwave
+ShellSurge (a modified fork of Shellwave)
 Copyright (C) 2026 the Shellwave contributors
+Modifications Copyright (C) 2026 the ShellSurge contributors (modified 2026-11)
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License version 3, as published by the
@@ -130,6 +131,11 @@ whose full text is in licenses/):
   this app is built on
     https://developer.android.com/jetpack
     Licence: Apache License, Version 2.0
+
+  ML Kit GenAI Prompt (com.google.mlkit:genai-prompt) - optional on-device Gemini Nano prompt
+  refinement and terminal output summarization via Android AICore
+    https://developers.google.com/ml-kit/genai
+    Licence: Google APIs Terms of Service / Android Software Development Kit License Agreement
 
 TextMate grammars and themes (module :app)
 ----------------------------------------

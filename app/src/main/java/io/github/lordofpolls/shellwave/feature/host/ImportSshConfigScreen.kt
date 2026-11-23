@@ -247,7 +247,7 @@ fun ImportSshConfigScreen(
             if (importSummary == null) {
                 if (parsed == null) {
                     Text(
-                        "Pick your ~/.ssh/config and Shellwave lists its Host entries. " +
+                        "Pick your ~/.ssh/config and ShellSurge lists its Host entries. " +
                                 "Passwords and keys aren't in that file, so you choose a credential for each one. " +
                                 "Nothing is saved until you confirm.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -268,7 +268,7 @@ fun ImportSshConfigScreen(
                                     style = MaterialTheme.typography.titleSmall
                                 )
                                 Text(
-                                    "This file references other files Shellwave can't open (a picked file only grants access to itself). " +
+                                    "This file references other files ShellSurge can't open (a picked file only grants access to itself). " +
                                             "Hosts inside them won't appear below:",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
@@ -293,7 +293,7 @@ fun ImportSshConfigScreen(
                                     style = MaterialTheme.typography.titleSmall
                                 )
                                 Text(
-                                    "Shellwave only understands \"Match host <pattern-list>\" and \"Match all\" - these blocks were skipped entirely:",
+                                    "ShellSurge only understands \"Match host <pattern-list>\" and \"Match all\" - these blocks were skipped entirely:",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                                 config.matchNotes.forEach {
@@ -433,7 +433,7 @@ private fun ImportEntryCard(
 
             if (state.parsed.identityFiles.isNotEmpty()) {
                 Text(
-                    "IdentityFile ${state.parsed.identityFiles.joinToString(", ")} is ignored - Shellwave won't read a key off disk. " +
+                    "IdentityFile ${state.parsed.identityFiles.joinToString(", ")} is ignored - ShellSurge won't read a key off disk. " +
                             "Choose or import a credential below.",
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -441,7 +441,7 @@ private fun ImportEntryCard(
             if (state.parsed.compression != null || state.parsed.serverAliveInterval != null) {
                 Text(
                     buildString {
-                        append("Parsed but not applied (no matching Shellwave setting yet): ")
+                        append("Parsed but not applied (no matching ShellSurge setting yet): ")
                         val parts = mutableListOf<String>()
                         state.parsed.compression?.let { parts += "Compression ${if (it) "yes" else "no"}" }
                         state.parsed.serverAliveInterval?.let { parts += "ServerAliveInterval $it" }

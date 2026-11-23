@@ -1,9 +1,14 @@
 package io.github.lordofpolls.shellwave.feature.session
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.view.KeyEvent
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -488,24 +493,49 @@ internal fun SessionTabBody(
     var isVoiceListening by remember { mutableStateOf(false) }
     var activeDigest by remember { mutableStateOf<AgentDigestResult?>(null) }
     var isAnalyzingDigest by remember { mutableStateOf(false) }
+    var activePromptSignature by remember(sessionId) { mutableStateOf<String?>(null) }
+    var dismissedPromptSignature by remember(sessionId) { mutableStateOf<String?>(null) }
+    var tabPromptComposerOpen by remember { mutableStateOf(false) }
+    var tabComposerInitialText by remember { mutableStateOf("") }
 
     var terminalEmulator by remember { mutableStateOf<TerminalEmulator?>(null) }
+
+    fun hasAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            localContext,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
 
     val voiceEngine = remember {
         AgentVoiceEngine(
             context = localContext,
             onListeningStateChange = { listening -> isVoiceListening = listening },
-            onSpeechRecognized = { recognizedText ->
+            onQuickReply = { replyText ->
                 val emulator = terminalEmulator
-                if (emulator != null) {
-                    emulator.paste(recognizedText)
-                } else {
-                    summary.connection.write(recognizedText)
+                if (emulator != null && replyText.isNotEmpty()) {
+                    emulator.paste(replyText)
+                } else if (replyText.isNotEmpty()) {
+                    summary.connection.write(replyText)
                 }
                 summary.connection.write("\r")
+                dismissedPromptSignature = activePromptSignature
+                activeDigest = null
+            },
+            onFreeformSpeech = { recognizedText ->
+                tabComposerInitialText = recognizedText
+                tabPromptComposerOpen = true
+                dismissedPromptSignature = activePromptSignature
                 activeDigest = null
             },
         )
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            voiceEngine.startListeningWindow(autoTriggered = false)
+        }
     }
 
     DisposableEffect(voiceEngine) {
@@ -516,6 +546,7 @@ internal fun SessionTabBody(
         val emulator = terminalEmulator ?: return
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         isAnalyzingDigest = true
+        activePromptSignature = null
         activeDigest = null
         val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 100)
         coroutineScope.launch {
@@ -523,7 +554,7 @@ internal fun SessionTabBody(
                 val result = AgentDigestModel.analyzeTerminalTail(tail)
                 activeDigest = result
                 if (speakImmediately) {
-                    voiceEngine.speakAndListen(result.spokenSummary)
+                    voiceEngine.speak(result.spokenSummary, listenAfter = hasAudioPermission())
                 }
             } finally {
                 isAnalyzingDigest = false
@@ -534,8 +565,6 @@ internal fun SessionTabBody(
     var ctrlLatched by remember { mutableStateOf(false) }
     var altLatched by remember { mutableStateOf(false) }
     val keyboardEnhancedInput by rememberPrefState { TerminalInputPreferences.getKeyboardEnhancedInput(it) }
-    var tabPromptComposerOpen by remember { mutableStateOf(false) }
-    var tabComposerInitialText by remember { mutableStateOf("") }
     var tabQuickResponseOpen by remember { mutableStateOf(false) }
     var quickDrawerActive by remember(sessionId) { mutableStateOf(false) }
 
@@ -641,9 +670,15 @@ internal fun SessionTabBody(
             }.getOrNull() ?: ""
             val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
             if (yesNoRegex.containsMatchIn(recentText)) {
-                val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 60)
-                val result = AgentDigestModel.analyzeTerminalTail(tail)
-                activeDigest = result
+                val signature = recentText.trim()
+                if (signature != dismissedPromptSignature) {
+                    val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 60)
+                    val result = AgentDigestModel.analyzeTerminalTail(tail)
+                    activePromptSignature = signature
+                    activeDigest = result
+                }
+            } else {
+                dismissedPromptSignature = null
             }
         }
     }
@@ -1119,13 +1154,15 @@ internal fun SessionTabBody(
                     digest = digest,
                     isListening = isVoiceListening,
                     onListenClick = {
-                        voiceEngine.speakAndListen(digest.spokenSummary)
+                        voiceEngine.speak(digest.spokenSummary, listenAfter = hasAudioPermission())
                     },
                     onMicClick = {
                         if (isVoiceListening) {
                             voiceEngine.stopListening()
+                        } else if (hasAudioPermission()) {
+                            voiceEngine.startListeningWindow(autoTriggered = false)
                         } else {
-                            voiceEngine.startListeningWindow()
+                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
                     onActionClick = { actionText ->
@@ -1136,10 +1173,12 @@ internal fun SessionTabBody(
                             summary.connection.write(actionText)
                         }
                         summary.connection.write("\r")
+                        dismissedPromptSignature = activePromptSignature
                         activeDigest = null
                         voiceEngine.stopListening()
                     },
                     onDismiss = {
+                        dismissedPromptSignature = activePromptSignature
                         activeDigest = null
                         voiceEngine.stopListening()
                     },

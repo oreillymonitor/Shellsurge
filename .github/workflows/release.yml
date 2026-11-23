@@ -1,4 +1,4 @@
-name: Release (FOSS)
+name: Release
 
 on:
   push:
@@ -99,7 +99,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shellwave-foss-release-apk
+          name: shellsurge-release-apk
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
 
@@ -130,17 +130,17 @@ jobs:
         run: |
           # Named after the tag: a release page full of app-foss-release.apk tells a user
           # nothing about which version they just downloaded.
-          asset="$RUNNER_TEMP/shellwave-$TAG-foss.apk"
+          asset="$RUNNER_TEMP/shellsurge-$TAG.apk"
           cp "$APK" "$asset"
 
           # A re-run after a transient failure should finish the release rather than fail on the
           # one it already created.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/body.md"
+            gh release edit "$TAG" --title "ShellSurge $TAG" --notes-file "$RUNNER_TEMP/body.md"
             gh release upload "$TAG" "$asset" --clobber
           else
             gh release create "$TAG" "$asset" \
-              --title "$TAG" \
+              --title "ShellSurge $TAG" \
               --notes-file "$RUNNER_TEMP/body.md" \
               --verify-tag
           fi

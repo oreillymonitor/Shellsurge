@@ -20,7 +20,7 @@ if grep -q '^terminal-core/' <<<"$changed"; then
     exit 1
 fi
 
-if grep -rnE 'fallbackToDestructiveMigration|PromiscuousVerifier' app/src/main app/src/foss app/src/play \
+if grep -rnE 'fallbackToDestructiveMigration|PromiscuousVerifier' app/src/main app/src/foss \
     | grep -vE '^[^:]*:[0-9]+:\s*(\*|//|/\*.*\*/\s*$)'; then
     echo "banned API above: destroys the vault on a schema bump or accepts any host key" >&2
     exit 1

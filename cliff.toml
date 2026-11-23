@@ -14,7 +14,7 @@ body = """
 ### {{ group | striptags | trim }}
 {% for commit in commits %}- {{ commit.message | upper_first }}{% if commit.breaking %} (**breaking change**){% endif %}
 {% endfor %}{% endfor %}{% if version and previous.version %}
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/{{ previous.version }}...{{ version }})
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/{{ previous.version }}...{{ version }})
 {% endif %}
 """
 

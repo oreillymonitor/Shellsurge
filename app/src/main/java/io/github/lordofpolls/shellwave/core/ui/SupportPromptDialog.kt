@@ -28,11 +28,11 @@ fun SupportPromptDialog(
     AlertDialog(
         modifier = modifier,
         onDismissRequest = onDismiss,
-        title = { Text("Enjoying Shellwave?") },
+        title = { Text("Enjoying ShellSurge?") },
         text = {
             Column {
                 Text(
-                    "Thanks for using Shellwave. It's built by one person in their spare time and " +
+                    "Thanks for using ShellSurge. It's built by one person in their spare time and " +
                         "given away free. If you'd like to chip in, there's a one-time tip in a few " +
                         "sizes. Nothing is locked behind it.",
                 )

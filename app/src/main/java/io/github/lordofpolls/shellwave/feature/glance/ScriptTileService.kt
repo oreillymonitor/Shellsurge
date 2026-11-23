@@ -44,7 +44,7 @@ class ScriptTileService : TileService() {
         val tile = qsTile ?: return
         val scriptId = WidgetPreferences.qsTileScriptId(this)
         if (scriptId == null) {
-            tile.label = "Shellwave"
+            tile.label = "ShellSurge"
             tile.subtitle = "No script chosen"
             tile.state = Tile.STATE_UNAVAILABLE
             tile.updateTile()
@@ -52,7 +52,7 @@ class ScriptTileService : TileService() {
         }
         scope.launch {
             val script = scriptDao.getById(scriptId)
-            tile.label = script?.name ?: "Shellwave"
+            tile.label = script?.name ?: "ShellSurge"
             tile.subtitle = if (script == null) "Script deleted" else null
             tile.state = if (script != null) Tile.STATE_ACTIVE else Tile.STATE_UNAVAILABLE
             tile.updateTile()

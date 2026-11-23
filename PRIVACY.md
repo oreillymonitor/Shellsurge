@@ -1,22 +1,23 @@
-# Privacy Policy for Shellwave
+# Privacy Policy for ShellSurge
 
-**Last updated:** 25 August 2026
+**Last updated:** 23 November 2026
 
-Shellwave ("the app") is an SSH client for Android. This policy explains what
-data the app handles and, just as importantly, what it does not.
+ShellSurge ("the app", forked from Shellwave) is an SSH client for Android.
+This policy explains what data the app handles and, just as importantly, what it
+does not.
 
 ## Summary
 
-Shellwave does not collect, transmit, or share any of your data. It has no
-analytics, no crash reporting, no advertising, and no account system. All
-data you enter — hosts, credentials, scripts, settings — stays on your
-device, encrypted at rest, unless you explicitly export or share it yourself.
+ShellSurge does not collect, track, or sell your personal data. It has no
+developer-operated analytics, no crash-reporting SDKs, no advertising, and no
+account system. All data you enter — hosts, credentials, scripts, settings —
+stays on your device, encrypted at rest where applicable, unless you explicitly
+export or share it yourself.
 
 ## Data the app stores
 
 Everything below is stored **locally on your device only**, in a local
-database and the Android Keystore. None of it is sent to the developer or
-any third party.
+database, `SharedPreferences`, and the Android Keystore:
 
 - **Host details** you add (hostname, port, username, nicknames, per-host
   settings such as terminal profile or colour scheme).
@@ -26,63 +27,77 @@ any third party.
   authentication.
 - **Scripts and automation triggers** you create for running commands on
   your hosts.
-- **App preferences**, such as key bar layouts and terminal bell settings.
-- **A count of connections and script runs**, used for one thing only: deciding
-  when to offer the optional one-time supporter purchase, once. It is a number
-  on your device, it is never sent anywhere, and it stops counting as soon as
-  that prompt has been answered either way.
+- **App preferences**, such as key bar layouts, enabled AI CLI toggles,
+  notification settings, and terminal bell preferences.
 
 ## Data the app transmits
 
-The app connects, over SSH, only to the hosts **you** configure. That
-network traffic goes directly from your device to the server you specified —
-it never passes through the developer or any intermediary service. Shellwave
-has no backend server of its own.
+- **SSH / SFTP traffic:** The app connects only to the hosts **you**
+  configure. That network traffic goes directly from your device to the server
+  you specified — it never passes through the developer or any intermediary
+  service. ShellSurge has no backend server of its own.
+- **Local network discovery/access:** The app requests local network access
+  solely so it can reach SSH servers on your local network (e.g. a home server
+  or Raspberry Pi).
+- **Update checks (user-initiated):** When you tap **Check for updates** in
+  Settings, ShellSurge makes a direct HTTPS request to the public GitHub
+  Releases API (`https://api.github.com/repos/oreillymonitor/Shellsurge/releases/latest`)
+  to compare the latest published tag against the installed app version. No
+  device identifiers or user data are included.
 
-The app requests local network access solely so it can reach SSH servers on
-your local network (e.g. a home server or Raspberry Pi).
+## Voice input & on-device AI features
+
+- **Voice dictation & voice replies (`RECORD_AUDIO`):** When you explicitly tap
+  the microphone button (or enable microphone access for post-summary quick
+  replies), ShellSurge uses Android's built-in `SpeechRecognizer`. Depending on
+  your device, Android version, and configured system speech recognition
+  provider, speech audio may be processed on-device or by your device's system
+  speech service under your device vendor's terms. ShellSurge itself does not
+  record, store, or upload audio.
+- **On-device AI (`com.google.mlkit:genai-prompt` / Android AICore):** Prompt
+  polishing and terminal digest summaries attempt to use Gemini Nano locally via
+  Android AICore on supported devices (such as Pixel 9+); otherwise, ShellSurge
+  falls back to deterministic rule-based text processing on-device. If your
+  device's AICore service requires downloading the Gemini Nano model weights,
+  that download is handled by Android AICore / Google Play Services on your
+  device. Terminal text sent to AICore is processed locally on-device.
 
 ## Data you choose to export
 
-If you use the app's config export/import feature, an export file
-(containing host and script configuration) is written to storage you
-choose. Sharing that file is entirely under your control — Shellwave does
-not upload it anywhere on its own.
-
-## Third parties
-
-Shellwave does not integrate any third-party analytics, advertising, or
-tracking SDKs. It does not sell or share your data because it does not
-collect any.
+If you use the app's config export/import feature, an export file (containing
+host, script, and preference configuration — never passwords, private keys, or
+passphrases) is written to storage you choose. Sharing that file is entirely
+under your control.
 
 ## Permissions
 
-- **Internet / Local network access** — to establish SSH connections to
-  hosts you configure.
-- **Foreground service** — to keep SSH sessions and automations running
-  while the app is backgrounded.
-- **Notifications** — to alert you about session status and automation
-  results.
+- **Internet / Local network / Network state** — to establish SSH connections to
+  hosts you configure, optionally probe reachability on unmetered networks, and
+  perform user-initiated GitHub update checks.
+- **Record audio (`RECORD_AUDIO`)** — optional, requested only when you use
+  voice dictation or voice replies.
+- **Foreground service** — to keep SSH sessions and automations running while
+  the app is backgrounded.
+- **Notifications** — to alert you about session status, terminal bells,
+  command completion / response-needed prompts, and automation results.
 - **Vibrate** — for haptic feedback (e.g. terminal bell).
 
 ## Data deletion
 
-Because all data lives only on your device, uninstalling the app (or
-deleting individual hosts/credentials within it) permanently removes that
-data. There is nothing stored elsewhere to delete.
+Because all app data lives only on your device, uninstalling the app (or
+deleting individual hosts/credentials within it) permanently removes that data.
 
 ## Children's privacy
 
-Shellwave is not directed at children and does not knowingly collect data
-from anyone, including children, since it collects no data at all.
+ShellSurge is not directed at children and does not knowingly collect personal
+data from anyone.
 
 ## Changes to this policy
 
-If this policy changes, the "Last updated" date above will be revised and
-the new version published at the same location.
+If this policy changes, the "Last updated" date above will be revised and the
+new version published in the repository.
 
 ## Contact
 
 Questions about this policy can be raised via
-[GitHub Issues](https://github.com/LordOfPolls/Shellwave/issues) or by
-emailing dev@lordofpolls.com
+[GitHub Issues](https://github.com/oreillymonitor/Shellsurge/issues).

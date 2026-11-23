@@ -105,6 +105,9 @@ open class SshConnection(
      */
     private val onForwardStopped: (forwardId: Long, error: String?) -> Unit = { _, _ -> },
     private val onAgentForwardingRefused: () -> Unit = {},
+    private val onRawOutput: (ByteArray, Int) -> Unit = { _, _ -> },
+    private val onUserWrite: (ByteArray) -> Unit = {},
+    private val onBellNotify: (() -> Unit)? = null,
 ) : TerminalOutput() {
 
     private val ssh = SSHClient()
@@ -331,6 +334,7 @@ open class SshConnection(
                             // `buffer` next iteration is safe.
                             withContext(Dispatchers.Main) { emulator.append(buffer, read) }
                             logSink?.write(buffer, 0, read)
+                            onRawOutput(buffer, read)
                             _outputTick.value++
                         }
                         if (!closing.get()) onDisconnected(true)
@@ -428,6 +432,7 @@ open class SshConnection(
     // one at a time.
     override fun write(data: ByteArray, offset: Int, count: Int) {
         val copy = data.copyOfRange(offset, offset + count)
+        onUserWrite(copy)
         scope.launch(writeDispatcher) {
             val out = shell?.outputStream ?: run {
                 Log.w(LOG_TAG, "write dropped: shell not open (${copy.size} bytes)")
@@ -468,7 +473,7 @@ open class SshConnection(
         when (BellPreferences.get(context)) {
             BellMode.SILENT -> {}
             BellMode.VIBRATE -> vibrateForBell()
-            BellMode.NOTIFY -> notifyForBell()
+            BellMode.NOTIFY -> onBellNotify?.invoke() ?: notifyForBell()
         }
     }
 

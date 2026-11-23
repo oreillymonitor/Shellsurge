@@ -59,6 +59,16 @@ private class NoopSessionAlerts(
     override fun dropped(sessionId: Long, label: String) = Unit
     override fun reconnected(sessionId: Long, label: String) = Unit
     override fun forget(sessionId: Long) = Unit
+    override fun commandOutput(
+        sessionId: Long,
+        title: String,
+        body: String,
+        isActiveTab: Boolean,
+        notifyOnActiveTab: Boolean,
+    ) = Unit
+
+    override fun bell(sessionId: Long, label: String, preview: String?) = Unit
+    override fun clearOutputAlert(sessionId: Long) = Unit
     override fun notice(sessionId: Long, label: String, message: String) {
         notices += message
     }

@@ -14,12 +14,14 @@ import io.github.lordofpolls.shellwave.core.db.entities.ColorSchemeEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardType
 import io.github.lordofpolls.shellwave.core.prefs.AppearancePreferences
+import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SupportPreferences
 import io.github.lordofpolls.shellwave.service.SessionAlerts
 import io.github.lordofpolls.shellwave.service.SessionService
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_COLOR_SCHEME
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_TERMINAL_PROFILE
 import io.github.lordofpolls.shellwave.terminal.TerminalCursorStyle
+import io.github.lordofpolls.shellwave.terminal.TerminalTextSanitizer
 import io.github.lordofpolls.shellwave.terminal.applyColorSchemeAsDefault
 import io.github.lordofpolls.shellwave.terminal.applyColorSchemeLive
 import io.github.lordofpolls.shellwave.terminal.toEngineConstant
@@ -32,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -129,6 +132,8 @@ data class SessionSummary(
     val tunnels: List<TunnelStatus> = emptyList(),
     /** True only while keys are really being offered on this connection: not refused, not dropped. */
     val agentForwarding: Boolean = false,
+    /** Whether automatic/OSC output alerts are enabled for this session. */
+    val outputAlertsEnabled: Boolean = true,
 )
 
 /**
@@ -180,6 +185,9 @@ constructor(
     @Volatile
     private var lastKnownSize: TerminalSize? = null
 
+    @Volatile
+    private var foregroundSessionId: Long? = null
+
     private class Entry(
         val id: Long,
         val spec: ConnectionSpec,
@@ -223,6 +231,8 @@ constructor(
         // by handleDisconnected(): see attemptConnect's comment on why this exists.
         val generation: AtomicLong = AtomicLong(0),
         val connectCounted: AtomicBoolean = AtomicBoolean(false),
+        @Volatile var outputAlertsOverride: Boolean? = null,
+        @Volatile var outputWatcher: TerminalOutputWatcher? = null,
     )
 
     /**
@@ -239,7 +249,7 @@ constructor(
         // Always includes the port, non-default or otherwise: two sessions to the same host on
         // different ports are otherwise distinguishable only by status glyph, which the list pane
         // makes worse by showing several sessions side by side.
-        entries[id] = Entry(
+        val entry = Entry(
             id,
             spec,
             "${spec.username}@${spec.hostname}:${spec.port}",
@@ -247,6 +257,8 @@ constructor(
             connection,
             SessionStatus.CONNECTING
         )
+        entry.outputWatcher = newWatcher(entry)
+        entries[id] = entry
         publish()
         // The entry above is visible before this starts the service, so if SessionService's
         // onCreate races ahead of openSession's caller, it still observes a non-empty list.
@@ -314,7 +326,9 @@ constructor(
      */
     fun closeSession(id: Long) {
         val entry = entries.remove(id) ?: return
+        entry.outputWatcher?.cancel()
         sessionAlerts.forget(id)
+        if (foregroundSessionId == id) foregroundSessionId = null
         entry.backoffJob?.cancel()
         entry.agentKeys = emptyList()
         entry.connection.disconnect()
@@ -325,6 +339,28 @@ constructor(
         }
         publish()
     }
+
+    fun setForegroundSession(id: Long) {
+        foregroundSessionId = id
+        sessionAlerts.clearOutputAlert(id)
+    }
+
+    fun clearForegroundSession(id: Long) {
+        if (foregroundSessionId == id) foregroundSessionId = null
+    }
+
+    fun setSessionOutputAlerts(id: Long, enabled: Boolean) {
+        val entry = entries[id] ?: return
+        entry.outputAlertsOverride = enabled
+        if (!enabled) {
+            entry.outputWatcher?.cancel()
+            sessionAlerts.clearOutputAlert(id)
+        }
+        publish()
+    }
+
+    private fun isOutputAlertsEnabled(entry: Entry): Boolean =
+        entry.outputAlertsOverride ?: NotificationPreferences.isCommandNotifyEnabled(context)
 
     /** The persistent notification's "disconnect all" action, and used when the user explicitly wants a clean slate. */
     fun disconnectAll() {
@@ -400,7 +436,61 @@ constructor(
             onDisconnected = { clean -> handleDisconnected(id, clean) },
             onForwardStopped = { forwardId, error -> handleForwardStopped(id, forwardId, error) },
             onAgentForwardingRefused = { handleAgentForwardingRefused(id) },
+            onRawOutput = { buf, len -> entries[id]?.outputWatcher?.onRawOutput(buf, len) },
+            onUserWrite = { bytes -> entries[id]?.outputWatcher?.onUserWrite(bytes) },
+            onBellNotify = { handleBellNotify(id) },
         )
+
+    private fun newWatcher(entry: Entry): TerminalOutputWatcher =
+        TerminalOutputWatcher(
+            scope = managerScope,
+            label = entry.label,
+            isEnabled = {
+                entries[entry.id] === entry &&
+                    entry.status == SessionStatus.CONNECTED &&
+                    isOutputAlertsEnabled(entry)
+            },
+            idleDelayMs = { NotificationPreferences.getIdleDelay(context).seconds * 1000L },
+            onAlert = { event -> dispatchOutputAlert(entry, event) },
+        )
+
+    private fun dispatchOutputAlert(entry: Entry, event: OutputAlertEvent) {
+        managerScope.launch {
+            if (entries[entry.id] !== entry || !isOutputAlertsEnabled(entry)) return@launch
+            val tail = if (event.explicitTitle == null || event.explicitBody == null) {
+                withContext(Dispatchers.Main) {
+                    entry.connection.emulatorOrNull?.let {
+                        TerminalTextSanitizer.extractCleanTail(it, maxLines = 15)
+                    }
+                }.orEmpty()
+            } else {
+                ""
+            }
+            val title = event.explicitTitle ?: classifyOutputTitle(entry.label, tail)
+            val body = event.explicitBody ?: extractOutputSnippet(tail)
+            sessionAlerts.commandOutput(
+                sessionId = entry.id,
+                title = title,
+                body = body,
+                isActiveTab = foregroundSessionId == entry.id,
+                notifyOnActiveTab = NotificationPreferences.isNotifyOnActiveTab(context),
+            )
+        }
+    }
+
+    private fun handleBellNotify(id: Long) {
+        val entry = entries[id] ?: return
+        managerScope.launch {
+            if (entries[id] !== entry) return@launch
+            val tail = withContext(Dispatchers.Main) {
+                entry.connection.emulatorOrNull?.let {
+                    TerminalTextSanitizer.extractCleanTail(it, maxLines = 15)
+                }
+            }.orEmpty()
+            val preview = extractOutputSnippet(tail)
+            sessionAlerts.bell(entry.id, entry.label, preview)
+        }
+    }
 
     internal fun handleAgentForwardingRefused(id: Long) {
         val entry = entries[id] ?: return
@@ -634,6 +724,7 @@ constructor(
 
     private fun handleDisconnected(id: Long, clean: Boolean) {
         val entry = entries[id] ?: return
+        entry.outputWatcher?.cancel()
         entry.generation.incrementAndGet() // invalidate any attemptConnect() still unwinding for this connection - see its comment
         // Release every bound local port the moment a drop is detected, rather than waiting for
         // reconnectWithBackoff()'s own disconnect() before its first retry - otherwise the port
@@ -702,6 +793,7 @@ constructor(
                         it.keyBarLayoutId,
                         it.tunnels.values.toList(),
                         it.status == SessionStatus.CONNECTED && it.agentKeys.isNotEmpty() && !it.agentRefused,
+                        outputAlertsEnabled = isOutputAlertsEnabled(it),
                     )
                 }
     }

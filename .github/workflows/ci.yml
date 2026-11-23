@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -61,3 +61,34 @@ jobs:
           name: shellwave-debug-apk
           path: app/build/outputs/apk/foss/debug/*.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          eval "$(tools/version.sh)"
+          TAG="v${name}"
+          APK=$(find app/build/outputs/apk/foss/debug -name '*.apk' -print -quit)
+          if [ -z "$APK" ]; then
+            echo "No debug APK found" >&2
+            exit 1
+          fi
+          ASSET="$RUNNER_TEMP/shellsurge-${name}.apk"
+          cp "$APK" "$ASSET"
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          {
+            printf 'Automated build from `master` (`%s`).\n\n' "${GITHUB_SHA::7}"
+            printf '### Latest Change\n%s\n\n' "$COMMIT_MSG"
+            printf '> Signed with the repository debug keystore for seamless in-place updates over existing CI builds.\n'
+          } > "$RUNNER_TEMP/release-notes.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "ShellSurge $TAG" --notes-file "$RUNNER_TEMP/release-notes.md" --latest
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" \
+              --target "$GITHUB_SHA" \
+              --title "ShellSurge $TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
+              --latest
+          fi

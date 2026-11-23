@@ -10,6 +10,8 @@ import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
@@ -62,6 +64,8 @@ internal fun TerminalOverflowMenu(
     isLogging: Boolean,
     onStartLogging: (SshConnection) -> Unit,
     onStopLogging: () -> Unit,
+    outputAlertsEnabled: Boolean = true,
+    onToggleOutputAlerts: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showingBell by remember { mutableStateOf(false) }
@@ -182,6 +186,25 @@ internal fun TerminalOverflowMenu(
                     },
                     onClick = { showingBell = true },
                 )
+                if (onToggleOutputAlerts != null) {
+                    DropdownMenuItem(
+                        text = { Text(if (outputAlertsEnabled) "Output alerts: On" else "Output alerts: Muted") },
+                        leadingIcon = {
+                            Icon(
+                                if (outputAlertsEnabled) {
+                                    Icons.Outlined.NotificationsActive
+                                } else {
+                                    Icons.Outlined.NotificationsOff
+                                },
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            expanded = false
+                            onToggleOutputAlerts()
+                        },
+                    )
+                }
                 if (onClose != null) {
                     DropdownMenuItem(
                         text = { Text("Close session") },

@@ -221,6 +221,9 @@ class MainActivity : FragmentActivity() {
         /** Set on the notification's PendingIntent by buildNotification - see [handleIntent]. */
         const val EXTRA_OPEN_SESSIONS = "io.github.lordofpolls.shellwave.extra.OPEN_SESSIONS"
 
+        /** Optional target session tab when opening Sessions from a notification - see [handleIntent]. */
+        const val EXTRA_OPEN_SESSION_ID = "io.github.lordofpolls.shellwave.extra.OPEN_SESSION_ID"
+
         /** Set by a script's dynamic App Shortcut (updateDynamicShortcuts) - see [handleIntent]. */
         const val EXTRA_RUN_SCRIPT_ID = "io.github.lordofpolls.shellwave.extra.RUN_SCRIPT_ID"
 
@@ -296,6 +299,7 @@ class MainActivity : FragmentActivity() {
 
     // Consumed by a LaunchedEffect in setContent, the only scope screenKind lives in.
     private val openSessionsRequested = mutableStateOf(false)
+    private val openSessionIdRequested = mutableStateOf<Long?>(null)
 
     // -1L means "nothing pending". A shortcut brings the app to the foreground, so unlike the widget
     // and QS-tile paths these run through ScriptRunController with real dialogs.
@@ -590,8 +594,13 @@ class MainActivity : FragmentActivity() {
                 }
 
                 val openSessionsRequestedState by openSessionsRequested
-                LaunchedEffect(openSessionsRequestedState) {
+                val openSessionIdRequestedState by openSessionIdRequested
+                LaunchedEffect(openSessionsRequestedState, openSessionIdRequestedState) {
                     if (openSessionsRequestedState) {
+                        openSessionIdRequestedState?.let {
+                            targetSessionId = it
+                            openSessionIdRequested.value = null
+                        }
                         openTerminal()
                         openSessionsRequested.value = false
                     }
@@ -1330,6 +1339,8 @@ class MainActivity : FragmentActivity() {
         if (intent?.getBooleanExtra(EXTRA_OPEN_SESSIONS, false) == true) {
             openSessionsRequested.value = true
         }
+        intent?.getLongExtra(EXTRA_OPEN_SESSION_ID, -1L)?.takeIf { it >= 0 }
+            ?.let { openSessionIdRequested.value = it }
         intent?.getLongExtra(EXTRA_RUN_SCRIPT_ID, -1L)?.takeIf { it >= 0 }
             ?.let { runScriptRequested.value = it }
         intent?.getLongExtra(EXTRA_OPEN_HOST_ID, -1L)?.takeIf { it >= 0 }

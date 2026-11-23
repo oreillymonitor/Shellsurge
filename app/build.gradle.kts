@@ -79,8 +79,8 @@ android {
         applicationId = "io.github.oreillymonitor.shellsurge"
         minSdk = 31
         targetSdk = 37
-        versionCode = 11035
-        versionName = "1.10.35"
+        versionCode = 11036
+        versionName = "1.10.36"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

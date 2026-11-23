@@ -195,6 +195,11 @@ fun SessionsScreen(
     val selectedId = navigator.currentDestination?.contentKey
         ?: summaries.firstOrNull { it.id == initialSessionId }?.id ?: summaries.first().id
 
+    DisposableEffect(selectedId) {
+        sessionManager.setForegroundSession(selectedId)
+        onDispose { sessionManager.clearForegroundSession(selectedId) }
+    }
+
     // Keyed on the selected session, not shared screen-wide: switching tabs must not leave the
     // bar open over a session that was never searched.
     val searchController = rememberTerminalSearchController(selectedId)
@@ -279,6 +284,10 @@ fun SessionsScreen(
                     connection = overflowConnection,
                     bellMode = bellMode,
                     onBellMode = { mode -> BellPreferences.set(bellContext, mode) },
+                    outputAlertsEnabled = current?.outputAlertsEnabled ?: true,
+                    onToggleOutputAlerts = current?.let { s ->
+                        { sessionManager.setSessionOutputAlerts(s.id, !s.outputAlertsEnabled) }
+                    },
                     onDownload = { connection -> fileTransferController.requestDownload(connection) },
                     onUpload = { connection -> fileTransferController.requestUpload(connection) },
                     onBrowseFiles = { connection ->

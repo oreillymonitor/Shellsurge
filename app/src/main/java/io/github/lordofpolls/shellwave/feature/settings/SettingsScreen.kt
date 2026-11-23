@@ -1,8 +1,10 @@
 package io.github.lordofpolls.shellwave.feature.settings
 
 import android.content.ClipData
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,10 +32,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Terminal
@@ -51,8 +55,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -64,16 +70,26 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.lordofpolls.shellwave.BuildConfig
 import io.github.lordofpolls.shellwave.core.billing.SupporterState
 import io.github.lordofpolls.shellwave.core.billing.SupporterTier
+import io.github.lordofpolls.shellwave.core.prefs.BellMode
+import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.core.prefs.ColourTheme
+import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
+import io.github.lordofpolls.shellwave.core.prefs.OutputIdleDelay
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityInterval
 import io.github.lordofpolls.shellwave.core.prefs.ThemeMode
+import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.service.ACTION_RUN_SCRIPT
 import io.github.lordofpolls.shellwave.service.EXTRA_SCRIPT_ID
 import io.github.lordofpolls.shellwave.service.EXTRA_TOKEN
@@ -116,6 +132,25 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val commandNotifyEnabled by rememberPrefState { NotificationPreferences.isCommandNotifyEnabled(it) }
+    val outputIdleDelay by rememberPrefState { NotificationPreferences.getIdleDelay(it) }
+    val notifyOnActiveTab by rememberPrefState { NotificationPreferences.isNotifyOnActiveTab(it) }
+    val bellMode by rememberPrefState { BellPreferences.get(it) }
+    var systemNotificationsEnabled by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    DisposableEffect(context) {
+        val lifecycle = ProcessLifecycleOwner.get().lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                systemNotificationsEnabled =
+                    NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     Scaffold(
         modifier = modifier,
         // MainActivity's Scaffold already applied the system bar insets without consuming them.
@@ -169,6 +204,92 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Terminal,
                     chevron = true,
                     onClick = onOpenTerminalSettings,
+                )
+            }
+
+            // 2b. NOTIFICATIONS
+            SettingsGroupCard(title = "Notifications", icon = Icons.Outlined.Notifications) {
+                if (!systemNotificationsEnabled) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "Notifications are blocked in Android system settings. Enable them to receive command and output alerts.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    runCatching {
+                                        val settingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        context.startActivity(settingsIntent)
+                                    }
+                                },
+                            ) {
+                                Text("Open notification settings")
+                            }
+                        }
+                    }
+                }
+
+                SettingsSwitch(
+                    title = "Command & output alerts",
+                    description = "Notify when a command finishes or terminal output settles while you're away from the session.",
+                    checked = commandNotifyEnabled,
+                    onCheckedChange = { NotificationPreferences.setCommandNotifyEnabled(context, it) },
+                )
+
+                AnimatedVisibility(visible = commandNotifyEnabled) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) {
+                        SettingsSegmentedGroup(
+                            label = "Idle settle delay",
+                            description = "Wait this long after output stops before alerting. Choose 'OSC only' to notify only on explicit shell/agent signals.",
+                            options = OutputIdleDelay.entries,
+                            selected = outputIdleDelay,
+                            labelOf = { it.label },
+                            onSelect = { NotificationPreferences.setIdleDelay(context, it) },
+                        )
+
+                        SettingsSwitch(
+                            title = "Alert on active tab too",
+                            description = "Also notify while the session is visible on screen (useful when leaving your phone on your desk).",
+                            checked = notifyOnActiveTab,
+                            onCheckedChange = { NotificationPreferences.setNotifyOnActiveTab(context, it) },
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "Works automatically for any command or AI agent (agy, opencode). For instant exit-code alerts, emit OSC 133;D;$? from your shell prompt or OSC 9 / OSC 777 from agent hooks.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(10.dp),
+                            )
+                        }
+                    }
+                }
+
+                SettingsCardDivider()
+
+                SettingsSegmentedGroup(
+                    label = "Terminal bell",
+                    options = BellMode.entries,
+                    selected = bellMode,
+                    labelOf = BellPreferences::modeName,
+                    onSelect = { BellPreferences.set(context, it) },
                 )
             }
 
@@ -266,6 +387,15 @@ fun SettingsScreen(
                     badgeText = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 )
                 SettingsCardDivider()
+                AppUpdateSection(uriHandler = uriHandler)
+                SettingsCardDivider()
+                SettingsRow(
+                    title = "Releases page",
+                    description = RELEASES_PAGE_URL,
+                    chevron = true,
+                    onClick = { runCatching { uriHandler.openUri(RELEASES_PAGE_URL) } },
+                )
+                SettingsCardDivider()
                 SettingsRow(
                     title = "Source code",
                     description = SOURCE_REPOSITORY_URL,
@@ -282,6 +412,83 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun AppUpdateSection(
+    uriHandler: UriHandler,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
+
+    val rowTitle = when (updateState) {
+        is UpdateCheckState.UpdateAvailable -> "Update available"
+        else -> "Check for updates"
+    }
+    val rowDescription = when (val state = updateState) {
+        UpdateCheckState.Idle -> "Check GitHub Releases for a newer APK."
+        UpdateCheckState.Checking -> "Checking GitHub Releases…"
+        is UpdateCheckState.UpToDate ->
+            "You're on the latest release (${state.release.tagName})."
+        is UpdateCheckState.UpdateAvailable -> {
+            val preview = state.release.notesPreview?.let { " — $it" }.orEmpty()
+            "${state.release.releaseName} is available$preview"
+        }
+        is UpdateCheckState.NoReleases -> state.message
+        is UpdateCheckState.Error -> state.message
+    }
+    val badgeText = when (val state = updateState) {
+        is UpdateCheckState.UpdateAvailable -> "v${state.release.versionName}"
+        is UpdateCheckState.UpToDate -> "Up to date"
+        else -> null
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SettingsRow(
+            title = rowTitle,
+            description = rowDescription,
+            icon = Icons.Outlined.Download,
+            badgeText = badgeText,
+            onClick = {
+                if (updateState != UpdateCheckState.Checking) {
+                    updateState = UpdateCheckState.Checking
+                    scope.launch {
+                        updateState = checkForUpdate(BuildConfig.VERSION_NAME)
+                    }
+                }
+            },
+        )
+
+        AnimatedVisibility(visible = updateState is UpdateCheckState.UpdateAvailable) {
+            val available = updateState as? UpdateCheckState.UpdateAvailable
+            if (available != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(
+                        onClick = {
+                            val target = available.release.apkDownloadUrl ?: available.release.htmlUrl
+                            runCatching { uriHandler.openUri(target) }
+                        },
+                    ) {
+                        Icon(
+                            Icons.Outlined.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Download APK")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            runCatching { uriHandler.openUri(available.release.htmlUrl) }
+                        },
+                    ) {
+                        Text("Release notes")
+                    }
+                }
+            }
         }
     }
 }

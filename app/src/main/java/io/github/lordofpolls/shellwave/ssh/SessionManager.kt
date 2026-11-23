@@ -451,32 +451,25 @@ constructor(
                     isOutputAlertsEnabled(entry)
             },
             idleDelayMs = { NotificationPreferences.getIdleDelay(context).seconds * 1000L },
-            onAlert = { event -> dispatchOutputAlert(entry, event) },
-        )
-
-    private fun dispatchOutputAlert(entry: Entry, event: OutputAlertEvent) {
-        managerScope.launch {
-            if (entries[entry.id] !== entry || !isOutputAlertsEnabled(entry)) return@launch
-            val tail = if (event.explicitTitle == null || event.explicitBody == null) {
+            readTail = {
                 withContext(Dispatchers.Main) {
                     entry.connection.emulatorOrNull?.let {
                         TerminalTextSanitizer.extractCleanTail(it, maxLines = 15)
                     }
                 }.orEmpty()
-            } else {
-                ""
-            }
-            val title = event.explicitTitle ?: classifyOutputTitle(entry.label, tail)
-            val body = event.explicitBody ?: extractOutputSnippet(tail)
-            sessionAlerts.commandOutput(
-                sessionId = entry.id,
-                title = title,
-                body = body,
-                isActiveTab = foregroundSessionId == entry.id,
-                notifyOnActiveTab = NotificationPreferences.isNotifyOnActiveTab(context),
-            )
-        }
-    }
+            },
+            onAlert = { _, title, body ->
+                if (entries[entry.id] === entry && isOutputAlertsEnabled(entry)) {
+                    sessionAlerts.commandOutput(
+                        sessionId = entry.id,
+                        title = title,
+                        body = body,
+                        isActiveTab = foregroundSessionId == entry.id,
+                        notifyOnActiveTab = NotificationPreferences.isNotifyOnActiveTab(context),
+                    )
+                }
+            },
+        )
 
     private fun handleBellNotify(id: Long) {
         val entry = entries[id] ?: return

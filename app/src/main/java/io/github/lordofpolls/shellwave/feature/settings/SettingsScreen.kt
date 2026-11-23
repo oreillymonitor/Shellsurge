@@ -241,7 +241,7 @@ fun SettingsScreen(
 
                 SettingsSwitch(
                     title = "Command & output alerts",
-                    description = "Notify when a command finishes or terminal output settles while you're away from the session.",
+                    description = "Notify only when a command has Completed or when a Response is needed while you're away from the session.",
                     checked = commandNotifyEnabled,
                     onCheckedChange = { NotificationPreferences.setCommandNotifyEnabled(context, it) },
                 )

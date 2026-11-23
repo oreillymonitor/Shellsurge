@@ -141,7 +141,7 @@ internal object PromptRefiner {
 
         // 1. Remove introductory conversational filler phrases
         val introFillers = listOf(
-            Regex("(?i)^\\s*(hey|so|basically|um|uh|can you|could you|please|i want to|i need to|what if we|how about we)\\s+"),
+            Regex("(?i)^\\s*(?:(?:hey|so|basically|um|uh|can you|could you|please|i want to|i need to|what if we|how about we)[,\\s]+)+"),
             Regex("(?i)\\b(you know|like I said|I mean|as well|sort of|kind of)\\b[,\\s]*"),
             Regex("(?i)\\b(um|uh|er|ah)\\b[,\\s]*"),
         )

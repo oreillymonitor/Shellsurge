@@ -6,7 +6,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val MIN_QUICK_ECHO_MS = 1_500L
-private const val MIN_QUICK_ECHO_BYTES = 48
+private const val MIN_QUICK_ECHO_BYTES = 24
 
 private val PROMPT_LINE_REGEX =
     Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯➜%]\\s*$|^[>❯➜]\\s+.*$")
@@ -293,19 +293,7 @@ internal class TerminalOutputWatcher(
         settleJob = scope.launch {
             delay(delayMs)
             val canEvaluate = synchronized(lock) {
-                if (!isEnabled() || !turnArmed) return@synchronized false
-                val submittedAt = commandSubmittedAtMs
-                if (submittedAt != null) {
-                    val activeSpanMs = (lastOutputAtMs - submittedAt).coerceAtLeast(0L)
-                    if (activeSpanMs < MIN_QUICK_ECHO_MS && outputBytesSinceSubmit < MIN_QUICK_ECHO_BYTES) {
-                        // Bare Enter prompt echo: disarm without notifying.
-                        turnArmed = false
-                        commandSubmittedAtMs = null
-                        outputBytesSinceSubmit = 0
-                        return@synchronized false
-                    }
-                }
-                true
+                isEnabled() && turnArmed
             }
             if (canEvaluate) {
                 evaluateAndNotify(explicitSignal = null)
@@ -323,6 +311,19 @@ internal class TerminalOutputWatcher(
         val shouldEmit = synchronized(lock) {
             if (!isEnabled()) return@synchronized false
             if (explicitSignal == null && !turnArmed) return@synchronized false
+            if (explicitSignal == null && kind == OutputPromptKind.COMPLETED) {
+                val submittedAt = commandSubmittedAtMs
+                if (submittedAt != null) {
+                    val activeSpanMs = (lastOutputAtMs - submittedAt).coerceAtLeast(0L)
+                    if (activeSpanMs < MIN_QUICK_ECHO_MS && outputBytesSinceSubmit < MIN_QUICK_ECHO_BYTES) {
+                        // Bare Enter prompt echo on a screen with prior scrollback: disarm quietly.
+                        turnArmed = false
+                        commandSubmittedAtMs = null
+                        outputBytesSinceSubmit = 0
+                        return@synchronized false
+                    }
+                }
+            }
             if (signature == lastNotifiedSignature) {
                 if (kind == OutputPromptKind.COMPLETED) {
                     turnArmed = false

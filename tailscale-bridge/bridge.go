@@ -13,35 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wlynxg/anet"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
-	"tailscale.com/net/netmon"
 	"tailscale.com/tsnet"
 )
-
-func init() {
-	// Android 11+ blocks raw netlink RTM_GETLINK/RTM_GETADDR syscalls from unprivileged apps.
-	// anet uses socket ioctls so Tailscale's netmon works inside Android's sandbox.
-	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
-		ifs, err := anet.Interfaces()
-		if err != nil {
-			return nil, fmt.Errorf("anet.Interfaces: %w", err)
-		}
-		ret := make([]netmon.Interface, 0, len(ifs))
-		for i := range ifs {
-			addrs, err := anet.InterfaceAddrsByInterface(&ifs[i])
-			if err != nil {
-				continue
-			}
-			ret = append(ret, netmon.Interface{
-				Interface: &ifs[i],
-				AltAddrs:  addrs,
-			})
-		}
-		return ret, nil
-	})
-}
 
 type nodeStatusSnapshot struct {
 	State          string `json:"state"`

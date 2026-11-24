@@ -78,6 +78,7 @@ jobs:
           export PATH="$(go env GOPATH)/bin:$PATH"
           gomobile init
           cd tailscale-bridge
+          go mod download
           go test -v ./...
           mkdir -p ../app/libs
           gomobile bind -v -target=android/arm64,android/amd64 -androidapi 31 -javapkg=io.github.lordofpolls.shellwave.tailscale -ldflags="-s -w" -o ../app/libs/tailscale-bridge.aar .

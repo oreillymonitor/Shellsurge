@@ -141,10 +141,6 @@ whose full text is in licenses/):
     https://github.com/tailscale/tailscale
     Licence: BSD 3-Clause License
 
-  anet (github.com/wlynxg/anet) - Android sandbox-safe network interface lookup for Go netmon
-    https://github.com/wlynxg/anet
-    Licence: MIT License
-
 TextMate grammars and themes (module :app)
 ----------------------------------------
   TextMate grammars and colour themes bundled under assets/textmate/, as redistributed in the

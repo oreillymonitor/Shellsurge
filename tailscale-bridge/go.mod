@@ -3,7 +3,6 @@ module io.github.oreillymonitor.shellsurge/tailscalebridge
 go 1.26.5
 
 require (
-	github.com/wlynxg/anet v0.0.5
 	golang.org/x/mobile v0.0.0-20261117202452-47699113848a
 	tailscale.com v1.102.0
 )

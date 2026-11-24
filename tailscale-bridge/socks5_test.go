@@ -230,3 +230,32 @@ func TestNodeStoppedStatusAndPeers(t *testing.T) {
 func echoTargetAddr(port int32) string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port)))
 }
+
+func TestGetIfAddrsReturnsLoopback(t *testing.T) {
+	ifs, err := listInterfacesViaGetIfAddrs()
+	if err != nil {
+		t.Fatalf("listInterfacesViaGetIfAddrs failed: %v", err)
+	}
+	if len(ifs) == 0 {
+		t.Fatal("expected at least one network interface")
+	}
+	foundLoopback := false
+	for _, iface := range ifs {
+		if !iface.IsLoopback() {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if strings.HasPrefix(a.String(), "127.0.0.1/") {
+				foundLoopback = true
+				break
+			}
+		}
+	}
+	if !foundLoopback {
+		t.Fatal("expected loopback interface with 127.0.0.1 address")
+	}
+}

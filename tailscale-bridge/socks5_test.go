@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"tailscale.com/logpolicy"
 	"tailscale.com/net/netmon"
 )
 
@@ -324,5 +325,25 @@ func TestWriteStageAndPanicFiles(t *testing.T) {
 	}
 	if !strings.Contains(string(panicBytes), "panic in TestCase: boom") {
 		t.Fatalf("unexpected go_panic.txt: %q", string(panicBytes))
+	}
+}
+
+func TestConfigureSandboxEnvPreventsLogsDirPanic(t *testing.T) {
+	t.Setenv("TS_LOGS_DIR", "")
+	t.Setenv("TMPDIR", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	t.Setenv("STATE_DIRECTORY", "")
+
+	dir := t.TempDir()
+	if err := configureSandboxEnv(dir); err != nil {
+		t.Fatalf("configureSandboxEnv failed: %v", err)
+	}
+
+	got := logpolicy.LogsDir(func(string, ...any) {})
+	want := filepath.Join(dir, "logs")
+	if got != want {
+		t.Fatalf("logpolicy.LogsDir = %q, want %q", got, want)
 	}
 }

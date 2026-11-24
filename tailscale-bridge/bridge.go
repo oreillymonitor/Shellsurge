@@ -108,6 +108,29 @@ func randomHexToken(numBytes int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+func configureSandboxEnv(stateDir string) error {
+	dirs := map[string]string{
+		"TS_LOGS_DIR":     filepath.Join(stateDir, "logs"),
+		"TMPDIR":          filepath.Join(stateDir, "tmp"),
+		"XDG_CACHE_HOME":  filepath.Join(stateDir, "cache"),
+		"XDG_CONFIG_HOME": filepath.Join(stateDir, "config"),
+	}
+	for envKey, dirPath := range dirs {
+		if err := os.MkdirAll(dirPath, 0o700); err != nil {
+			return fmt.Errorf("create %s dir: %w", envKey, err)
+		}
+		if err := os.Setenv(envKey, dirPath); err != nil {
+			return fmt.Errorf("set %s: %w", envKey, err)
+		}
+	}
+	if os.Getenv("HOME") == "" {
+		if err := os.Setenv("HOME", stateDir); err != nil {
+			return fmt.Errorf("set HOME: %w", err)
+		}
+	}
+	return nil
+}
+
 func (n *Node) Start(stateDir, hostname, authKey, controlURL string) (retErr error) {
 	cleanDir := strings.TrimSpace(stateDir)
 	defer func() {
@@ -126,6 +149,11 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) (retErr err
 	writeStageFile(cleanDir, "go:mkdir")
 	if err := os.MkdirAll(cleanDir, 0o700); err != nil {
 		return fmt.Errorf("create stateDir: %w", err)
+	}
+	_ = os.Remove(filepath.Join(cleanDir, "go_panic.txt"))
+	if err := configureSandboxEnv(cleanDir); err != nil {
+		n.setError(err.Error())
+		return err
 	}
 	n.mu.Lock()
 	n.stateDir = cleanDir

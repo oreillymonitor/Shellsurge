@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.14.1 - 2026-11-24
+
+### Fixed
+- **Embedded Tailscale browser sign-in**: feed Android `ConnectivityManager` default route and `NetworkInterface` snapshots into Go `netmon` (fixing Android 11+ `getifaddrs` missing `IFF_UP` flags), poll `StatusWithoutPeers` alongside `WatchIPNBus` for `AuthURL` & health diagnostics, add `http`/`https` `ACTION_VIEW` manifest `<queries>`, auto-open the browser when a sign-in URL arrives on connect, and show an explicit sign-in card with **Open browser** and **Copy link** buttons
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.0...1.14.1)
+
 ## 1.14.0 - 2026-11-24
 
 ### New

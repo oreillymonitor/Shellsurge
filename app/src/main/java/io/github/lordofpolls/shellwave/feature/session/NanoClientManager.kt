@@ -9,7 +9,6 @@ import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerationConfig
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.ModelConfig
-import com.google.mlkit.genai.prompt.PromptPrefix
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import io.github.lordofpolls.shellwave.core.prefs.NanoModelPreferences
@@ -319,9 +318,6 @@ internal object NanoClientManager {
                 builder.candidateCount = 1
                 if (thinkingWanted) {
                     builder.enableThinking = true
-                }
-                if (diag.supportsSystemPrompt && diag.supportsPrefixCaching) {
-                    builder.promptPrefix = PromptPrefix(true, false)
                 }
                 return builder.build()
             }

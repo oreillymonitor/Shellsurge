@@ -2,6 +2,7 @@ package io.github.lordofpolls.shellwave.feature.session
 
 import io.github.lordofpolls.shellwave.core.prefs.AgentCli
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,6 +37,32 @@ class PromptRefinerTest {
             "git status -sb",
             PromptRefiner.stripShellCommandFormatting("`git status -sb`"),
         )
+    }
+
+    @Test
+    fun `cleanRefinedOutput strips XML wrappers, labels, and quotes while keeping filenames`() {
+        assertEquals(
+            "Check the error log for database_connector.js.",
+            PromptRefiner.cleanRefinedOutput("Output:\n<draft>Check the error log for database_connector.js.</draft>"),
+        )
+        assertEquals(
+            "Fix timeout in api/client.ts",
+            PromptRefiner.cleanRefinedOutput("\"Fix timeout in api/client.ts\""),
+        )
+    }
+
+    @Test
+    fun `system instructions contain no hardcoded repo filenames or example bleed`() {
+        val prompts = listOf(
+            PromptRefiner.REFINE_SYSTEM_INSTRUCTION,
+            PromptRefiner.SHELL_CMD_SYSTEM_INSTRUCTION,
+            AgentDigestModel.DIGEST_SYSTEM_INSTRUCTION,
+        )
+        for (prompt in prompts) {
+            assertFalse(prompt.contains("SessionManager"))
+            assertFalse(prompt.contains("PromptRefiner"))
+            assertFalse(prompt.contains("gradlew"))
+        }
     }
 
     @Test

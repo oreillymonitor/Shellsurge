@@ -25,18 +25,11 @@ data class AgentDigestResult(
  * with an intelligent fallback analyzer for local command & agent outputs.
  */
 internal object AgentDigestModel {
-    private val DIGEST_SYSTEM_INSTRUCTION = """
-        Brief a software developer on a terminal tail in 2 to 3 crisp spoken sentences.
-        State what finished or failed, key file names or error causes, and whether it is waiting on confirmation.
-        Use zero greetings, intros, markdown formatting, or meta-talk.
-
-        Example 1:
-        Terminal: ./gradlew test -> 128 tests passed, BUILD SUCCESSFUL in 6s
-        Briefing: The Gradle test suite passed all 128 tests cleanly in six seconds. The terminal is back at the shell prompt ready for your next command.
-
-        Example 2:
-        Terminal: Edited PromptRefiner.kt. Apply patch and commit? [y/N]
-        Briefing: PromptRefiner.kt was updated and the agent is waiting for confirmation to apply the patch and commit. Reply yes to proceed or no to cancel.
+    internal val DIGEST_SYSTEM_INSTRUCTION = """
+        Summarize ONLY the terminal output inside <terminal>...</terminal> in 2 to 3 crisp spoken sentences.
+        State what actually ran, succeeded, or failed, any files or errors explicitly shown in <terminal>, and whether it is waiting on confirmation.
+        Never invent commands, files, or test results not shown in <terminal>.
+        Use zero greetings, intros, markdown formatting, labels, or XML tags.
     """.trimIndent()
 
     suspend fun analyzeTerminalTail(
@@ -57,9 +50,9 @@ internal object AgentDigestModel {
         val outcome = NanoClientManager.generateText(
             context = context,
             systemInstruction = DIGEST_SYSTEM_INSTRUCTION,
-            userText = "Terminal:\n$trimmed\n\nBriefing:",
-            temperature = 0.2f,
-            topK = 16,
+            userText = "<terminal>\n$trimmed\n</terminal>",
+            temperature = 0.15f,
+            topK = 12,
             maxOutputTokens = 160,
             allowThinking = false,
             onPartialText = onPartialText,

@@ -17,40 +17,19 @@ internal data class RefineResult(
  */
 internal object PromptRefiner {
 
-    private val REFINE_SYSTEM_INSTRUCTION = """
-        You refine spoken voice notes from developers into crisp, direct prompts for AI coding agents (claude, opencode, codex, aider, agy).
+    internal val REFINE_SYSTEM_INSTRUCTION = """
+        Rewrite ONLY the user's draft inside <draft>...</draft> into a concise, direct prompt for a coding agent.
         Rules:
-        - Remove spoken fillers (um, uh, like, hey, basically, please, you know).
-        - Preserve every file path, symbol name, CLI flag, and slash command (/plan, /diff, /model, /models, /goal).
-        - Use a concise markdown bulleted list when there are multiple distinct tasks.
-        - Output ONLY the refined prompt with zero greeting or explanation.
-
-        Example 1:
-        Input: hey um can you check why SessionManager is reconnecting twice and also add a unit test for it
-        Output:
-        Investigate and fix double reconnects in SessionManager:
-        - Identify why reconnects trigger twice on disconnect.
-        - Add a unit test verifying single reconnect behavior.
-
-        Example 2:
-        Input: slash plan refactor PromptRefiner so basically we reuse one client
-        Output:
-        /plan Refactor PromptRefiner to reuse a single client instance.
+        - Remove spoken filler words (uh, um, like, hey, basically, you know).
+        - Preserve every exact file path, identifier, flag, and slash command from <draft>.
+        - Never invent files, errors, or extra steps not present in <draft>.
+        - Use a short bulleted list only when <draft> contains multiple separate tasks.
+        - Output ONLY the rewritten prompt text with no intro, label, or XML tags.
     """.trimIndent()
 
-    private val SHELL_CMD_SYSTEM_INSTRUCTION = """
-        Convert a developer's natural-language request into a single safe, idiomatic POSIX/Linux shell command.
-        Output ONLY the raw one-line command with no markdown code fences, no backticks, no explanation, and no leading $.
-
-        Examples:
-        Request: find all log files modified in the last 2 days and delete them
-        Command: find . -type f -name '*.log' -mtime -2 -delete
-
-        Request: show processes listening on tcp ports
-        Command: ss -tulpn
-
-        Request: show last 5 git commits on one line
-        Command: git log -n 5 --oneline
+    internal val SHELL_CMD_SYSTEM_INSTRUCTION = """
+        Convert the user's request inside <request>...</request> into a single safe, idiomatic POSIX/Linux shell command.
+        Output ONLY the raw one-line command with no markdown code fences, backticks, explanation, labels, XML tags, or leading $.
     """.trimIndent()
 
     /**
@@ -88,6 +67,18 @@ internal object PromptRefiner {
         return result
     }
 
+    internal fun cleanRefinedOutput(raw: String): String {
+        var cleaned = raw.trim()
+        cleaned = cleaned
+            .replace(Regex("(?is)</?(?:draft|output|prompt|response)>"), "")
+            .replace(Regex("(?i)^(?:output|refined(?:\\s+prompt)?|prompt|rewrite)\\s*:\\s*"), "")
+            .trim()
+        if (cleaned.startsWith("\"") && cleaned.endsWith("\"") && cleaned.length >= 2) {
+            cleaned = cleaned.substring(1, cleaned.length - 1).trim()
+        }
+        return cleaned
+    }
+
     /**
      * Refines a raw voice prompt using on-device Gemini Nano if available,
      * or falls back to intelligent rule-based cleaning.
@@ -106,17 +97,22 @@ internal object PromptRefiner {
         val outcome = NanoClientManager.generateText(
             context = context,
             systemInstruction = REFINE_SYSTEM_INSTRUCTION,
-            userText = "Voice Note:\n$withMacros",
-            temperature = 0.2f,
-            topK = 16,
+            userText = "<draft>\n$withMacros\n</draft>",
+            temperature = 0.1f,
+            topK = 10,
             maxOutputTokens = 256,
-            allowThinking = true,
+            allowThinking = false,
             onProgress = onProgress,
-            onPartialText = onPartialText,
+            onPartialText = onPartialText?.let { callback ->
+                { partial ->
+                    val cleaned = cleanRefinedOutput(partial)
+                    if (cleaned.isNotBlank()) callback(cleaned)
+                }
+            },
         )
 
-        val output = outcome.text?.trim()
-        if (!output.isNullOrBlank()) {
+        val output = outcome.text?.let(::cleanRefinedOutput)?.takeIf { it.isNotBlank() }
+        if (output != null) {
             val modelTag = if (context != null) {
                 formatModelLabel(
                     outcome.baseModelName,
@@ -138,6 +134,9 @@ internal object PromptRefiner {
 
     internal fun stripShellCommandFormatting(raw: String): String {
         var cleaned = raw.trim()
+            .replace(Regex("(?is)</?(?:request|command|output)>"), "")
+            .replace(Regex("(?i)^(?:command|output)\\s*:\\s*"), "")
+            .trim()
         // Drop enclosing fenced code block lines if Nano emits ```bash ... ```
         cleaned = cleaned
             .replace(Regex("^```[a-zA-Z0-9_-]*\\s*\\n?"), "")
@@ -168,7 +167,7 @@ internal object PromptRefiner {
         val outcome = NanoClientManager.generateText(
             context = context,
             systemInstruction = SHELL_CMD_SYSTEM_INSTRUCTION,
-            userText = "Request: $trimmed\nCommand:",
+            userText = "<request>\n$trimmed\n</request>",
             temperature = 0.0f,
             topK = 5,
             maxOutputTokens = 96,

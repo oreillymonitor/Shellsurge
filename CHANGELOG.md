@@ -1,6 +1,14 @@
 # Changelog
 
 
+## 1.11.1 - 2026-11-23
+
+### Fixed
+- Add R8 ProGuard keep rules for ML Kit GenAI Prompt / Android AICore so Gemini Nano works in minified release builds
+- Surface `checkStatus()` exceptions instead of masking them as uninitialized
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.11.0...1.11.1)
+
 ## 1.11.0 - 2026-11-23
 
 ### New

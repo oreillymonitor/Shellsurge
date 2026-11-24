@@ -80,6 +80,11 @@ class TailscaleSocketFactoryTest {
 
         factory.createSocket().use { socket ->
             socket.connect(InetSocketAddress.createUnresolved("devbox.tail1234.ts.net", 22), 2_000)
+            assertEquals(22, socket.port)
+            assertEquals(
+                InetSocketAddress.createUnresolved("devbox.tail1234.ts.net", 22),
+                socket.remoteSocketAddress,
+            )
             socket.getOutputStream().write("PING".toByteArray())
             socket.getOutputStream().flush()
             val reply = ByteArray(4)

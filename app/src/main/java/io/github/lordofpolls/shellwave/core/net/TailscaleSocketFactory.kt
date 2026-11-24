@@ -66,6 +66,14 @@ internal class TailscaleSocks5Socket(
     private val password: String,
 ) : Socket() {
 
+    @Volatile
+    private var remoteTargetAddress: InetSocketAddress? = null
+
+    override fun getPort(): Int = remoteTargetAddress?.port ?: super.getPort()
+
+    override fun getRemoteSocketAddress(): SocketAddress? =
+        remoteTargetAddress ?: super.getRemoteSocketAddress()
+
     override fun connect(endpoint: SocketAddress) {
         connect(endpoint, DEFAULT_CONNECT_TIMEOUT_MS)
     }
@@ -90,6 +98,7 @@ internal class TailscaleSocks5Socket(
                 targetHost = targetHost,
                 targetPort = targetPort,
             )
+            remoteTargetAddress = InetSocketAddress.createUnresolved(targetHost, targetPort)
             soTimeout = previousSoTimeout
         } catch (t: Throwable) {
             runCatching { close() }

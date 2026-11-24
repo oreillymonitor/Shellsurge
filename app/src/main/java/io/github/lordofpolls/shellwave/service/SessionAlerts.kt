@@ -109,7 +109,6 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setContentIntent(openSessions(id, sessionId))
                     .setAutoCancel(true)
-                    .setAllowSystemGeneratedReplies(false)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
 
             if (isResponseNeeded) {

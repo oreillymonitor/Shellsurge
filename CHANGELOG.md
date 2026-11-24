@@ -1,6 +1,16 @@
 # Changelog
 
 
+## 1.14.5 - 2026-11-24
+
+### Fixed
+- **Gemini Nano Polish prompt echoes**: tighten `PromptRefiner` editor/command instructions and add `isPromptEcho` + `Original:`/`Rewritten:` label extraction so Gemini Nano never overwrites the draft with instruction prompt text, falling back safely to `smartClean` when output is filtered
+
+### Improved
+- **Prompt Composer bottom sheet**: replace the narrow `AlertDialog` and horizontal scrolling option bars with a full-width `ModalBottomSheet`, a larger editor, a pinned Send/Enter footer, full-width primary Voice / Nano Polish / Shell cmd controls, and wrapping `FlowRow` tabs for utility pills, prompt templates, and agent slash commands
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.4...1.14.5)
+
 ## 1.14.4 - 2026-11-24
 
 ### Fixed

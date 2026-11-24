@@ -296,4 +296,123 @@ class TerminalOutputWatcherTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun `detects TUI conversational questions above box chrome and selects smart quick actions`() {
+        val tuiScreen = """
+            Would you like me to cut signed release 1.13.2 now with the upgraded digest pipeline?
+            ╭────────────────────────────────────────────────────────╮
+            │ > Type your message...                                 │
+            ╰────────────────────────────────────────────────────────╯
+            ? for shortcuts · model: gemini-3-pro
+            [agy] 0:bash*                                      11:22
+        """.trimIndent()
+
+        assertEquals(OutputPromptKind.RESPONSE_NEEDED, classifyPromptKind(tuiScreen))
+        val snippet = extractOutputSnippet(tuiScreen, maxChars = 320)
+        assertTrue(snippet.contains("cut signed release 1.13.2"))
+        assertFalse(snippet.contains("Type your message"))
+        assertFalse(snippet.contains("? for shortcuts"))
+
+        val convActions = extractNotificationQuickActions(tuiScreen, OutputPromptKind.RESPONSE_NEEDED)
+        assertEquals(
+            listOf(
+                NotificationQuickAction("Yes", "yes"),
+                NotificationQuickAction("No", "no"),
+            ),
+            convActions,
+        )
+
+        val ynActions = extractNotificationQuickActions(
+            "Proceed with push? [y/N]",
+            OutputPromptKind.RESPONSE_NEEDED,
+        )
+        assertEquals(
+            listOf(
+                NotificationQuickAction("Yes", "y"),
+                NotificationQuickAction("No", "n"),
+            ),
+            ynActions,
+        )
+
+        val menuActions = extractNotificationQuickActions(
+            "Allow tool?\n❯ 1. Allow once\n  2. Allow for session\n  3. Deny",
+            OutputPromptKind.RESPONSE_NEEDED,
+        )
+        assertEquals(2, menuActions.size)
+        assertEquals("1", menuActions[0].sendText)
+        assertEquals("2", menuActions[1].sendText)
+    }
+
+    @Test
+    fun `passively notifies when backgrounded agent output arrives without a fresh Enter press`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val alerts = mutableListOf<RecordedAlert>()
+            var currentTail = "CI finished cleanly.\nWould you like me to cut 1.13.2 now?"
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "dev",
+                isEnabled = { true },
+                idleDelayMs = { 40L },
+                readTail = { currentTail },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+            )
+
+            // Simulate a background-resumed agent printing a new turn without any user write.
+            watcher.onRawOutput("CI finished cleanly.\r\nWould you like me to cut 1.13.2 now?\r\n".toByteArray())
+            delay(120L)
+
+            assertEquals(1, alerts.size)
+            assertEquals(OutputPromptKind.RESPONSE_NEEDED, alerts[0].kind)
+            assertEquals("dev · Response needed", alerts[0].title)
+            assertTrue(alerts[0].body.contains("cut 1.13.2"))
+
+            // Subsequent identical TUI redraws must not fire duplicate alerts.
+            watcher.onRawOutput("CI finished cleanly.\r\nWould you like me to cut 1.13.2 now?\r\n".toByteArray())
+            delay(120L)
+            assertEquals(1, alerts.size)
+
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `tiny tmux clock ticks do not starve the idle settle notification`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val alerts = mutableListOf<RecordedAlert>()
+            var clock = 1_000L
+            val currentTail = "Patch applied cleanly.\nWould you like me to run the release?"
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "dev",
+                isEnabled = { true },
+                idleDelayMs = { 80L },
+                readTail = { currentTail },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+                nowMs = { clock },
+            )
+
+            watcher.onUserWrite("proceed\r".toByteArray())
+            clock += 2_000L
+            val substantialPayload = "Patch applied cleanly and all 570 unit tests passed cleanly.\r\nWould you like me to run the release?"
+            watcher.onRawOutput(substantialPayload.toByteArray())
+
+            // Periodic 10-byte tmux status bar clock ticks every 30ms should not reset the 80ms timer.
+            repeat(4) { tick ->
+                delay(30L)
+                watcher.onRawOutput("\u001b[24;75H11:22:0$tick".toByteArray())
+            }
+            delay(60L)
+
+            assertEquals(1, alerts.size)
+            assertEquals(OutputPromptKind.RESPONSE_NEEDED, alerts[0].kind)
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
+    }
 }

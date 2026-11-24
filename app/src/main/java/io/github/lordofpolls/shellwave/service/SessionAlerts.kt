@@ -13,6 +13,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.lordofpolls.shellwave.MainActivity
 import io.github.lordofpolls.shellwave.R
+import io.github.lordofpolls.shellwave.ssh.NotificationQuickAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -92,6 +93,7 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
         isActiveTab: Boolean,
         notifyOnActiveTab: Boolean,
         isResponseNeeded: Boolean = false,
+        quickActions: List<NotificationQuickAction> = emptyList(),
     ) {
         scope.launch {
             val appForeground = ProcessLifecycleOwner.get().lifecycle.currentState
@@ -111,19 +113,20 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                     .setAutoCancel(true)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
 
-            if (isResponseNeeded) {
-                builder.addAction(
-                    NotificationCompat.Action.Builder(
-                        0,
-                        "Yes",
-                        quickReplyPendingIntent(id * 4 + 1, sessionId, "y", mutable = false),
-                    ).build()
+            val actionsToAttach = when {
+                quickActions.isNotEmpty() -> quickActions.take(2)
+                isResponseNeeded -> listOf(
+                    NotificationQuickAction("Yes", "y"),
+                    NotificationQuickAction("No", "n"),
                 )
+                else -> emptyList()
+            }
+            actionsToAttach.forEachIndexed { idx, action ->
                 builder.addAction(
                     NotificationCompat.Action.Builder(
                         0,
-                        "No",
-                        quickReplyPendingIntent(id * 4 + 2, sessionId, "n", mutable = false),
+                        action.label,
+                        quickReplyPendingIntent(id * 4 + idx + 1, sessionId, action.sendText, mutable = false),
                     ).build()
                 )
             }

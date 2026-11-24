@@ -1,5 +1,7 @@
 package io.github.lordofpolls.shellwave.ssh
 
+import io.github.lordofpolls.shellwave.feature.session.AgentDigestModel
+import io.github.lordofpolls.shellwave.terminal.TerminalTextSanitizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -7,9 +9,14 @@ import kotlinx.coroutines.launch
 
 private const val MIN_QUICK_ECHO_MS = 1_500L
 private const val MIN_QUICK_ECHO_BYTES = 24
+private const val PASSIVE_ARM_BYTES = 48
+private const val PASSIVE_COMPLETED_BYTES = 64
+private const val PASSIVE_WINDOW_RESET_MS = 15_000L
+private const val TMUX_CLOCK_TICK_BYTES = 20
+private const val SUBSTANTIAL_OUTPUT_BYTES = 80
 
 private val PROMPT_LINE_REGEX =
-    Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯➜%]\\s*$|^[>❯➜]\\s+.*$")
+    Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯➜%]\\s*$|^[>❯➜]\\s+.*$|^[\\w.-]+@[\\w.-]+:.*[$#%]\\s+.*$")
 private val DIVIDER_LINE_REGEX = Regex("^[─━═\\-_*~·•]+$")
 private val QUESTION_REGEX = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
 
@@ -31,8 +38,18 @@ private val IN_PROGRESS_MARKERS = listOf(
 )
 
 private val RESPONSE_NEEDED_MARKERS = listOf(
-    "do you want to",
-    "would you like to",
+    "do you want",
+    "would you like",
+    "want me to",
+    "should i",
+    "shall i",
+    "let me know if",
+    "let me know how",
+    "ready to proceed",
+    "ready for me to",
+    "how would you like",
+    "which option",
+    "which one",
     "allow ",
     "approve",
     "confirm",
@@ -68,6 +85,11 @@ private val COMPLETED_MARKERS = listOf(
     "exception:",
 )
 
+data class NotificationQuickAction(
+    val label: String,
+    val sendText: String,
+)
+
 enum class AgentTurnState {
     IDLE,
     RUNNING,
@@ -97,8 +119,17 @@ internal fun containsCommandSubmit(
     return false
 }
 
+private fun containsSubmitOrQuestionByte(data: ByteArray, length: Int): Boolean {
+    val end = length.coerceIn(0, data.size)
+    for (i in 0 until end) {
+        val b = data[i]
+        if (b == '\n'.code.toByte() || b == '?'.code.toByte()) return true
+    }
+    return false
+}
+
 internal fun extractOutputSnippet(sanitizedTail: String, maxChars: Int = 220): String {
-    val lines = sanitizedTail.lines()
+    val lines = TerminalTextSanitizer.stripTuiChrome(sanitizedTail)
         .map { it.trim() }
         .filter { line ->
             line.isNotEmpty() &&
@@ -114,12 +145,18 @@ internal fun extractOutputSnippet(sanitizedTail: String, maxChars: Int = 220): S
     }
 }
 
+private fun hasNumberedMenu(cleanedText: String): Boolean =
+    AgentDigestModel.extractNumberedOptions(cleanedText).size >= 2
+
 private fun isResponseNeededText(text: String): Boolean {
-    val lines = text.lines()
+    val cleanedLines = TerminalTextSanitizer.stripTuiChrome(text)
         .map { it.trim() }
         .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
-    if (lines.isEmpty()) return false
-    val window = lines.takeLast(6)
+    if (cleanedLines.isEmpty()) return false
+    val cleanedBlock = cleanedLines.takeLast(14).joinToString("\n")
+    if (hasNumberedMenu(cleanedBlock)) return true
+
+    val window = cleanedLines.takeLast(8)
     if (window.any { line ->
             QUESTION_REGEX.containsMatchIn(line) ||
                 RESPONSE_NEEDED_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) }
@@ -127,8 +164,40 @@ private fun isResponseNeededText(text: String): Boolean {
     ) {
         return true
     }
-    val nonPromptTail = window.filter { !PROMPT_LINE_REGEX.matches(it) }.takeLast(2)
+    val nonPromptTail = window.filter { !PROMPT_LINE_REGEX.matches(it) }.takeLast(3)
     return nonPromptTail.any { it.endsWith("?") }
+}
+
+internal fun extractNotificationQuickActions(
+    tail: String,
+    kind: OutputPromptKind,
+): List<NotificationQuickAction> {
+    if (kind != OutputPromptKind.RESPONSE_NEEDED) return emptyList()
+
+    val cleaned = TerminalTextSanitizer.stripTuiChrome(tail)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
+        .joinToString("\n")
+
+    val numbered = AgentDigestModel.extractNumberedOptions(cleaned)
+    if (numbered.size >= 2) {
+        return numbered.take(2).map { opt ->
+            val shortLabel = if (opt.label.length <= 18) opt.label else opt.label.take(17).trimEnd() + "…"
+            NotificationQuickAction(label = shortLabel, sendText = opt.sendText)
+        }
+    }
+
+    if (QUESTION_REGEX.containsMatchIn(cleaned)) {
+        return listOf(
+            NotificationQuickAction(label = "Yes", sendText = "y"),
+            NotificationQuickAction(label = "No", sendText = "n"),
+        )
+    }
+
+    return listOf(
+        NotificationQuickAction(label = "Yes", sendText = "yes"),
+        NotificationQuickAction(label = "No", sendText = "no"),
+    )
 }
 
 /**
@@ -161,24 +230,29 @@ internal fun classifyPromptKind(
         null -> Unit
     }
 
-    val lines = sanitizedTail.lines()
+    val rawLines = sanitizedTail.lines()
         .map { it.trim() }
         .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
-    if (lines.isEmpty()) return null
+    if (rawLines.isEmpty()) return null
 
-    // 1. Check if a response / confirmation is needed first.
-    if (isResponseNeededText(sanitizedTail)) {
-        return OutputPromptKind.RESPONSE_NEEDED
-    }
-
-    // 2. If bottom lines show an active in-progress/thinking state, wait instead of notifying early.
-    val bottomWindow = lines.takeLast(4)
-    val activelyRunning = bottomWindow.any { line ->
+    // Check active in-progress indicators (including "esc to interrupt") BEFORE chrome stripping.
+    val rawBottomWindow = rawLines.takeLast(4)
+    val activelyRunning = rawBottomWindow.any { line ->
         IN_PROGRESS_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) }
     }
     if (activelyRunning) return null
 
-    // 3. Check if the command/turn completed (returned to a prompt or printed a completion summary).
+    // 1. Check if a response / confirmation / numbered menu / agent question is waiting.
+    if (isResponseNeededText(sanitizedTail)) {
+        return OutputPromptKind.RESPONSE_NEEDED
+    }
+
+    // 2. Check if the command/turn completed (returned to a prompt or printed a completion summary).
+    val lines = TerminalTextSanitizer.stripTuiChrome(sanitizedTail)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
+    if (lines.isEmpty()) return null
+
     val meaningfulLines = lines.filter { !PROMPT_LINE_REGEX.matches(it) }
     if (meaningfulLines.isEmpty()) return null
 
@@ -208,16 +282,20 @@ internal class TerminalOutputWatcher(
     private val onAlert: (kind: OutputPromptKind, title: String, body: String) -> Unit,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val onStateChange: (AgentTurnState) -> Unit = {},
+    private val onRichAlert: ((kind: OutputPromptKind, title: String, body: String, actions: List<NotificationQuickAction>) -> Unit)? = null,
 ) {
     private val lock = Any()
     private val scanner = TerminalNotificationScanner()
 
     private var turnArmed = false
+    private var passivePending = false
     private var notifiedResponseNeededInTurn = false
     private var lastNotifiedSignature: String? = null
     private var commandSubmittedAtMs: Long? = null
     private var lastOutputAtMs: Long = 0L
     private var outputBytesSinceSubmit = 0
+    private var unarmedPrintableBytes = 0
+    private var lastUnarmedByteAtMs: Long = 0L
     private var settleJob: Job? = null
     private var currentState: AgentTurnState = AgentTurnState.IDLE
 
@@ -233,6 +311,8 @@ internal class TerminalOutputWatcher(
             val isInteractiveReply = data.isNotEmpty() && notifiedResponseNeededInTurn
             if (!isSubmit && !isInteractiveReply) return
             turnArmed = true
+            passivePending = false
+            unarmedPrintableBytes = 0
             notifiedResponseNeededInTurn = false
             commandSubmittedAtMs = nowMs()
             lastOutputAtMs = 0L
@@ -255,6 +335,8 @@ internal class TerminalOutputWatcher(
                 when (signal) {
                     is TerminalSignal.CommandStarted -> {
                         turnArmed = true
+                        passivePending = false
+                        unarmedPrintableBytes = 0
                         notifiedResponseNeededInTurn = false
                         if (commandSubmittedAtMs == null) {
                             commandSubmittedAtMs = nowMs()
@@ -268,6 +350,8 @@ internal class TerminalOutputWatcher(
                     is TerminalSignal.CommandFinished -> {
                         settleJob?.cancel()
                         settleJob = null
+                        passivePending = false
+                        unarmedPrintableBytes = 0
                         val shouldFire = isEnabled() && (turnArmed || outputBytesSinceSubmit > 0)
                         if (shouldFire) {
                             explicitSignals += signal
@@ -285,15 +369,42 @@ internal class TerminalOutputWatcher(
                     is TerminalSignal.OscNotification -> {
                         settleJob?.cancel()
                         settleJob = null
+                        passivePending = false
+                        unarmedPrintableBytes = 0
                         explicitSignals += signal
                     }
                 }
             }
 
-            if (explicitSignals.isEmpty() && turnArmed && scanResult.printableBytes > 0) {
-                lastOutputAtMs = nowMs()
-                outputBytesSinceSubmit += scanResult.printableBytes
-                scheduleSettleLocked()
+            if (explicitSignals.isEmpty() && scanResult.printableBytes > 0) {
+                val now = nowMs()
+                if (turnArmed) {
+                    lastOutputAtMs = now
+                    outputBytesSinceSubmit += scanResult.printableBytes
+                    val isTinyClockTick = settleJob?.isActive == true &&
+                        outputBytesSinceSubmit >= SUBSTANTIAL_OUTPUT_BYTES &&
+                        scanResult.printableBytes < TMUX_CLOCK_TICK_BYTES &&
+                        !containsSubmitOrQuestionByte(data, length)
+                    if (!isTinyClockTick) {
+                        scheduleSettleLocked(passive = false)
+                    }
+                } else {
+                    if (now - lastUnarmedByteAtMs > PASSIVE_WINDOW_RESET_MS) {
+                        unarmedPrintableBytes = 0
+                    }
+                    lastUnarmedByteAtMs = now
+                    unarmedPrintableBytes += scanResult.printableBytes
+                    if (unarmedPrintableBytes >= PASSIVE_ARM_BYTES) {
+                        passivePending = true
+                        val isTinyClockTick = settleJob?.isActive == true &&
+                            unarmedPrintableBytes >= SUBSTANTIAL_OUTPUT_BYTES &&
+                            scanResult.printableBytes < TMUX_CLOCK_TICK_BYTES &&
+                            !containsSubmitOrQuestionByte(data, length)
+                        if (!isTinyClockTick) {
+                            scheduleSettleLocked(passive = true)
+                        }
+                    }
+                }
             }
         }
 
@@ -304,39 +415,63 @@ internal class TerminalOutputWatcher(
         if (explicitSignals.isNotEmpty()) {
             scope.launch {
                 for (signal in explicitSignals) {
-                    evaluateAndNotify(explicitSignal = signal)
+                    evaluateAndNotify(explicitSignal = signal, passive = false)
                 }
             }
         }
     }
 
-    private fun scheduleSettleLocked() {
+    private fun scheduleSettleLocked(passive: Boolean) {
         settleJob?.cancel()
         settleJob = null
-        if (!turnArmed) return
+        if (!turnArmed && !passivePending) return
         val delayMs = idleDelayMs()
         if (delayMs <= 0L) return
 
         settleJob = scope.launch {
             delay(delayMs)
-            val canEvaluate = synchronized(lock) { turnArmed }
+            val canEvaluate = synchronized(lock) {
+                if (passive) passivePending && !turnArmed else turnArmed
+            }
             if (canEvaluate) {
-                evaluateAndNotify(explicitSignal = null)
+                evaluateAndNotify(explicitSignal = null, passive = passive)
             }
         }
     }
 
-    private suspend fun evaluateAndNotify(explicitSignal: TerminalSignal?) {
+    private suspend fun evaluateAndNotify(explicitSignal: TerminalSignal?, passive: Boolean) {
         val tail = readTail()
-        val kind = classifyPromptKind(tail, explicitSignal) ?: return
+        val kind = classifyPromptKind(tail, explicitSignal)
+        if (kind == null) {
+            if (passive) {
+                synchronized(lock) {
+                    passivePending = false
+                    unarmedPrintableBytes = 0
+                }
+            }
+            return
+        }
         val explicitBody = (explicitSignal as? TerminalSignal.OscNotification)?.body
-        val body = explicitBody?.takeIf { it.isNotBlank() } ?: extractOutputSnippet(tail)
+        val body = explicitBody?.takeIf { it.isNotBlank() } ?: extractOutputSnippet(tail, maxChars = 320)
         val signature = "${kind.name}:$body"
 
         var stateToEmit: AgentTurnState? = null
         val shouldEmitAlert = synchronized(lock) {
-            if (explicitSignal == null && !turnArmed) return@synchronized false
-            if (explicitSignal == null && kind == OutputPromptKind.COMPLETED) {
+            if (explicitSignal == null) {
+                if (passive) {
+                    if (!passivePending || turnArmed) return@synchronized false
+                    val bytes = unarmedPrintableBytes
+                    passivePending = false
+                    unarmedPrintableBytes = 0
+                    if (kind == OutputPromptKind.COMPLETED && bytes < PASSIVE_COMPLETED_BYTES) {
+                        return@synchronized false
+                    }
+                } else if (!turnArmed) {
+                    return@synchronized false
+                }
+            }
+
+            if (explicitSignal == null && !passive && kind == OutputPromptKind.COMPLETED) {
                 val submittedAt = commandSubmittedAtMs
                 if (submittedAt != null) {
                     val activeSpanMs = (lastOutputAtMs - submittedAt).coerceAtLeast(0L)
@@ -357,12 +492,14 @@ internal class TerminalOutputWatcher(
                 OutputPromptKind.RESPONSE_NEEDED -> AgentTurnState.RESPONSE_NEEDED
                 OutputPromptKind.COMPLETED -> AgentTurnState.COMPLETED
             }
-            if (updateStateLocked(targetTurnState)) {
+            if ((!passive || targetTurnState == AgentTurnState.RESPONSE_NEEDED) &&
+                updateStateLocked(targetTurnState)
+            ) {
                 stateToEmit = targetTurnState
             }
 
             if (!isEnabled()) {
-                if (kind == OutputPromptKind.COMPLETED) {
+                if (kind == OutputPromptKind.COMPLETED && !passive) {
                     turnArmed = false
                     commandSubmittedAtMs = null
                     outputBytesSinceSubmit = 0
@@ -371,7 +508,7 @@ internal class TerminalOutputWatcher(
             }
 
             if (signature == lastNotifiedSignature) {
-                if (kind == OutputPromptKind.COMPLETED) {
+                if (kind == OutputPromptKind.COMPLETED && !passive) {
                     turnArmed = false
                     commandSubmittedAtMs = null
                     outputBytesSinceSubmit = 0
@@ -381,7 +518,7 @@ internal class TerminalOutputWatcher(
 
             when (kind) {
                 OutputPromptKind.RESPONSE_NEEDED -> {
-                    if (notifiedResponseNeededInTurn && explicitSignal == null) {
+                    if (notifiedResponseNeededInTurn && explicitSignal == null && !passive) {
                         return@synchronized false
                     }
                     notifiedResponseNeededInTurn = true
@@ -390,10 +527,12 @@ internal class TerminalOutputWatcher(
                 }
 
                 OutputPromptKind.COMPLETED -> {
-                    turnArmed = false
-                    notifiedResponseNeededInTurn = false
-                    commandSubmittedAtMs = null
-                    outputBytesSinceSubmit = 0
+                    if (!passive) {
+                        turnArmed = false
+                        notifiedResponseNeededInTurn = false
+                        commandSubmittedAtMs = null
+                        outputBytesSinceSubmit = 0
+                    }
                     lastNotifiedSignature = signature
                     true
                 }
@@ -402,7 +541,13 @@ internal class TerminalOutputWatcher(
 
         stateToEmit?.let(onStateChange)
         if (shouldEmitAlert) {
-            onAlert(kind, formatPromptTitle(label, kind), body)
+            val title = formatPromptTitle(label, kind)
+            val rich = onRichAlert
+            if (rich != null) {
+                rich(kind, title, body, extractNotificationQuickActions(tail, kind))
+            } else {
+                onAlert(kind, title, body)
+            }
         }
     }
 
@@ -411,6 +556,8 @@ internal class TerminalOutputWatcher(
             settleJob?.cancel()
             settleJob = null
             turnArmed = false
+            passivePending = false
+            unarmedPrintableBytes = 0
             notifiedResponseNeededInTurn = false
             commandSubmittedAtMs = null
             outputBytesSinceSubmit = 0

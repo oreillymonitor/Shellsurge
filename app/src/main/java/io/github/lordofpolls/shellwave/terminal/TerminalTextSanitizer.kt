@@ -24,6 +24,10 @@ object TerminalTextSanitizer {
         "tokens used",
         "context left",
         "type a message",
+        "type your message",
+        "ask anything",
+        "enter your message",
+        "follow-up",
         "send a message",
     )
     private val TURN_START_PROMPT = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s+\\S.*|[❯➜]\\s+(?!\\d+[.)\\]]\\s)\\S.*|\\$\\s+\\S.*)$")
@@ -62,7 +66,11 @@ object TerminalTextSanitizer {
         }
     }
 
-    fun cleanForDigest(raw: String, maxLines: Int = 60): String {
+    /**
+     * Strips ANSI escapes, box-drawing borders, TUI footers/input placeholders, progress bars,
+     * tmux status bars, and verbose unified diffs without slicing away older lines.
+     */
+    internal fun stripTuiChrome(raw: String): List<String> {
         val noAnsi = ANSI_PATTERN.replace(raw, "")
         val rawLines = noAnsi.lines()
         val normalized = mutableListOf<String>()
@@ -136,6 +144,12 @@ object TerminalTextSanitizer {
             }
             i++
         }
+
+        return normalized
+    }
+
+    fun cleanForDigest(raw: String, maxLines: Int = 60): String {
+        val normalized = stripTuiChrome(raw)
 
         // Slice to the latest command turn if an earlier command prompt sits above subsequent output.
         var lastCommandIdx = -1

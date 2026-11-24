@@ -367,8 +367,19 @@ constructor(
             sessionAlerts.clearOutputAlert(sessionId)
             return false
         }
-        val payload = text.replace("\r\n", "\r").replace("\n", "\r") + "\r"
-        entry.connection.write(payload)
+        val cleanText = text.replace("\r\n", "\r").replace("\n", "\r")
+        if (cleanText.isNotEmpty()) {
+            entry.connection.write(cleanText)
+            // Send CR slightly after text so raw-mode / Ink TUI prompts don't treat "\r" as part of a paste chunk.
+            managerScope.launch {
+                delay(50L)
+                if (entries[sessionId] === entry && entry.status == SessionStatus.CONNECTED) {
+                    entry.connection.write("\r")
+                }
+            }
+        } else {
+            entry.connection.write("\r")
+        }
         sessionAlerts.clearOutputAlert(sessionId)
         entry.pendingAutoDigest.set(false)
         entry.turnState = AgentTurnState.RUNNING
@@ -481,22 +492,11 @@ constructor(
             readTail = {
                 withContext(Dispatchers.Main) {
                     entry.connection.emulatorOrNull?.let {
-                        TerminalTextSanitizer.extractCleanTail(it, maxLines = 15)
+                        TerminalTextSanitizer.extractCleanTail(it, maxLines = 40)
                     }
                 }.orEmpty()
             },
-            onAlert = { kind, title, body ->
-                if (entries[entry.id] === entry && isOutputAlertsEnabled(entry)) {
-                    sessionAlerts.commandOutput(
-                        sessionId = entry.id,
-                        title = title,
-                        body = body,
-                        isActiveTab = foregroundSessionId == entry.id,
-                        notifyOnActiveTab = NotificationPreferences.isNotifyOnActiveTab(context),
-                        isResponseNeeded = kind == OutputPromptKind.RESPONSE_NEEDED,
-                    )
-                }
-            },
+            onAlert = { _, _, _ -> },
             onStateChange = { newState ->
                 if (entries[entry.id] === entry) {
                     entry.turnState = newState
@@ -511,6 +511,19 @@ constructor(
                         }
                     }
                     publish()
+                }
+            },
+            onRichAlert = { kind, title, body, actions ->
+                if (entries[entry.id] === entry && isOutputAlertsEnabled(entry)) {
+                    sessionAlerts.commandOutput(
+                        sessionId = entry.id,
+                        title = title,
+                        body = body,
+                        isActiveTab = foregroundSessionId == entry.id,
+                        notifyOnActiveTab = NotificationPreferences.isNotifyOnActiveTab(context),
+                        isResponseNeeded = kind == OutputPromptKind.RESPONSE_NEEDED,
+                        quickActions = actions,
+                    )
                 }
             },
         )

@@ -49,6 +49,88 @@ class PromptRefinerTest {
             "Fix timeout in api/client.ts",
             PromptRefiner.cleanRefinedOutput("\"Fix timeout in api/client.ts\""),
         )
+        assertEquals(
+            "Refactor AuthService to retry once on 401.",
+            PromptRefiner.cleanRefinedOutput("Original:\num refactor auth service retry 401\n\nRewritten:\nRefactor AuthService to retry once on 401."),
+        )
+        assertEquals(
+            "Run ./scripts/check.sh before merging.",
+            PromptRefiner.cleanRefinedOutput("Cleaned: \"\"\"Run ./scripts/check.sh before merging.\"\"\""),
+        )
+    }
+
+    @Test
+    fun `build user prompt helpers emit clean plain text without XML tags or instruction duplication`() {
+        val refinePrompt = PromptRefiner.buildRefineUserPrompt("fix the failing test in auth.kt")
+        assertTrue(refinePrompt.contains("Original:\nfix the failing test in auth.kt"))
+        assertTrue(refinePrompt.endsWith("Rewritten:"))
+        assertFalse(refinePrompt.contains("<draft>"))
+        assertFalse(refinePrompt.contains("Rewrite the user's"))
+
+        val shellPrompt = PromptRefiner.buildShellCmdUserPrompt("find large log files")
+        assertTrue(shellPrompt.contains("Task:\nfind large log files"))
+        assertTrue(shellPrompt.endsWith("Command:"))
+        assertFalse(shellPrompt.contains("<request>"))
+        assertFalse(shellPrompt.contains("Translate the user's"))
+    }
+
+    @Test
+    fun `isPromptEcho detects instruction echoes while preserving legitimate rewrites`() {
+        val userDraft = "uh basically check app/Main.kt and fix the crash"
+        assertTrue(
+            PromptRefiner.isPromptEcho(
+                candidate = PromptRefiner.REFINE_SYSTEM_INSTRUCTION,
+                originalInput = userDraft,
+                systemInstruction = PromptRefiner.REFINE_SYSTEM_INSTRUCTION,
+            ),
+        )
+        assertTrue(
+            PromptRefiner.isPromptEcho(
+                candidate = "Rewrite the user's rough draft into a clear, concise prompt for a coding agent. Keep every exact file path, identifier, flag, and slash command.",
+                originalInput = userDraft,
+                systemInstruction = PromptRefiner.REFINE_SYSTEM_INSTRUCTION,
+            ),
+        )
+        assertTrue(
+            PromptRefiner.isPromptEcho(
+                candidate = "Rewrite the user's draft into clear, concise English without spoken filler words and preserve every file path verbatim.",
+                originalInput = userDraft,
+                systemInstruction = PromptRefiner.REFINE_SYSTEM_INSTRUCTION,
+            ),
+        )
+        assertTrue(
+            PromptRefiner.isPromptEcho(
+                candidate = PromptRefiner.SHELL_CMD_SYSTEM_INSTRUCTION,
+                originalInput = "list disk usage by folder",
+                systemInstruction = PromptRefiner.SHELL_CMD_SYSTEM_INSTRUCTION,
+            ),
+        )
+        assertFalse(
+            PromptRefiner.isPromptEcho(
+                candidate = "Check app/Main.kt and fix the crash.",
+                originalInput = userDraft,
+                systemInstruction = PromptRefiner.REFINE_SYSTEM_INSTRUCTION,
+            ),
+        )
+        assertFalse(
+            PromptRefiner.isPromptEcho(
+                candidate = "du -sh */ | sort -h",
+                originalInput = "list disk usage by folder",
+                systemInstruction = PromptRefiner.SHELL_CMD_SYSTEM_INSTRUCTION,
+            ),
+        )
+    }
+
+    @Test
+    fun `isPromptEcho allows output when user draft intentionally mentions filler words or slash commands`() {
+        val draftWithTerms = "Please remove spoken filler words and check our /plan slash command handler."
+        assertFalse(
+            PromptRefiner.isPromptEcho(
+                candidate = "Remove spoken filler words and verify the /plan slash command handler.",
+                originalInput = draftWithTerms,
+                systemInstruction = PromptRefiner.REFINE_SYSTEM_INSTRUCTION,
+            ),
+        )
     }
 
     @Test

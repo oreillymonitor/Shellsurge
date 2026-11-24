@@ -17,19 +17,47 @@ internal data class RefineResult(
  */
 internal object PromptRefiner {
 
-    internal val REFINE_SYSTEM_INSTRUCTION = """
-        Rewrite the user's rough draft into a clear, concise prompt for a coding agent.
-        Remove spoken filler words (uh, um, like, hey, basically, you know).
-        Keep every exact file path, identifier, flag, and slash command from the draft.
-        Do not add new files, errors, or steps that were not mentioned.
-        Use short bullet points only if the draft has multiple separate tasks.
-        Output only the rewritten prompt text with no intro or labels.
-    """.trimIndent()
+    internal val REFINE_SYSTEM_INSTRUCTION =
+        "You are a text editor. Rewrite the user's draft into clear, concise English. " +
+            "Remove spoken filler words, preserve every file path, identifier, flag, and slash command verbatim, " +
+            "and do not invent new steps or details. Reply with only the rewritten message."
 
-    internal val SHELL_CMD_SYSTEM_INSTRUCTION = """
-        Convert the user's request into a single safe, idiomatic POSIX/Linux shell command.
-        Output only the raw one-line command with no markdown code fences, backticks, explanation, labels, or leading $.
-    """.trimIndent()
+    internal val SHELL_CMD_SYSTEM_INSTRUCTION =
+        "Translate the user's task into one safe POSIX/Linux shell command. " +
+            "Reply with only the raw one-line command, with no markdown, backticks, explanation, or leading $."
+
+    private val ECHO_LEAK_PHRASES = listOf(
+        "you are a text editor",
+        "rewrite the user's",
+        "rewrite this rough draft",
+        "remove spoken filler words",
+        "preserve every file path",
+        "keep every exact file path",
+        "do not invent new steps",
+        "do not add new files",
+        "reply with only the rewritten",
+        "output only the rewritten",
+        "coding-agent prompt",
+        "prompt for a coding agent",
+        "translate the user's task into one safe",
+        "reply with only the raw one-line command",
+        "convert the user's request into a single safe",
+        "no markdown, backticks, explanation",
+        "no intro or labels",
+    )
+
+    private val ECHO_STOPWORDS = setOf(
+        "the", "and", "for", "with", "not", "into", "from",
+        "this", "that", "you", "are", "only", "all", "one",
+    )
+
+    private val TOKEN_REGEX = Regex("[a-z0-9_./-]+")
+
+    internal fun buildRefineUserPrompt(draft: String): String =
+        "Original:\n$draft\n\nRewritten:"
+
+    internal fun buildShellCmdUserPrompt(request: String): String =
+        "Task:\n$request\n\nCommand:"
 
     /**
      * Converts common spoken phrases into markdown structure and agent-aware CLI slash commands.
@@ -68,14 +96,73 @@ internal object PromptRefiner {
 
     internal fun cleanRefinedOutput(raw: String): String {
         var cleaned = raw.trim()
+        val labelMatch = Regex("(?im)^\\s*(?:rewritten|cleaned|edited|polished|refined(?:\\s+prompt)?|output)\\s*:\\s*")
+            .findAll(cleaned)
+            .lastOrNull()
+        if (labelMatch != null) {
+            val precedingLower = cleaned.substring(0, labelMatch.range.first).trimStart().lowercase()
+            val looksEchoedBlock = precedingLower.contains("original:") ||
+                precedingLower.startsWith("you are a text editor") ||
+                precedingLower.startsWith("rewrite") ||
+                precedingLower.startsWith("draft:")
+            if (looksEchoedBlock) {
+                cleaned = cleaned.substring(labelMatch.range.last + 1).trim()
+            }
+        }
         cleaned = cleaned
-            .replace(Regex("(?is)</?(?:draft|output|prompt|response)>"), "")
-            .replace(Regex("(?i)^(?:output|refined(?:\\s+prompt)?|prompt|rewrite)\\s*:\\s*"), "")
+            .replace(Regex("(?is)</?(?:draft|output|prompt|response|original|rewritten)>"), "")
+            .replace(
+                Regex("(?i)^(?:output|refined(?:\\s+prompt)?|prompt|rewrite|rewritten|cleaned(?:\\s+message)?|edited(?:\\s+message)?|polished(?:\\s+message)?)\\s*:\\s*"),
+                "",
+            )
             .trim()
-        if (cleaned.startsWith("\"") && cleaned.endsWith("\"") && cleaned.length >= 2) {
+        if (cleaned.startsWith("\"\"\"") && cleaned.endsWith("\"\"\"") && cleaned.length >= 6) {
+            cleaned = cleaned.substring(3, cleaned.length - 3).trim()
+        } else if (cleaned.startsWith("\"") && cleaned.endsWith("\"") && cleaned.length >= 2) {
             cleaned = cleaned.substring(1, cleaned.length - 1).trim()
         }
         return cleaned
+    }
+
+    internal fun isPromptEcho(
+        candidate: String,
+        originalInput: String,
+        systemInstruction: String = REFINE_SYSTEM_INSTRUCTION,
+    ): Boolean {
+        val candidateLower = candidate.trim().lowercase()
+        if (candidateLower.isBlank()) return false
+        val originalLower = originalInput.trim().lowercase()
+        val systemLower = systemInstruction.trim().lowercase()
+
+        if (ECHO_LEAK_PHRASES.any { phrase -> phrase in candidateLower && phrase !in originalLower }) {
+            return true
+        }
+
+        val systemClauses = systemLower
+            .split(Regex("[.\\n]+"))
+            .map { it.trim() }
+            .filter { it.length >= 20 }
+        if (systemClauses.any { clause -> clause in candidateLower && clause !in originalLower }) {
+            return true
+        }
+
+        fun tokenize(text: String): List<String> =
+            TOKEN_REGEX.findAll(text)
+                .map { it.value }
+                .filter { it.length >= 3 && it !in ECHO_STOPWORDS }
+                .toList()
+
+        val origTokens = tokenize(originalLower).toSet()
+        val sysTokens = tokenize(systemLower).toSet()
+        val leakedVocab = sysTokens - origTokens
+        val candTokens = tokenize(candidateLower)
+        if (candTokens.size >= 4) {
+            val leakedCount = candTokens.count { it in leakedVocab }
+            if (leakedCount >= 4 && leakedCount.toDouble() / candTokens.size >= 0.40) {
+                return true
+            }
+        }
+        return false
     }
 
     /**
@@ -96,16 +183,20 @@ internal object PromptRefiner {
         val outcome = NanoClientManager.generateText(
             context = context,
             systemInstruction = REFINE_SYSTEM_INSTRUCTION,
-            userText = "Rewrite this rough draft into a clear coding-agent prompt:\n\nDraft:\n$withMacros",
-            temperature = 0.1f,
-            topK = 10,
+            userText = buildRefineUserPrompt(withMacros),
+            temperature = 0.2f,
+            topK = 16,
             maxOutputTokens = 256,
             allowThinking = false,
             onProgress = onProgress,
             onPartialText = onPartialText?.let { callback ->
                 { partial ->
                     val cleaned = cleanRefinedOutput(partial)
-                    if (cleaned.isNotBlank() && !AgentDigestModel.isNanoRefusal(cleaned)) {
+                    if (
+                        cleaned.isNotBlank() &&
+                        !AgentDigestModel.isNanoRefusal(cleaned) &&
+                        !isPromptEcho(cleaned, withMacros, REFINE_SYSTEM_INSTRUCTION)
+                    ) {
                         callback(cleaned)
                     }
                 }
@@ -113,7 +204,9 @@ internal object PromptRefiner {
         )
 
         val output = outcome.text?.let(::cleanRefinedOutput)?.takeIf {
-            it.isNotBlank() && !AgentDigestModel.isNanoRefusal(it)
+            it.isNotBlank() &&
+                !AgentDigestModel.isNanoRefusal(it) &&
+                !isPromptEcho(it, withMacros, REFINE_SYSTEM_INSTRUCTION)
         }
         if (output != null) {
             val modelTag = if (context != null) {
@@ -128,9 +221,14 @@ internal object PromptRefiner {
             return@withContext RefineResult(output, "Polished with $modelTag")
         }
 
-        val notice = outcome.unavailableNotice?.let { reason ->
-            if (reason.startsWith("Gemini") || reason.startsWith("AICore")) reason
-            else "AICore unavailable ($reason). Used smart formatting."
+        val wasFiltered = !outcome.text.isNullOrBlank()
+        val notice = if (wasFiltered) {
+            "Nano output filtered; used smart formatting."
+        } else {
+            outcome.unavailableNotice?.let { reason ->
+                if (reason.startsWith("Gemini") || reason.startsWith("AICore")) reason
+                else "AICore unavailable ($reason). Used smart formatting."
+            }
         }
         RefineResult(smartClean(withMacros), notice)
     }
@@ -170,7 +268,7 @@ internal object PromptRefiner {
         val outcome = NanoClientManager.generateText(
             context = context,
             systemInstruction = SHELL_CMD_SYSTEM_INSTRUCTION,
-            userText = "Convert this request into one POSIX/Linux shell command:\n\nRequest:\n$trimmed",
+            userText = buildShellCmdUserPrompt(trimmed),
             temperature = 0.0f,
             topK = 5,
             maxOutputTokens = 96,
@@ -179,7 +277,11 @@ internal object PromptRefiner {
             onPartialText = onPartialText?.let { callback ->
                 { partial ->
                     val cleaned = stripShellCommandFormatting(partial)
-                    if (cleaned.isNotBlank() && !AgentDigestModel.isNanoRefusal(cleaned)) {
+                    if (
+                        cleaned.isNotBlank() &&
+                        !AgentDigestModel.isNanoRefusal(cleaned) &&
+                        !isPromptEcho(cleaned, trimmed, SHELL_CMD_SYSTEM_INSTRUCTION)
+                    ) {
                         callback(cleaned)
                     }
                 }
@@ -187,14 +289,21 @@ internal object PromptRefiner {
         )
 
         val cmd = outcome.text?.let(::stripShellCommandFormatting)?.takeIf {
-            it.isNotBlank() && !AgentDigestModel.isNanoRefusal(it)
+            it.isNotBlank() &&
+                !AgentDigestModel.isNanoRefusal(it) &&
+                !isPromptEcho(it, trimmed, SHELL_CMD_SYSTEM_INSTRUCTION)
         }
         if (cmd != null) {
             val modelTag = outcome.baseModelName ?: "Gemini Nano"
             return@withContext RefineResult(cmd, "Generated shell command ($modelTag)")
         }
 
-        val notice = outcome.unavailableNotice ?: "Gemini Nano unavailable on this device."
+        val wasFiltered = !outcome.text.isNullOrBlank()
+        val notice = if (wasFiltered) {
+            "Nano output filtered; try rephrasing the command request."
+        } else {
+            outcome.unavailableNotice ?: "Gemini Nano unavailable on this device."
+        }
         RefineResult(trimmed, notice)
     }
 

@@ -1,6 +1,14 @@
 # Changelog
 
 
+## 1.14.6 - 2026-11-24
+
+### Fixed
+- **Gemini Nano `Int.MAX_VALUE` token-limit overflow**: sanitize unbounded context-window reports (such as `2147483647` on `nano-v4-fast`) and compute token/character budgets in 64-bit `Long` arithmetic so `trimTailLinesToCharBudget` never wraps negative and wipes user prompts before inference
+- **Nano Polish editing scope**: clarify `REFINE_SYSTEM_INSTRUCTION` so Nano Polish refines grammar, phrasing, structure, and bullet points across any rough draft rather than only stripping spoken filler words
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.5...1.14.6)
+
 ## 1.14.5 - 2026-11-24
 
 ### Fixed

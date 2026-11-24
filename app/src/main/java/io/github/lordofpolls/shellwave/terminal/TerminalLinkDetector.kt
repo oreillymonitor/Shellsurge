@@ -94,10 +94,11 @@ internal fun findLinksInLine(line: String, row: Int): List<TerminalLink> {
             // Make optional :line suffix part of the tappable column range too so tapping the ":42" hits the path.
             val endCol = columnAt[matchEnd] - 1
             if (endCol >= startCol) {
+                val matchedText = matcher.group(pathGroup) ?: continue
                 val lineNo = lineGroup?.let { grp -> matcher.group(grp)?.toIntOrNull() }
                 results += TerminalLink(
                     type = type,
-                    text = matcher.group(pathGroup),
+                    text = matchedText,
                     startCol = startCol,
                     endCol = endCol,
                     row = row,
@@ -109,11 +110,11 @@ internal fun findLinksInLine(line: String, row: Int): List<TerminalLink> {
         }
     }
 
-    // URL first. A URL's own path segment also satisfies PATH_PATTERN, and linkAt takes the first
-    // match containing the tapped column, so ordering picks the more specific classification.
+    // URL first; skipOverlapping ensures IPs or path segments inside URLs (such as //host/path)
+    // do not emit redundant/broken matches.
     collect(URL_PATTERN, LinkType.URL)
-    collect(IP_PATTERN, LinkType.IP)
-    collect(PATH_PATTERN, LinkType.PATH, pathGroup = 1, lineGroup = 2)
+    collect(IP_PATTERN, LinkType.IP, skipOverlapping = true)
+    collect(PATH_PATTERN, LinkType.PATH, pathGroup = 1, lineGroup = 2, skipOverlapping = true)
     collect(
         RELATIVE_CODE_PATH_PATTERN,
         LinkType.PATH,

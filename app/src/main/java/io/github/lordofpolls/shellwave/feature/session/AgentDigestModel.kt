@@ -42,7 +42,7 @@ internal object AgentDigestModel {
         // Try Gemini Nano first if available or downloadable on device
         try {
             val model = getModel()
-            var status = runCatching { model.checkStatus() }.getOrNull()
+            var status = model.checkStatus()
 
             if (status == FeatureStatus.DOWNLOADABLE) {
                 try {
@@ -74,7 +74,7 @@ internal object AgentDigestModel {
                 }
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "Gemini Nano analysis unavailable or failed: ${e.message}")
+            Log.w(TAG, "Gemini Nano analysis unavailable or failed", e)
         }
 
         // Fallback to intelligent rule-based extractor

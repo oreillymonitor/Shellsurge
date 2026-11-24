@@ -25,3 +25,22 @@
 -keepclassmembers class * extends androidx.work.InputMerger {
     <init>();
 }
+
+# ML Kit GenAI Prompt (Gemini Nano via Android AICore) relies on SafeParcelable Binder IPC,
+# shaded Gson, and ML Kit ComponentRegistrar reflection. Without keeping these packages and
+# generic signatures, R8 full mode strips/obfuscates internal AICore client classes and causes
+# checkStatus()/generateContent() to fail at runtime in release builds.
+-keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*
+-keep class com.google.mlkit.genai.** { *; }
+-keep interface com.google.mlkit.genai.** { *; }
+-keep class com.google.mlkit.common.** { *; }
+-keep interface com.google.mlkit.common.** { *; }
+-keep class com.google.android.gms.internal.mlkit_genai_prompt.** { *; }
+-keep interface com.google.android.gms.internal.mlkit_genai_prompt.** { *; }
+-keep class com.google.android.gms.internal.mlkit_genai_common.** { *; }
+-keep interface com.google.android.gms.internal.mlkit_genai_common.** { *; }
+-keep class com.google.android.gms.internal.mlkit_common.** { *; }
+-keep interface com.google.android.gms.internal.mlkit_common.** { *; }
+-dontwarn com.google.mlkit.genai.**
+-dontwarn com.google.android.gms.internal.mlkit_genai_prompt.**
+-dontwarn com.google.android.gms.internal.mlkit_genai_common.**

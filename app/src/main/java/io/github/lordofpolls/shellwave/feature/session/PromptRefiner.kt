@@ -64,7 +64,7 @@ internal object PromptRefiner {
         var nanoNotice: String? = null
         try {
             val model = getModel()
-            var status = runCatching { model.checkStatus() }.getOrNull()
+            var status = model.checkStatus()
 
             if (status == FeatureStatus.DOWNLOADABLE) {
                 onProgress("Downloading Gemini Nano from AICore…")
@@ -119,15 +119,14 @@ internal object PromptRefiner {
                     FeatureStatus.DOWNLOADING -> "Gemini Nano is downloading via AICore."
                     FeatureStatus.DOWNLOADABLE -> "Gemini Nano download required in AICore."
                     FeatureStatus.UNAVAILABLE -> "Gemini Nano unavailable. Enable AICore in Developer Options."
-                    null -> "AICore model service uninitialized on device."
                     else -> "AICore status: $status"
                 }
                 Log.d(TAG, reason)
                 nanoNotice = reason
             }
         } catch (e: Throwable) {
-            val err = e.message ?: "AICore uninitialized"
-            Log.w(TAG, "Gemini Nano polish failed: $err")
+            val err = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
+            Log.w(TAG, "Gemini Nano polish failed", e)
             nanoNotice = "AICore unavailable ($err). Used smart formatting."
         }
 

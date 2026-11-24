@@ -40,11 +40,71 @@ internal data class TerminalFacts(
  */
 internal object AgentDigestModel {
     internal val DIGEST_SYSTEM_INSTRUCTION = """
-        Write 1 to 2 short spoken sentences explaining what just happened based ONLY on <facts> and <turn>.
-        State the concrete outcome, error cause, or action awaiting approval.
-        Never invent files, commands, or test results not shown in <facts> or <turn>.
-        Use zero greetings, bullet points, markdown formatting, labels, or XML tags.
+        You summarize terminal output in 1 to 2 short spoken sentences for a developer.
+        Report only concrete results, errors, or questions shown in the terminal text.
+        Do not invent details. Use no greetings, bullet points, markdown, or labels.
     """.trimIndent()
+
+    private val NANO_REFUSAL_PHRASES = listOf(
+        "provided no ",
+        "did not provide",
+        "didn't provide",
+        "nothing was provided",
+        "was not provided",
+        "not provided to",
+        "no facts",
+        "no turn",
+        "no terminal output",
+        "no output to summarize",
+        "no text to summarize",
+        "no content to summarize",
+        "no draft",
+        "no request",
+        "no input provided",
+        "missing input",
+        "empty input",
+        "cannot summarize",
+        "can't summarize",
+        "unable to summarize",
+        "i cannot ",
+        "i can't ",
+        "as an ai",
+        "please provide",
+        "provide the terminal",
+        "provide a draft",
+        "provide a request",
+    )
+
+    internal fun isNanoRefusal(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.length < 4) return true
+        val lower = trimmed.lowercase()
+        return NANO_REFUSAL_PHRASES.any { lower.contains(it) }
+    }
+
+    internal fun buildDigestPromptInput(facts: TerminalFacts, turnSnippet: String): String =
+        buildString {
+            appendLine("Summarize this terminal output in 1 to 2 short spoken sentences.")
+            val details = buildList {
+                facts.headlineFact?.let { add("Status: $it") }
+                facts.firstError?.let { add("Error: $it") }
+                if (facts.touchedFiles.isNotEmpty()) {
+                    add("Files: ${facts.touchedFiles.joinToString(", ")}")
+                }
+                facts.pendingQuestion?.let { add("Question: $it") }
+                if (facts.quickActions.isNotEmpty()) {
+                    add("Options: ${facts.quickActions.joinToString("; ") { it.label }}")
+                }
+            }
+            if (details.isNotEmpty()) {
+                appendLine()
+                appendLine("Key details:")
+                details.forEach { appendLine(it) }
+            }
+            appendLine()
+            appendLine("Terminal output:")
+            append(turnSnippet)
+        }
 
     private val YES_NO_REGEX = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
     private val PROMPT_LINE_REGEX = Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯➜%]\\s*$")
@@ -135,10 +195,17 @@ internal object AgentDigestModel {
         }
 
         val files = LinkedHashSet<String>()
+        val editedFiles = LinkedHashSet<String>()
         for (line in allLines) {
-            DIFF_SUMMARY_REGEX.matchEntire(line)?.let { files.add(it.groupValues[1]) }
+            DIFF_SUMMARY_REGEX.matchEntire(line)?.let {
+                val path = it.groupValues[1]
+                files.add(path)
+                editedFiles.add(path)
+            }
             for (m in TOUCHED_VERB_REGEX.findAll(line)) {
-                files.add(m.groupValues[1])
+                val path = m.groupValues[1]
+                files.add(path)
+                editedFiles.add(path)
             }
             for (m in COMPILER_FILE_REGEX.findAll(line)) {
                 files.add(m.groupValues[1])
@@ -159,7 +226,7 @@ internal object AgentDigestModel {
             pendingQuestion != null -> "Waiting for input"
             outcomeFact != null -> outcomeFact.take(80)
             isError -> "Command failed"
-            touchedFiles.isNotEmpty() -> "Updated ${touchedFiles.size} file${if (touchedFiles.size == 1) "" else "s"}"
+            editedFiles.isNotEmpty() -> "Updated ${editedFiles.size} file${if (editedFiles.size == 1) "" else "s"}"
             else -> null
         }
 
@@ -191,28 +258,9 @@ internal object AgentDigestModel {
             .ifBlank { rawTrimmed }
         val facts = extractTerminalFacts(cleanedTurn)
 
-        val factsBlock = buildString {
-            facts.headlineFact?.let { appendLine("headline: $it") }
-            facts.firstError?.let { appendLine("error: $it") }
-            if (facts.touchedFiles.isNotEmpty()) appendLine("files: ${facts.touchedFiles.joinToString(", ")}")
-            facts.pendingQuestion?.let { appendLine("waiting_on: $it") }
-            if (facts.quickActions.isNotEmpty()) {
-                appendLine("options: ${facts.quickActions.joinToString("; ") { it.label }}")
-            }
-        }.trim()
-
         val turnSnippet = TerminalTextSanitizer.packTurnBottomUp(cleanedTurn, maxLines = 20, maxChars = 900)
             .ifBlank { cleanedTurn.lines().takeLast(12).joinToString("\n") }
-        val promptInput = buildString {
-            if (factsBlock.isNotEmpty()) {
-                appendLine("<facts>")
-                appendLine(factsBlock)
-                appendLine("</facts>")
-            }
-            appendLine("<turn>")
-            appendLine(turnSnippet)
-            append("</turn>")
-        }
+        val promptInput = buildDigestPromptInput(facts, turnSnippet)
 
         val outcome = NanoClientManager.generateText(
             context = context,
@@ -222,31 +270,37 @@ internal object AgentDigestModel {
             topK = 10,
             maxOutputTokens = 110,
             allowThinking = false,
-            onPartialText = onPartialText,
+            onPartialText = onPartialText?.let { callback ->
+                { partial ->
+                    if (!isNanoRefusal(partial)) callback(partial)
+                }
+            },
         )
 
         val rawResponse = outcome.text
-        if (!rawResponse.isNullOrBlank()) {
+        if (!rawResponse.isNullOrBlank() && !isNanoRefusal(rawResponse)) {
             val structured = extractStructuredResult(rawResponse)
-            val hasQuestion = facts.pendingQuestion != null ||
-                facts.quickActions.isNotEmpty() ||
-                facts.isYesNoPrompt
-            val quickOptions = when {
-                facts.quickActions.isNotEmpty() -> facts.quickActions.map { it.label }
-                hasQuestion -> listOf("Yes", "No")
-                else -> emptyList()
+            if (structured.spokenSummary.isNotBlank() && !isNanoRefusal(structured.spokenSummary)) {
+                val hasQuestion = facts.pendingQuestion != null ||
+                    facts.quickActions.isNotEmpty() ||
+                    facts.isYesNoPrompt
+                val quickOptions = when {
+                    facts.quickActions.isNotEmpty() -> facts.quickActions.map { it.label }
+                    hasQuestion -> listOf("Yes", "No")
+                    else -> emptyList()
+                }
+                return@withContext structured.copy(
+                    hasQuestion = hasQuestion,
+                    question = facts.pendingQuestion,
+                    quickOptions = quickOptions,
+                    quickActions = facts.quickActions,
+                    isError = facts.isError || structured.isError,
+                    usedAi = true,
+                    headlineFact = facts.headlineFact,
+                    touchedFiles = facts.touchedFiles,
+                    firstError = facts.firstError,
+                )
             }
-            return@withContext structured.copy(
-                hasQuestion = hasQuestion,
-                question = facts.pendingQuestion,
-                quickOptions = quickOptions,
-                quickActions = facts.quickActions,
-                isError = facts.isError || structured.isError,
-                usedAi = true,
-                headlineFact = facts.headlineFact,
-                touchedFiles = facts.touchedFiles,
-                firstError = facts.firstError,
-            )
         }
 
         // Fallback to intelligent rule-based extractor

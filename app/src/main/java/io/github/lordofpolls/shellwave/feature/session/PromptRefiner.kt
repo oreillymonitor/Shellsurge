@@ -18,18 +18,17 @@ internal data class RefineResult(
 internal object PromptRefiner {
 
     internal val REFINE_SYSTEM_INSTRUCTION = """
-        Rewrite ONLY the user's draft inside <draft>...</draft> into a concise, direct prompt for a coding agent.
-        Rules:
-        - Remove spoken filler words (uh, um, like, hey, basically, you know).
-        - Preserve every exact file path, identifier, flag, and slash command from <draft>.
-        - Never invent files, errors, or extra steps not present in <draft>.
-        - Use a short bulleted list only when <draft> contains multiple separate tasks.
-        - Output ONLY the rewritten prompt text with no intro, label, or XML tags.
+        Rewrite the user's rough draft into a clear, concise prompt for a coding agent.
+        Remove spoken filler words (uh, um, like, hey, basically, you know).
+        Keep every exact file path, identifier, flag, and slash command from the draft.
+        Do not add new files, errors, or steps that were not mentioned.
+        Use short bullet points only if the draft has multiple separate tasks.
+        Output only the rewritten prompt text with no intro or labels.
     """.trimIndent()
 
     internal val SHELL_CMD_SYSTEM_INSTRUCTION = """
-        Convert the user's request inside <request>...</request> into a single safe, idiomatic POSIX/Linux shell command.
-        Output ONLY the raw one-line command with no markdown code fences, backticks, explanation, labels, XML tags, or leading $.
+        Convert the user's request into a single safe, idiomatic POSIX/Linux shell command.
+        Output only the raw one-line command with no markdown code fences, backticks, explanation, labels, or leading $.
     """.trimIndent()
 
     /**
@@ -97,7 +96,7 @@ internal object PromptRefiner {
         val outcome = NanoClientManager.generateText(
             context = context,
             systemInstruction = REFINE_SYSTEM_INSTRUCTION,
-            userText = "<draft>\n$withMacros\n</draft>",
+            userText = "Rewrite this rough draft into a clear coding-agent prompt:\n\nDraft:\n$withMacros",
             temperature = 0.1f,
             topK = 10,
             maxOutputTokens = 256,
@@ -106,12 +105,16 @@ internal object PromptRefiner {
             onPartialText = onPartialText?.let { callback ->
                 { partial ->
                     val cleaned = cleanRefinedOutput(partial)
-                    if (cleaned.isNotBlank()) callback(cleaned)
+                    if (cleaned.isNotBlank() && !AgentDigestModel.isNanoRefusal(cleaned)) {
+                        callback(cleaned)
+                    }
                 }
             },
         )
 
-        val output = outcome.text?.let(::cleanRefinedOutput)?.takeIf { it.isNotBlank() }
+        val output = outcome.text?.let(::cleanRefinedOutput)?.takeIf {
+            it.isNotBlank() && !AgentDigestModel.isNanoRefusal(it)
+        }
         if (output != null) {
             val modelTag = if (context != null) {
                 formatModelLabel(
@@ -167,7 +170,7 @@ internal object PromptRefiner {
         val outcome = NanoClientManager.generateText(
             context = context,
             systemInstruction = SHELL_CMD_SYSTEM_INSTRUCTION,
-            userText = "<request>\n$trimmed\n</request>",
+            userText = "Convert this request into one POSIX/Linux shell command:\n\nRequest:\n$trimmed",
             temperature = 0.0f,
             topK = 5,
             maxOutputTokens = 96,
@@ -176,12 +179,16 @@ internal object PromptRefiner {
             onPartialText = onPartialText?.let { callback ->
                 { partial ->
                     val cleaned = stripShellCommandFormatting(partial)
-                    if (cleaned.isNotBlank()) callback(cleaned)
+                    if (cleaned.isNotBlank() && !AgentDigestModel.isNanoRefusal(cleaned)) {
+                        callback(cleaned)
+                    }
                 }
             },
         )
 
-        val cmd = outcome.text?.let(::stripShellCommandFormatting)?.takeIf { it.isNotBlank() }
+        val cmd = outcome.text?.let(::stripShellCommandFormatting)?.takeIf {
+            it.isNotBlank() && !AgentDigestModel.isNanoRefusal(it)
+        }
         if (cmd != null) {
             val modelTag = outcome.baseModelName ?: "Gemini Nano"
             return@withContext RefineResult(cmd, "Generated shell command ($modelTag)")

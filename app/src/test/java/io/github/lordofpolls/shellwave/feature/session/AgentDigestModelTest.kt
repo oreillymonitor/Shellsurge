@@ -125,4 +125,45 @@ class AgentDigestModelTest {
         assertEquals(facts.firstError, fallback.firstError)
         assertEquals(facts.touchedFiles, fallback.touchedFiles)
     }
+
+    @Test
+    fun `isNanoRefusal catches meta-refusals without false positives on real summaries`() {
+        assertTrue(AgentDigestModel.isNanoRefusal("the user provided no facts or turn."))
+        assertTrue(AgentDigestModel.isNanoRefusal("No terminal output was provided."))
+        assertTrue(AgentDigestModel.isNanoRefusal("I cannot summarize without terminal output."))
+        assertTrue(AgentDigestModel.isNanoRefusal("Please provide the text to summarize."))
+        assertTrue(AgentDigestModel.isNanoRefusal(""))
+
+        assertFalse(AgentDigestModel.isNanoRefusal("All 12 unit tests passed with no errors."))
+        assertFalse(AgentDigestModel.isNanoRefusal("Command produced no output."))
+        assertFalse(AgentDigestModel.isNanoRefusal("Build failed in AgentDigestCapsule.kt."))
+    }
+
+    @Test
+    fun `buildDigestPromptInput uses plain text without XML tags`() {
+        val facts = TerminalFacts(
+            headlineFact = "BUILD SUCCESSFUL",
+            touchedFiles = listOf("AgentDigestCapsule.kt"),
+        )
+        val prompt = AgentDigestModel.buildDigestPromptInput(facts, "Tests completed cleanly.")
+        assertFalse(prompt.contains("<facts>"))
+        assertFalse(prompt.contains("</facts>"))
+        assertFalse(prompt.contains("<turn>"))
+        assertFalse(prompt.contains("</turn>"))
+        assertTrue(prompt.contains("Terminal output:"))
+        assertTrue(prompt.contains("Tests completed cleanly."))
+    }
+
+    @Test
+    fun `extractTerminalFacts distinguishes prose file mentions from actual edits`() {
+        val proseMention = "Consider updating AgentDigestCapsule.kt next."
+        val proseFacts = AgentDigestModel.extractTerminalFacts(proseMention)
+        assertTrue(proseFacts.touchedFiles.contains("AgentDigestCapsule.kt"))
+        assertEquals(null, proseFacts.headlineFact)
+
+        val actualDiff = "Diff AgentDigestCapsule.kt (+4/-1)"
+        val diffFacts = AgentDigestModel.extractTerminalFacts(actualDiff)
+        assertTrue(diffFacts.touchedFiles.contains("AgentDigestCapsule.kt"))
+        assertEquals("Updated 1 file", diffFacts.headlineFact)
+    }
 }

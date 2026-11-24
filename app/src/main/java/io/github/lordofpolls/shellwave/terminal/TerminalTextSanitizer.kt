@@ -27,8 +27,13 @@ object TerminalTextSanitizer {
         "type your message",
         "ask anything",
         "enter your message",
-        "follow-up",
+        "ask a follow-up",
+        "type a follow-up",
         "send a message",
+    )
+    private val TUI_GHOST_PROMPT = Regex(
+        "^[❯➜]\\s+(?:Try\\s+\"|Ask\\s+a\\s+follow-up|Type\\s+(?:a|your)\\s+message|Send\\s+a\\s+message).*",
+        RegexOption.IGNORE_CASE,
     )
     private val TURN_START_PROMPT = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s+\\S.*|[❯➜]\\s+(?!\\d+[.)\\]]\\s)\\S.*|\\$\\s+\\S.*)$")
     private val BARE_PROMPT_LINE = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s*|[$#>❯➜%]\\s*)$")
@@ -135,6 +140,10 @@ object TerminalTextSanitizer {
                 i++
                 continue
             }
+            if (TUI_GHOST_PROMPT.matches(unboxed)) {
+                i++
+                continue
+            }
             if (TUI_CHROME_SUBSTRINGS.any { chrome -> unboxed.contains(chrome, ignoreCase = true) }) {
                 i++
                 continue
@@ -156,12 +165,21 @@ object TerminalTextSanitizer {
         for (idx in normalized.indices.reversed()) {
             val candidate = normalized[idx]
             if (candidate.isNotEmpty() && TURN_START_PROMPT.matches(candidate)) {
-                val hasContentBelow = normalized.drop(idx + 1).any { below ->
+                val belowNonEmpty = normalized.drop(idx + 1).filter { below ->
                     below.isNotEmpty() && !BARE_PROMPT_LINE.matches(below)
                 }
-                if (hasContentBelow) {
-                    lastCommandIdx = idx
-                    break
+                if (belowNonEmpty.isNotEmpty()) {
+                    val isStrayTrailingTuiPrompt = (candidate.startsWith("❯") || candidate.startsWith("➜")) &&
+                        belowNonEmpty.size == 1 &&
+                        normalized.take(idx).count { it.isNotEmpty() && !BARE_PROMPT_LINE.matches(it) } >= 4 &&
+                        belowNonEmpty[0].length < 60 &&
+                        !belowNonEmpty[0].endsWith(".") &&
+                        !belowNonEmpty[0].endsWith("?") &&
+                        !belowNonEmpty[0].endsWith("!")
+                    if (!isStrayTrailingTuiPrompt) {
+                        lastCommandIdx = idx
+                        break
+                    }
                 }
             }
         }

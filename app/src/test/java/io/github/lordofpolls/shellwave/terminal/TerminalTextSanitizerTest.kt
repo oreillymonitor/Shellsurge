@@ -183,4 +183,26 @@ class TerminalTextSanitizerTest {
         assertTrue(packed.contains("Updated SessionManager.kt and added unit tests."))
         assertTrue(packed.contains("Ready to push? [y/N]"))
     }
+
+    @Test
+    fun cleanForDigestPreservesFollowUpProseAndIgnoresTrailingTuiGhostPrompt() {
+        val raw = """
+            Implemented the quick-reply and status badge changes cleanly.
+            Reviewed AgentDigestCapsule.kt for error chip click handling.
+            Remaining roadmap ideas:
+            1. Stronger AI Backends & Digest Follow-Ups
+            2. Multi-pane tmux session controls
+            Let me know which one to tackle next.
+            ❯ Try "add unit tests"
+            gemini-3 · 24% context
+        """.trimIndent()
+
+        val cleaned = TerminalTextSanitizer.cleanForDigest(raw, maxLines = 60)
+        val packed = TerminalTextSanitizer.packTurnBottomUp(cleaned, maxLines = 20, maxChars = 900)
+        assertTrue(cleaned.contains("Stronger AI Backends & Digest Follow-Ups"))
+        assertTrue(cleaned.contains("AgentDigestCapsule.kt"))
+        assertFalse(cleaned.contains("❯ Try \"add unit tests\""))
+        assertTrue(packed.contains("Stronger AI Backends & Digest Follow-Ups"))
+        assertTrue(packed.contains("AgentDigestCapsule.kt"))
+    }
 }

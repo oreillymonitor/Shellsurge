@@ -62,6 +62,10 @@ class PromptRefinerTest {
             assertFalse(prompt.contains("SessionManager"))
             assertFalse(prompt.contains("PromptRefiner"))
             assertFalse(prompt.contains("gradlew"))
+            assertFalse(prompt.contains("<facts>"))
+            assertFalse(prompt.contains("<turn>"))
+            assertFalse(prompt.contains("<draft>"))
+            assertFalse(prompt.contains("<request>"))
         }
     }
 

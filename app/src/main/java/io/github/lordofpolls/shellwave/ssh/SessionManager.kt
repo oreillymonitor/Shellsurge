@@ -134,6 +134,8 @@ data class SessionSummary(
     val agentForwarding: Boolean = false,
     /** Whether automatic/OSC output alerts are enabled for this session. */
     val outputAlertsEnabled: Boolean = true,
+    /** Live execution state for the chip rail indicator. */
+    val turnState: AgentTurnState = AgentTurnState.IDLE,
 )
 
 /**
@@ -233,6 +235,8 @@ constructor(
         val connectCounted: AtomicBoolean = AtomicBoolean(false),
         @Volatile var outputAlertsOverride: Boolean? = null,
         @Volatile var outputWatcher: TerminalOutputWatcher? = null,
+        @Volatile var turnState: AgentTurnState = AgentTurnState.IDLE,
+        val pendingAutoDigest: AtomicBoolean = AtomicBoolean(false),
     )
 
     /**
@@ -343,10 +347,33 @@ constructor(
     fun setForegroundSession(id: Long) {
         foregroundSessionId = id
         sessionAlerts.clearOutputAlert(id)
+        val entry = entries[id] ?: return
+        if (entry.turnState == AgentTurnState.COMPLETED) {
+            entry.turnState = AgentTurnState.IDLE
+            publish()
+        }
     }
 
     fun clearForegroundSession(id: Long) {
         if (foregroundSessionId == id) foregroundSessionId = null
+    }
+
+    fun consumePendingAutoDigest(id: Long): Boolean =
+        entries[id]?.pendingAutoDigest?.getAndSet(false) ?: false
+
+    fun sendNotificationReply(sessionId: Long, text: String): Boolean {
+        val entry = entries[sessionId] ?: return false
+        if (entry.status != SessionStatus.CONNECTED) {
+            sessionAlerts.clearOutputAlert(sessionId)
+            return false
+        }
+        val payload = text.replace("\r\n", "\r").replace("\n", "\r") + "\r"
+        entry.connection.write(payload)
+        sessionAlerts.clearOutputAlert(sessionId)
+        entry.pendingAutoDigest.set(false)
+        entry.turnState = AgentTurnState.RUNNING
+        publish()
+        return true
     }
 
     fun setSessionOutputAlerts(id: Long, enabled: Boolean) {
@@ -458,7 +485,7 @@ constructor(
                     }
                 }.orEmpty()
             },
-            onAlert = { _, title, body ->
+            onAlert = { kind, title, body ->
                 if (entries[entry.id] === entry && isOutputAlertsEnabled(entry)) {
                     sessionAlerts.commandOutput(
                         sessionId = entry.id,
@@ -466,7 +493,24 @@ constructor(
                         body = body,
                         isActiveTab = foregroundSessionId == entry.id,
                         notifyOnActiveTab = NotificationPreferences.isNotifyOnActiveTab(context),
+                        isResponseNeeded = kind == OutputPromptKind.RESPONSE_NEEDED,
                     )
+                }
+            },
+            onStateChange = { newState ->
+                if (entries[entry.id] === entry) {
+                    entry.turnState = newState
+                    when (newState) {
+                        AgentTurnState.COMPLETED, AgentTurnState.RESPONSE_NEEDED -> {
+                            if (foregroundSessionId != entry.id) {
+                                entry.pendingAutoDigest.set(true)
+                            }
+                        }
+                        AgentTurnState.RUNNING, AgentTurnState.IDLE -> {
+                            entry.pendingAutoDigest.set(false)
+                        }
+                    }
+                    publish()
                 }
             },
         )
@@ -787,6 +831,7 @@ constructor(
                         it.tunnels.values.toList(),
                         it.status == SessionStatus.CONNECTED && it.agentKeys.isNotEmpty() && !it.agentRefused,
                         outputAlertsEnabled = isOutputAlertsEnabled(it),
+                        turnState = it.turnState,
                     )
                 }
     }

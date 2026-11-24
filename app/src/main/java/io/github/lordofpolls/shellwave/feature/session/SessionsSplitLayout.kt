@@ -60,6 +60,7 @@ internal fun SessionsSplitLayout(
     fileTransferController: FileTransferController,
     searchController: TerminalSearchController,
     modifier: Modifier = Modifier,
+    onEditRemoteFile: ((sessionId: Long, path: String) -> Unit)? = null,
 ) {
     Box(modifier = modifier) {
         val tabletop = posture as? FoldPosture.Tabletop
@@ -75,6 +76,7 @@ internal fun SessionsSplitLayout(
                 fileTransferController = fileTransferController,
                 searchController = searchController,
                 modifier = Modifier.fillMaxSize(),
+                onEditRemoteFile = onEditRemoteFile,
             )
         } else if (isWide && fullWidthTerminal) {
             // Bypasses the scaffold rather than talking it into a Detail-only pane while
@@ -91,6 +93,7 @@ internal fun SessionsSplitLayout(
                 showLayoutToggle = true,
                 fullWidthTerminal = fullWidthTerminal,
                 onToggleFullWidth = onToggleFullWidth,
+                onEditRemoteFile = onEditRemoteFile,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
@@ -123,6 +126,7 @@ internal fun SessionsSplitLayout(
                             showLayoutToggle = isWide,
                             fullWidthTerminal = fullWidthTerminal,
                             onToggleFullWidth = onToggleFullWidth,
+                            onEditRemoteFile = onEditRemoteFile,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -211,6 +215,7 @@ private fun TabletopSessionLayout(
     fileTransferController: FileTransferController,
     searchController: TerminalSearchController,
     modifier: Modifier = Modifier,
+    onEditRemoteFile: ((sessionId: Long, path: String) -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     var originInWindowPx by remember { mutableStateOf(Offset.Zero) }
@@ -235,6 +240,7 @@ private fun TabletopSessionLayout(
                 searchController = searchController,
                 terminalHeight = terminalHeight,
                 preKeyBarGap = hingeGap,
+                onEditRemoteFile = onEditRemoteFile,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -249,6 +255,7 @@ private fun TabletopSessionLayout(
                 keyBarLayoutDao = keyBarLayoutDao,
                 fileTransferController = fileTransferController,
                 searchController = searchController,
+                onEditRemoteFile = onEditRemoteFile,
                 modifier = Modifier.fillMaxSize(),
             )
         }

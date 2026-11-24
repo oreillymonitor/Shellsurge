@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.app.RemoteInput
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -90,6 +91,7 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
         body: String,
         isActiveTab: Boolean,
         notifyOnActiveTab: Boolean,
+        isResponseNeeded: Boolean = false,
     ) {
         scope.launch {
             val appForeground = ProcessLifecycleOwner.get().lifecycle.currentState
@@ -99,7 +101,7 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                 context.getSystemService(NotificationManager::class.java) ?: return@launch
             ensureCommandOutputChannel(manager)
             val id = outputNotificationId(sessionId)
-            val notification =
+            val builder =
                 NotificationCompat.Builder(context, COMMAND_OUTPUT_CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_stat_shellwave)
                     .setContentTitle(title)
@@ -107,9 +109,41 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setContentIntent(openSessions(id, sessionId))
                     .setAutoCancel(true)
+                    .setAllowSystemGeneratedReplies(false)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
+
+            if (isResponseNeeded) {
+                builder.addAction(
+                    NotificationCompat.Action.Builder(
+                        0,
+                        "Yes",
+                        quickReplyPendingIntent(id * 4 + 1, sessionId, "y", mutable = false),
+                    ).build()
+                )
+                builder.addAction(
+                    NotificationCompat.Action.Builder(
+                        0,
+                        "No",
+                        quickReplyPendingIntent(id * 4 + 2, sessionId, "n", mutable = false),
+                    ).build()
+                )
+            }
+
+            val remoteInput = RemoteInput.Builder(SessionReplyReceiver.KEY_DIRECT_REPLY)
+                .setLabel("Send to terminal…")
+                .build()
+            builder.addAction(
+                NotificationCompat.Action.Builder(
+                    0,
+                    "Reply",
+                    quickReplyPendingIntent(id * 4 + 3, sessionId, null, mutable = true),
+                )
+                    .addRemoteInput(remoteInput)
+                    .setAllowGeneratedReplies(false)
                     .build()
-            manager.notify(id, notification)
+            )
+
+            manager.notify(id, builder.build())
         }
     }
 
@@ -195,6 +229,28 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .apply { autoDismissMs?.let { setTimeoutAfter(it) } }
             .build()
+
+    private fun quickReplyPendingIntent(
+        requestCode: Int,
+        sessionId: Long,
+        fixedText: String?,
+        mutable: Boolean,
+    ): PendingIntent {
+        val intent = Intent(context, SessionReplyReceiver::class.java).apply {
+            action = SessionReplyReceiver.ACTION_NOTIFICATION_QUICK_REPLY
+            putExtra(SessionReplyReceiver.EXTRA_SESSION_ID, sessionId)
+            if (fixedText != null) {
+                putExtra(SessionReplyReceiver.EXTRA_REPLY_TEXT, fixedText)
+            }
+        }
+        val mutability = if (mutable) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            mutability or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
 
     private fun openSessions(requestCode: Int, sessionId: Long? = null): PendingIntent {
         val intent =

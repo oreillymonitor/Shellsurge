@@ -3,11 +3,13 @@ package io.github.lordofpolls.shellwave.feature.session
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -30,11 +32,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -87,15 +92,19 @@ internal fun PromptComposerDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     initialText: String = "",
+    onUploadImage: (suspend (Uri) -> Result<String>)? = null,
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
     var text by remember { mutableStateOf(initialText) }
+    var preTransformText by remember { mutableStateOf<String?>(null) }
     var sendEnter by remember { mutableStateOf(true) }
     var isListening by remember { mutableStateOf(false) }
     var isPolishing by remember { mutableStateOf(false) }
+    var isGeneratingCmd by remember { mutableStateOf(false) }
+    var isUploadingImage by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     val enabledAgents by rememberPrefState { AgentCliPreferences.getEnabledAgents(it) }
     val activeAgent by rememberPrefState { AgentCliPreferences.getSelectedAgent(it) }
@@ -156,7 +165,7 @@ internal fun PromptComposerDialog(
                 val spoken = matches?.firstOrNull() ?: ""
                 if (spoken.isNotBlank()) {
                     val combined = if (baseText.isBlank()) spoken else "$baseText $spoken"
-                    text = PromptRefiner.applyVoiceMacros(combined)
+                    text = PromptRefiner.applyVoiceMacros(combined, activeAgent)
                 }
                 isListening = false
                 statusMessage = null
@@ -167,7 +176,7 @@ internal fun PromptComposerDialog(
                 val spoken = matches?.firstOrNull() ?: ""
                 if (spoken.isNotBlank()) {
                     val combined = if (baseText.isBlank()) spoken else "$baseText $spoken"
-                    text = PromptRefiner.applyVoiceMacros(combined)
+                    text = PromptRefiner.applyVoiceMacros(combined, activeAgent)
                 }
             }
 
@@ -209,19 +218,72 @@ internal fun PromptComposerDialog(
         }
     }
 
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        val uploader = onUploadImage ?: return@rememberLauncherForActivityResult
+        if (uri == null || isUploadingImage) return@rememberLauncherForActivityResult
+        isUploadingImage = true
+        statusMessage = "Uploading image to remote host…"
+        scope.launch {
+            try {
+                uploader(uri).fold(
+                    onSuccess = { remotePath ->
+                        text = when {
+                            text.isBlank() -> remotePath
+                            text.endsWith(" ") || text.endsWith("\n") -> "$text$remotePath"
+                            else -> "$text $remotePath"
+                        }
+                        statusMessage = "Attached $remotePath"
+                    },
+                    onFailure = { err ->
+                        statusMessage = "Image upload failed: ${err.message ?: "SFTP error"}"
+                    },
+                )
+            } finally {
+                isUploadingImage = false
+            }
+        }
+    }
+
     fun polish() {
-        if (text.isBlank() || isPolishing) return
+        if (text.isBlank() || isPolishing || isGeneratingCmd) return
+        val original = text
         isPolishing = true
         statusMessage = "Refining prompt…"
         scope.launch {
             try {
-                val result = PromptRefiner.refinePrompt(text) { progress ->
+                val result = PromptRefiner.refinePrompt(original, activeAgent) { progress ->
                     statusMessage = progress
                 }
-                text = result.text
+                if (result.text != original) {
+                    preTransformText = original
+                    text = result.text
+                }
                 statusMessage = result.statusNotice
             } finally {
                 isPolishing = false
+            }
+        }
+    }
+
+    fun generateShellCmd() {
+        if (text.isBlank() || isPolishing || isGeneratingCmd) return
+        val original = text
+        isGeneratingCmd = true
+        statusMessage = "Translating to shell command…"
+        scope.launch {
+            try {
+                val result = PromptRefiner.generateShellCommand(original) { progress ->
+                    statusMessage = progress
+                }
+                if (result.text != original) {
+                    preTransformText = original
+                    text = result.text
+                }
+                statusMessage = result.statusNotice
+            } finally {
+                isGeneratingCmd = false
             }
         }
     }
@@ -318,56 +380,123 @@ internal fun PromptComposerDialog(
                         .heightIn(min = 68.dp, max = 116.dp),
                 )
 
-                // Voice dictation, paste clip & Gemini Nano polish controls
+                // Voice dictation, paste, image attach, undo, shell command & Gemini Nano polish controls
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        FilledTonalIconButton(
-                            onClick = { toggleVoice() },
-                            modifier = Modifier.size(34.dp),
-                            colors = if (isListening) {
-                                IconButtonDefaults.filledTonalIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                                )
-                            } else {
-                                IconButtonDefaults.filledTonalIconButtonColors()
-                            },
-                        ) {
-                            Icon(
-                                imageVector = if (isListening) Icons.Filled.Mic else Icons.Outlined.Mic,
-                                contentDescription = if (isListening) "Stop voice input" else "Start voice input",
-                                modifier = Modifier.size(18.dp),
+                    FilledTonalIconButton(
+                        onClick = { toggleVoice() },
+                        modifier = Modifier.size(34.dp),
+                        colors = if (isListening) {
+                            IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
                             )
-                        }
+                        } else {
+                            IconButtonDefaults.filledTonalIconButtonColors()
+                        },
+                    ) {
+                        Icon(
+                            imageVector = if (isListening) Icons.Filled.Mic else Icons.Outlined.Mic,
+                            contentDescription = if (isListening) "Stop voice input" else "Start voice input",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
 
-                        if (clipboardManager.hasText()) {
-                            CompactActionPill(
-                                label = "Paste",
-                                onClick = {
-                                    val clip = clipboardManager.getText()?.text ?: ""
-                                    if (clip.isNotBlank()) {
-                                        text = if (text.isBlank()) clip else "$text\n$clip"
-                                    }
-                                },
-                                leadingIcon = {
+                    if (clipboardManager.hasText()) {
+                        CompactActionPill(
+                            label = "Paste",
+                            onClick = {
+                                val clip = clipboardManager.getText()?.text ?: ""
+                                if (clip.isNotBlank()) {
+                                    text = if (text.isBlank()) clip else "$text\n$clip"
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.ContentPaste,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            },
+                        )
+                    }
+
+                    if (onUploadImage != null) {
+                        CompactActionPill(
+                            label = if (isUploadingImage) "Uploading…" else "Image",
+                            enabled = !isUploadingImage,
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            leadingIcon = {
+                                if (isUploadingImage) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
                                     Icon(
-                                        Icons.Outlined.ContentPaste,
+                                        Icons.Outlined.Image,
                                         contentDescription = null,
                                         modifier = Modifier.size(14.dp),
                                     )
-                                },
-                            )
-                        }
+                                }
+                            },
+                        )
                     }
 
-                    val polishEnabled = text.isNotBlank() && !isPolishing
+                    preTransformText?.let { priorText ->
+                        CompactActionPill(
+                            label = "Undo",
+                            onClick = {
+                                text = priorText
+                                preTransformText = null
+                                statusMessage = "Restored previous text"
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.AutoMirrored.Outlined.Undo,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            },
+                        )
+                    }
+
+                    val cmdEnabled = text.isNotBlank() && !isPolishing && !isGeneratingCmd
+                    CompactActionPill(
+                        label = if (isGeneratingCmd) "Command…" else "Shell cmd",
+                        enabled = cmdEnabled,
+                        onClick = { generateShellCmd() },
+                        leadingIcon = {
+                            if (isGeneratingCmd) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Outlined.Terminal,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = if (cmdEnabled) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                    },
+                                )
+                            }
+                        },
+                    )
+
+                    val polishEnabled = text.isNotBlank() && !isPolishing && !isGeneratingCmd
                     CompactActionPill(
                         label = if (isPolishing) "Refining…" else "Nano Polish",
                         enabled = polishEnabled,

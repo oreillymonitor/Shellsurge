@@ -54,4 +54,54 @@ class AgentDigestModelTest {
         assertFalse(success.isError)
         assertTrue(success.spokenSummary.contains("successfully", ignoreCase = true))
     }
+
+    @Test
+    fun `extractNumberedOptions detects Claude and generic numbered approval menus`() {
+        val claudeMenu = """
+            Allow bash command `./gradlew test`?
+            ❯ 1. Allow once
+              2. Allow for this session
+              3. Deny and tell Claude what to do instead
+        """.trimIndent()
+
+        val claudeActions = AgentDigestModel.extractNumberedOptions(claudeMenu)
+        assertEquals(3, claudeActions.size)
+        assertEquals("1", claudeActions[0].sendText)
+        assertEquals("2", claudeActions[1].sendText)
+        assertEquals("3", claudeActions[2].sendText)
+        assertTrue(claudeActions[0].label.startsWith("1: Allow once"))
+
+        val parenAndBrackets = """
+            Select deployment target:
+            [1] staging
+            [2] production
+        """.trimIndent()
+        val bracketActions = AgentDigestModel.extractNumberedOptions(parenAndBrackets)
+        assertEquals(2, bracketActions.size)
+        assertEquals("1", bracketActions[0].sendText)
+        assertEquals("2", bracketActions[1].sendText)
+
+        val singleItemProse = """
+            Build completed:
+            1. Check the release notes.
+            Done.
+        """.trimIndent()
+        assertTrue(AgentDigestModel.extractNumberedOptions(singleItemProse).isEmpty())
+    }
+
+    @Test
+    fun `fallbackAnalyze promotes numbered menus to quickActions`() {
+        val menuOutput = """
+            Edit app/build.gradle.kts?
+            1) Yes, allow this edit
+            2) Yes, allow all edits
+            3) No, cancel
+        """.trimIndent()
+
+        val result = AgentDigestModel.fallbackAnalyze(menuOutput)
+        assertTrue(result.hasQuestion)
+        assertEquals(3, result.quickActions.size)
+        assertEquals("1", result.quickActions[0].sendText)
+        assertEquals("3", result.quickActions[2].sendText)
+    }
 }

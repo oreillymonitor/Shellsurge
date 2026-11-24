@@ -65,6 +65,7 @@ private class NoopSessionAlerts(
         body: String,
         isActiveTab: Boolean,
         notifyOnActiveTab: Boolean,
+        isResponseNeeded: Boolean,
     ) = Unit
 
     override fun bell(sessionId: Long, label: String, preview: String?) = Unit

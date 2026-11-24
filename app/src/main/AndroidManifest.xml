@@ -52,6 +52,10 @@
                 android:value="Keeps connected SSH terminal sessions open and streaming output while ShellSurge is backgrounded, so remote commands the user started keep running." />
         </service>
 
+        <receiver
+            android:name=".service.SessionReplyReceiver"
+            android:exported="false" />
+
         <!-- Runs a capture-mode script from the widget, the tile or a shortcut with no Activity on
              screen. Started only from a user tap through a PendingIntent, which is what makes the
              foreground-service start legal on Android 14+. -->

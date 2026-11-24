@@ -9,11 +9,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
+data class DigestQuickAction(
+    val label: String,
+    val sendText: String,
+)
+
 data class AgentDigestResult(
     val spokenSummary: String,
     val hasQuestion: Boolean = false,
     val question: String? = null,
     val quickOptions: List<String> = emptyList(),
+    val quickActions: List<DigestQuickAction> = emptyList(),
     val isError: Boolean = false,
     val usedAi: Boolean = false,
 )
@@ -38,6 +44,8 @@ internal object AgentDigestModel {
                 hasQuestion = false,
             )
         }
+
+        val detectedActions = extractNumberedOptions(trimmed)
 
         // Try Gemini Nano first if available or downloadable on device
         try {
@@ -70,7 +78,15 @@ internal object AgentDigestModel {
                 val rawResponse = response.candidates.firstOrNull()?.text?.trim()
                 if (!rawResponse.isNullOrBlank()) {
                     val structured = extractStructuredResult(rawResponse)
-                    return@withContext structured.copy(usedAi = true)
+                    return@withContext if (detectedActions.isNotEmpty()) {
+                        structured.copy(
+                            usedAi = true,
+                            hasQuestion = true,
+                            quickActions = detectedActions,
+                        )
+                    } else {
+                        structured.copy(usedAi = true)
+                    }
                 }
             }
         } catch (e: Throwable) {
@@ -148,12 +164,68 @@ internal object AgentDigestModel {
         )
     }
 
+    internal fun extractNumberedOptions(text: String): List<DigestQuickAction> {
+        val recent = text.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .takeLast(14)
+        if (recent.size < 2) return emptyList()
+
+        val lineRegex = Regex("^\\s*(?:[❯›>*•-]\\s*)?(\\d)[.)\\]]\\s+(.+)$")
+        val bracketRegex = Regex("^\\s*\\[(\\d)]\\s+(.+)$")
+
+        val candidates = mutableListOf<Pair<Int, String>>()
+        for (line in recent) {
+            val match = lineRegex.matchEntire(line) ?: bracketRegex.matchEntire(line)
+            if (match == null) {
+                // Keep only the bottom-most menu block if prose separated an older list.
+                if (candidates.size >= 2) break
+                candidates.clear()
+                continue
+            }
+            val num = match.groupValues[1].toIntOrNull() ?: continue
+            val desc = match.groupValues[2].trim()
+            if (desc.isEmpty()) continue
+            if (candidates.isEmpty()) {
+                if (num == 1) candidates += num to desc
+            } else if (num == candidates.last().first + 1 && candidates.size < 4) {
+                candidates += num to desc
+            } else if (num == 1) {
+                candidates.clear()
+                candidates += num to desc
+            }
+        }
+
+        if (candidates.size < 2) return emptyList()
+        return candidates.map { (num, desc) ->
+            val shortDesc = if (desc.length <= 22) desc else desc.take(21).trimEnd() + "…"
+            DigestQuickAction(label = "$num: $shortDesc", sendText = num.toString())
+        }
+    }
+
     internal fun fallbackAnalyze(output: String): AgentDigestResult {
         val allLines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
         if (allLines.isEmpty()) {
             return AgentDigestResult(
                 spokenSummary = "Terminal is idle with no recent output.",
                 hasQuestion = false,
+            )
+        }
+
+        val numberedActions = extractNumberedOptions(output)
+        if (numberedActions.isNotEmpty()) {
+            val promptHeader = allLines
+                .dropLast(numberedActions.size)
+                .lastOrNull { it.endsWith("?") || it.contains("allow", ignoreCase = true) || it.contains("choose", ignoreCase = true) || it.contains("select", ignoreCase = true) }
+            val headline = promptHeader ?: "Choose an option:"
+            return AgentDigestResult(
+                spokenSummary = "The agent is waiting for your selection: $headline ${numberedActions.joinToString(", ") { it.label }}.",
+                hasQuestion = true,
+                question = headline,
+                quickOptions = numberedActions.map { it.label },
+                quickActions = numberedActions,
+                isError = false,
+                usedAi = false,
             )
         }
 

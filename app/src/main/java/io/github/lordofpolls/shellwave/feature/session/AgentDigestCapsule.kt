@@ -153,8 +153,20 @@ internal fun AgentDigestCapsule(
                     }
                 }
 
-                // Bottom row: Quick action buttons (e.g. [ YES ] [ NO ]) if options exist
-                if (digest.quickOptions.isNotEmpty()) {
+                // Bottom row: Quick action buttons (e.g. [ YES ] [ NO ] or numbered menu options)
+                val resolvedActions = if (digest.quickActions.isNotEmpty()) {
+                    digest.quickActions
+                } else {
+                    digest.quickOptions.map { option ->
+                        val sendText = when {
+                            option.equals("yes", ignoreCase = true) || option.equals("y", ignoreCase = true) -> "y"
+                            option.equals("no", ignoreCase = true) || option.equals("n", ignoreCase = true) -> "n"
+                            else -> option
+                        }
+                        DigestQuickAction(label = option, sendText = sendText)
+                    }
+                }
+                if (resolvedActions.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -162,21 +174,19 @@ internal fun AgentDigestCapsule(
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                     ) {
-                        digest.quickOptions.forEach { option ->
-                            val isYes = option.equals("yes", ignoreCase = true) || option.equals("y", ignoreCase = true)
-                            val isNo = option.equals("no", ignoreCase = true) || option.equals("n", ignoreCase = true)
+                        resolvedActions.forEach { action ->
+                            val isPrimary = action.sendText.equals("y", ignoreCase = true) ||
+                                (action.sendText == "1" && (action.label.contains("allow", ignoreCase = true) || action.label.contains("yes", ignoreCase = true)))
+                            val displayLabel = if (!action.label.contains(" ") && action.label.length <= 4) {
+                                action.label.uppercase()
+                            } else {
+                                action.label
+                            }
 
                             FilledTonalButton(
-                                onClick = {
-                                    val sendText = when {
-                                        isYes -> "y"
-                                        isNo -> "n"
-                                        else -> option
-                                    }
-                                    onActionClick(sendText)
-                                },
+                                onClick = { onActionClick(action.sendText) },
                                 shape = CircleShape,
-                                colors = if (isYes) {
+                                colors = if (isPrimary) {
                                     ButtonDefaults.filledTonalButtonColors(
                                         containerColor = MaterialTheme.colorScheme.primary,
                                         contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -188,7 +198,9 @@ internal fun AgentDigestCapsule(
                                 modifier = Modifier.height(32.dp),
                             ) {
                                 Text(
-                                    text = option.uppercase(),
+                                    text = displayLabel,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 )
                             }

@@ -20,6 +20,7 @@ class NotificationPreferencesTest {
         assertTrue(NotificationPreferences.isCommandNotifyEnabled(context))
         assertEquals(OutputIdleDelay.NORMAL_5S, NotificationPreferences.getIdleDelay(context))
         assertFalse(NotificationPreferences.isNotifyOnActiveTab(context))
+        assertTrue(NotificationPreferences.isAutoDigestOnReturn(context))
     }
 
     @Test
@@ -27,9 +28,11 @@ class NotificationPreferencesTest {
         NotificationPreferences.setCommandNotifyEnabled(context, false)
         NotificationPreferences.setIdleDelay(context, OutputIdleDelay.EXPLICIT_ONLY)
         NotificationPreferences.setNotifyOnActiveTab(context, true)
+        NotificationPreferences.setAutoDigestOnReturn(context, false)
 
         assertFalse(NotificationPreferences.isCommandNotifyEnabled(context))
         assertEquals(OutputIdleDelay.EXPLICIT_ONLY, NotificationPreferences.getIdleDelay(context))
         assertTrue(NotificationPreferences.isNotifyOnActiveTab(context))
+        assertFalse(NotificationPreferences.isAutoDigestOnReturn(context))
     }
 }

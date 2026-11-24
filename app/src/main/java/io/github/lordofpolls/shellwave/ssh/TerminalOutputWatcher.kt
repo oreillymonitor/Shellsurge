@@ -68,6 +68,13 @@ private val COMPLETED_MARKERS = listOf(
     "exception:",
 )
 
+enum class AgentTurnState {
+    IDLE,
+    RUNNING,
+    COMPLETED,
+    RESPONSE_NEEDED,
+}
+
 internal enum class OutputPromptKind(val titleSuffix: String) {
     COMPLETED("Completed"),
     RESPONSE_NEEDED("Response needed"),
@@ -200,6 +207,7 @@ internal class TerminalOutputWatcher(
     private val readTail: suspend () -> String,
     private val onAlert: (kind: OutputPromptKind, title: String, body: String) -> Unit,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val onStateChange: (AgentTurnState) -> Unit = {},
 ) {
     private val lock = Any()
     private val scanner = TerminalNotificationScanner()
@@ -211,9 +219,16 @@ internal class TerminalOutputWatcher(
     private var lastOutputAtMs: Long = 0L
     private var outputBytesSinceSubmit = 0
     private var settleJob: Job? = null
+    private var currentState: AgentTurnState = AgentTurnState.IDLE
+
+    private fun updateStateLocked(newState: AgentTurnState): Boolean {
+        if (currentState == newState) return false
+        currentState = newState
+        return true
+    }
 
     fun onUserWrite(data: ByteArray) {
-        synchronized(lock) {
+        val stateChanged = synchronized(lock) {
             val isSubmit = containsCommandSubmit(data)
             val isInteractiveReply = data.isNotEmpty() && notifiedResponseNeededInTurn
             if (!isSubmit && !isInteractiveReply) return
@@ -224,11 +239,14 @@ internal class TerminalOutputWatcher(
             outputBytesSinceSubmit = 0
             settleJob?.cancel()
             settleJob = null
+            updateStateLocked(AgentTurnState.RUNNING)
         }
+        if (stateChanged) onStateChange(AgentTurnState.RUNNING)
     }
 
     fun onRawOutput(data: ByteArray, length: Int = data.size) {
         val explicitSignals = mutableListOf<TerminalSignal>()
+        var notifyRunning = false
 
         synchronized(lock) {
             val scanResult = scanner.scan(data, length)
@@ -242,6 +260,9 @@ internal class TerminalOutputWatcher(
                             commandSubmittedAtMs = nowMs()
                         }
                         outputBytesSinceSubmit = 0
+                        if (updateStateLocked(AgentTurnState.RUNNING)) {
+                            notifyRunning = true
+                        }
                     }
 
                     is TerminalSignal.CommandFinished -> {
@@ -254,15 +275,17 @@ internal class TerminalOutputWatcher(
                             turnArmed = false
                             commandSubmittedAtMs = null
                             outputBytesSinceSubmit = 0
+                            if (currentState == AgentTurnState.RUNNING) {
+                                updateStateLocked(AgentTurnState.COMPLETED)
+                                explicitSignals += signal
+                            }
                         }
                     }
 
                     is TerminalSignal.OscNotification -> {
                         settleJob?.cancel()
                         settleJob = null
-                        if (isEnabled()) {
-                            explicitSignals += signal
-                        }
+                        explicitSignals += signal
                     }
                 }
             }
@@ -272,6 +295,10 @@ internal class TerminalOutputWatcher(
                 outputBytesSinceSubmit += scanResult.printableBytes
                 scheduleSettleLocked()
             }
+        }
+
+        if (notifyRunning) {
+            onStateChange(AgentTurnState.RUNNING)
         }
 
         if (explicitSignals.isNotEmpty()) {
@@ -286,15 +313,13 @@ internal class TerminalOutputWatcher(
     private fun scheduleSettleLocked() {
         settleJob?.cancel()
         settleJob = null
-        if (!isEnabled() || !turnArmed) return
+        if (!turnArmed) return
         val delayMs = idleDelayMs()
         if (delayMs <= 0L) return
 
         settleJob = scope.launch {
             delay(delayMs)
-            val canEvaluate = synchronized(lock) {
-                isEnabled() && turnArmed
-            }
+            val canEvaluate = synchronized(lock) { turnArmed }
             if (canEvaluate) {
                 evaluateAndNotify(explicitSignal = null)
             }
@@ -308,8 +333,8 @@ internal class TerminalOutputWatcher(
         val body = explicitBody?.takeIf { it.isNotBlank() } ?: extractOutputSnippet(tail)
         val signature = "${kind.name}:$body"
 
-        val shouldEmit = synchronized(lock) {
-            if (!isEnabled()) return@synchronized false
+        var stateToEmit: AgentTurnState? = null
+        val shouldEmitAlert = synchronized(lock) {
             if (explicitSignal == null && !turnArmed) return@synchronized false
             if (explicitSignal == null && kind == OutputPromptKind.COMPLETED) {
                 val submittedAt = commandSubmittedAtMs
@@ -320,10 +345,31 @@ internal class TerminalOutputWatcher(
                         turnArmed = false
                         commandSubmittedAtMs = null
                         outputBytesSinceSubmit = 0
+                        if (updateStateLocked(AgentTurnState.IDLE)) {
+                            stateToEmit = AgentTurnState.IDLE
+                        }
                         return@synchronized false
                     }
                 }
             }
+
+            val targetTurnState = when (kind) {
+                OutputPromptKind.RESPONSE_NEEDED -> AgentTurnState.RESPONSE_NEEDED
+                OutputPromptKind.COMPLETED -> AgentTurnState.COMPLETED
+            }
+            if (updateStateLocked(targetTurnState)) {
+                stateToEmit = targetTurnState
+            }
+
+            if (!isEnabled()) {
+                if (kind == OutputPromptKind.COMPLETED) {
+                    turnArmed = false
+                    commandSubmittedAtMs = null
+                    outputBytesSinceSubmit = 0
+                }
+                return@synchronized false
+            }
+
             if (signature == lastNotifiedSignature) {
                 if (kind == OutputPromptKind.COMPLETED) {
                     turnArmed = false
@@ -354,19 +400,22 @@ internal class TerminalOutputWatcher(
             }
         }
 
-        if (shouldEmit) {
+        stateToEmit?.let(onStateChange)
+        if (shouldEmitAlert) {
             onAlert(kind, formatPromptTitle(label, kind), body)
         }
     }
 
     fun cancel() {
-        synchronized(lock) {
+        val changed = synchronized(lock) {
             settleJob?.cancel()
             settleJob = null
             turnArmed = false
             notifiedResponseNeededInTurn = false
             commandSubmittedAtMs = null
             outputBytesSinceSubmit = 0
+            updateStateLocked(AgentTurnState.IDLE)
         }
+        if (changed) onStateChange(AgentTurnState.IDLE)
     }
 }

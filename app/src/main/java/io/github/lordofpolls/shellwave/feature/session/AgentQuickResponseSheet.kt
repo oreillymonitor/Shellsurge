@@ -142,6 +142,7 @@ internal fun AgentQuickResponseSheet(
     isSummarizing: Boolean = false,
     isQuickBarActive: Boolean = false,
     onToggleQuickBar: (() -> Unit)? = null,
+    onOpenGitDiff: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -618,6 +619,28 @@ internal fun AgentQuickResponseSheet(
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     ) {
                         Text("clear", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    }
+
+                    if (onOpenGitDiff != null) {
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    sheetState.hide()
+                                    onDismiss()
+                                    onOpenGitDiff()
+                                }
+                            },
+                            modifier = Modifier.height(30.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Code,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("Git Diff", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
 

@@ -956,6 +956,21 @@ open class SshConnection(
             }
         }
 
+    /**
+     * Uploads an image from Android's photo picker to `/tmp/shellsurge-<timestamp>.<ext>` on the
+     * remote host and returns that remote path so the developer can reference it in a prompt.
+     */
+    suspend fun uploadImageAttachment(uri: Uri): Result<String> {
+        val ext = when (context.contentResolver.getType(uri)?.lowercase()) {
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            "image/gif" -> "gif"
+            else -> "jpg"
+        }
+        val remotePath = "/tmp/shellsurge-${System.currentTimeMillis()}.$ext"
+        return uploadFile(remotePath, uri) { _, _ -> }.map { remotePath }
+    }
+
     suspend fun readRemoteText(path: String): Result<RemoteText> =
         withContext(Dispatchers.IO) {
             try {

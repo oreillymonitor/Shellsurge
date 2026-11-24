@@ -79,6 +79,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.KeyBarLayoutEntity
 import io.github.lordofpolls.shellwave.core.db.entities.ScriptEntity
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
+import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SessionLayoutPreferences
 import io.github.lordofpolls.shellwave.core.prefs.TerminalInputPreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
@@ -170,6 +171,7 @@ fun SessionsScreen(
     terminalProfileDao: TerminalProfileDao,
     keyBarLayoutDao: KeyBarLayoutDao,
     modifier: Modifier = Modifier,
+    onEditRemoteFile: ((sessionId: Long, path: String) -> Unit)? = null,
 ) {
     val summaries by sessionManager.summaries.collectAsState()
     if (summaries.isEmpty()) {
@@ -249,6 +251,7 @@ fun SessionsScreen(
         var promptComposerOpen by remember(current?.id) { mutableStateOf(false) }
         var composerInitialText by remember(current?.id) { mutableStateOf("") }
         var quickResponseOpen by remember(current?.id) { mutableStateOf(false) }
+        var gitDiffOpen by remember(current?.id) { mutableStateOf(false) }
 
         // A capture script pinned to another host is left out: "run it here" and "run it on that
         // other machine" are opposite instructions, and honouring the script's own target would run
@@ -269,6 +272,7 @@ fun SessionsScreen(
                         name = sessionDisplayName(summary.hostId, summary.label, hosts),
                         status = summary.status,
                         agentForwarding = summary.agentForwarding,
+                        turnState = summary.turnState,
                     )
                 },
             selectedId = selectedId,
@@ -314,6 +318,9 @@ fun SessionsScreen(
                     isLogging = isLogging,
                     onStartLogging = loggingController::requestStart,
                     onStopLogging = { current?.connection?.stopLogging() },
+                    onOpenGitDiff = if (current?.status == SessionStatus.CONNECTED) ({
+                        gitDiffOpen = true
+                    }) else null,
                 )
             },
         )
@@ -369,13 +376,44 @@ fun SessionsScreen(
                     composerInitialText = initialText
                     promptComposerOpen = true
                 },
+                onOpenGitDiff = if (current.status == SessionStatus.CONNECTED) ({
+                    quickResponseOpen = false
+                    gitDiffOpen = true
+                }) else null,
                 onDismiss = { quickResponseOpen = false },
+            )
+        }
+
+        if (gitDiffOpen && current != null) {
+            val promptDirHint = current.connection.emulatorOrNull?.let { emulator ->
+                extractPromptWorkingDir(TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 10))
+            }
+            GitDiffSheet(
+                connection = current.connection,
+                promptDirHint = promptDirHint,
+                onAskAgent = { reviewPrompt ->
+                    gitDiffOpen = false
+                    composerInitialText = reviewPrompt
+                    promptComposerOpen = true
+                },
+                onDismiss = { gitDiffOpen = false },
+                onEditFile = onEditRemoteFile?.let { editCb ->
+                    { remotePath ->
+                        gitDiffOpen = false
+                        editCb(current.id, remotePath)
+                    }
+                },
             )
         }
 
         if (promptComposerOpen && current != null) {
             PromptComposerDialog(
                 initialText = composerInitialText,
+                onUploadImage = if (current.status == SessionStatus.CONNECTED) {
+                    { uri -> current.connection.uploadImageAttachment(uri) }
+                } else {
+                    null
+                },
                 onSend = { prompt, enter ->
                     val conn = current.connection
                     val emulator = conn.emulatorOrNull
@@ -413,6 +451,7 @@ fun SessionsScreen(
             keyBarLayoutDao = keyBarLayoutDao,
             fileTransferController = fileTransferController,
             searchController = searchController,
+            onEditRemoteFile = onEditRemoteFile,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxSize(),
@@ -450,6 +489,7 @@ internal fun SessionTabBody(
     showLayoutToggle: Boolean = false,
     fullWidthTerminal: Boolean = false,
     onToggleFullWidth: () -> Unit = {},
+    onEditRemoteFile: ((sessionId: Long, path: String) -> Unit)? = null,
 ) {
     val summaries by sessionManager.summaries.collectAsState()
     val summary = summaries.firstOrNull { it.id == sessionId } ?: return
@@ -500,6 +540,8 @@ internal fun SessionTabBody(
     var dismissedPromptSignature by remember(sessionId) { mutableStateOf<String?>(null) }
     var tabPromptComposerOpen by remember { mutableStateOf(false) }
     var tabComposerInitialText by remember { mutableStateOf("") }
+    var tabGitDiffOpen by remember(sessionId) { mutableStateOf(false) }
+    val autoDigestOnReturn by rememberPrefState { NotificationPreferences.isAutoDigestOnReturn(it) }
 
     var terminalEmulator by remember { mutableStateOf<TerminalEmulator?>(null) }
 
@@ -674,20 +716,39 @@ internal fun SessionTabBody(
         }
     }
 
-    // Ambient AI question prompt detection (e.g. [y/N], (y/n))
+    // Auto-digest when returning to a tab whose command/agent finished while away.
+    LaunchedEffect(sessionId, summary.turnState, autoDigestOnReturn, terminalEmulator) {
+        if (autoDigestOnReturn &&
+            summary.status == SessionStatus.CONNECTED &&
+            terminalEmulator != null &&
+            activeDigest == null &&
+            !isAnalyzingDigest &&
+            sessionManager.consumePendingAutoDigest(sessionId)
+        ) {
+            triggerDigest(speakImmediately = false)
+        }
+    }
+
+    // Ambient AI question & numbered menu prompt detection (e.g. [y/N], (y/n), or 1./2./3. menus)
     LaunchedEffect(summary.connection) {
         summary.connection.outputTick.sample(1000).collect {
             val emulator = terminalEmulator ?: return@collect
             val screen = emulator.screen ?: return@collect
             if (activeDigest != null) return@collect
             val lastRow = emulator.mRows - 1
-            val startRow = (lastRow - 2).coerceAtLeast(0)
+            val startRow = (lastRow - 11).coerceAtLeast(0)
             val recentText = runCatching {
                 screen.getSelectedText(0, startRow, emulator.mColumns, lastRow, true, true)
             }.getOrNull() ?: ""
+            val numberedActions = AgentDigestModel.extractNumberedOptions(recentText)
+            val yesNoTail = recentText.lines().takeLast(3).joinToString("\n")
             val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
-            if (yesNoRegex.containsMatchIn(recentText)) {
-                val signature = recentText.trim()
+            val signature = when {
+                numberedActions.size >= 2 -> "menu:" + numberedActions.joinToString("|") { it.label }
+                yesNoRegex.containsMatchIn(yesNoTail) -> yesNoTail.trim()
+                else -> null
+            }
+            if (signature != null) {
                 if (signature != dismissedPromptSignature) {
                     val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 60)
                     val result = AgentDigestModel.analyzeTerminalTail(tail)
@@ -1062,6 +1123,17 @@ internal fun SessionTabBody(
                     onShare = ::shareSelection,
                 )
                 detectedLink?.let { link ->
+                    val resolvePathForLink: suspend () -> String = {
+                        if (link.text.startsWith("/")) {
+                            link.text
+                        } else {
+                            val hint = terminalEmulator?.let { emu ->
+                                extractPromptWorkingDir(TerminalTextSanitizer.extractCleanTail(emu, maxLines = 10))
+                            }
+                            val base = resolveWorkingDirOnHost(summary.connection, hint).trimEnd('/')
+                            if (base.isBlank() || base == ".") link.text else "$base/${link.text}"
+                        }
+                    }
                     LinkActionDialog(
                         link = link,
                         onOpen = { openLink(link); detectedLink = null },
@@ -1069,14 +1141,29 @@ internal fun SessionTabBody(
                             summary.connection.onCopyTextToClipboard(link.text); detectedLink = null
                         },
                         // The path is known from the tap, so this skips straight to the SAF destination
-                        // picker.
+                        // picker (resolving relative project paths against the remote shell's cwd).
                         onDownload = {
-                            fileTransferController.requestDownload(
-                                summary.connection,
-                                link.text
-                            ); detectedLink = null
+                            detectedLink = null
+                            coroutineScope.launch {
+                                val resolved = resolvePathForLink()
+                                fileTransferController.requestDownload(summary.connection, resolved)
+                            }
                         },
                         onDismiss = { detectedLink = null },
+                        onEdit = if (link.type == LinkType.PATH && onEditRemoteFile != null && summary.status == SessionStatus.CONNECTED) ({
+                            detectedLink = null
+                            coroutineScope.launch {
+                                val resolved = resolvePathForLink()
+                                onEditRemoteFile(sessionId, resolved)
+                            }
+                        }) else null,
+                        onAskAgent = if (link.type == LinkType.PATH) ({
+                            val location = link.lineNumber?.let { "${link.text}:$it" } ?: link.text
+                            val contextLine = link.sourceLine?.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()
+                            tabComposerInitialText = "Look at $location and fix this issue:$contextLine"
+                            detectedLink = null
+                            tabPromptComposerOpen = true
+                        }) else null,
                     )
                 }
             }
@@ -1297,6 +1384,10 @@ internal fun SessionTabBody(
                 isSummarizing = isAnalyzingDigest,
                 isQuickBarActive = quickDrawerActive,
                 onToggleQuickBar = { quickDrawerActive = !quickDrawerActive },
+                onOpenGitDiff = if (summary.status == SessionStatus.CONNECTED) ({
+                    tabQuickResponseOpen = false
+                    tabGitDiffOpen = true
+                }) else null,
                 onDismiss = {
                     tabQuickResponseOpen = false
                     focusRequester.requestFocus()
@@ -1304,9 +1395,39 @@ internal fun SessionTabBody(
             )
         }
 
+        if (tabGitDiffOpen && summary.status == SessionStatus.CONNECTED) {
+            val promptDirHint = terminalEmulator?.let { emu ->
+                extractPromptWorkingDir(TerminalTextSanitizer.extractCleanTail(emu, maxLines = 10))
+            }
+            GitDiffSheet(
+                connection = summary.connection,
+                promptDirHint = promptDirHint,
+                onAskAgent = { reviewPrompt ->
+                    tabGitDiffOpen = false
+                    tabComposerInitialText = reviewPrompt
+                    tabPromptComposerOpen = true
+                },
+                onDismiss = {
+                    tabGitDiffOpen = false
+                    focusRequester.requestFocus()
+                },
+                onEditFile = onEditRemoteFile?.let { editCb ->
+                    { remotePath ->
+                        tabGitDiffOpen = false
+                        editCb(sessionId, remotePath)
+                    }
+                },
+            )
+        }
+
         if (tabPromptComposerOpen) {
             PromptComposerDialog(
                 initialText = tabComposerInitialText,
+                onUploadImage = if (summary.status == SessionStatus.CONNECTED) {
+                    { uri -> summary.connection.uploadImageAttachment(uri) }
+                } else {
+                    null
+                },
                 onSend = { prompt, enter -> sendQuickText(prompt, enter) },
                 onDismiss = {
                     tabPromptComposerOpen = false
@@ -1435,12 +1556,50 @@ private fun LinkActionDialog(
     onOpen: () -> Unit,
     onCopy: () -> Unit,
     onDownload: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    onEdit: (() -> Unit)? = null,
+    onAskAgent: (() -> Unit)? = null,
 ) {
+    val displayTitle = if (link.type == LinkType.PATH && link.lineNumber != null) {
+        "${link.text}:${link.lineNumber}"
+    } else {
+        link.text
+    }
     AlertDialog(
+        modifier = modifier,
         onDismissRequest = onDismiss,
-        title = { Text(link.text) },
-        text = { Text(if (link.type == LinkType.PATH) "Path" else "Open in browser or copy?") },
+        title = { Text(displayTitle) },
+        text = {
+            if (link.type == LinkType.PATH) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = link.sourceLine?.takeIf { it.isNotBlank() } ?: "Remote path",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 3,
+                    )
+                    if (onAskAgent != null || onEdit != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (onAskAgent != null) {
+                                Button(
+                                    onClick = onAskAgent,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(34.dp),
+                                ) {
+                                    Text("Ask Agent", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                            if (onEdit != null) {
+                                TextButton(onClick = onEdit) { Text("Edit") }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("Open in browser or copy?")
+            }
+        },
         confirmButton = { TextButton(onClick = onCopy) { Text("Copy") } },
         dismissButton = {
             Row {

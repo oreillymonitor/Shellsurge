@@ -252,4 +252,48 @@ class TerminalOutputWatcherTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun `emits AgentTurnState transitions across running, response needed, completed, and cancel`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val states = mutableListOf<AgentTurnState>()
+            var currentTail = "Allow edit to MainActivity.kt? [y/N]"
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "dev",
+                isEnabled = { true },
+                idleDelayMs = { 40L },
+                readTail = { currentTail },
+                onAlert = { _, _, _ -> },
+                onStateChange = { states += it },
+            )
+
+            watcher.onUserWrite("claude fix bug\r".toByteArray())
+            watcher.onRawOutput("Allow edit to MainActivity.kt? [y/N]\r\n".toByteArray())
+            delay(100L)
+
+            assertEquals(listOf(AgentTurnState.RUNNING, AgentTurnState.RESPONSE_NEEDED), states)
+
+            watcher.onUserWrite("y".toByteArray())
+            currentTail = "Updated MainActivity.kt cleanly\nuser@dev:~$"
+            watcher.onRawOutput("Updated MainActivity.kt cleanly\r\nuser@dev:~$ ".toByteArray())
+            delay(100L)
+
+            assertEquals(
+                listOf(
+                    AgentTurnState.RUNNING,
+                    AgentTurnState.RESPONSE_NEEDED,
+                    AgentTurnState.RUNNING,
+                    AgentTurnState.COMPLETED,
+                ),
+                states,
+            )
+
+            watcher.cancel()
+            assertEquals(AgentTurnState.IDLE, states.last())
+        } finally {
+            scope.cancel()
+        }
+    }
 }

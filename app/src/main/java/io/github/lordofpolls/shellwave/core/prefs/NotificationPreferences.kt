@@ -13,6 +13,7 @@ enum class OutputIdleDelay(val seconds: Int, val label: String) {
 private const val KEY_COMMAND_NOTIFY_ENABLED = "notify_command_output"
 private const val KEY_OUTPUT_IDLE_DELAY = "notify_output_idle_delay"
 private const val KEY_NOTIFY_ACTIVE_TAB = "notify_output_active_tab"
+private const val KEY_AUTO_DIGEST_ON_RETURN = "notify_auto_digest_on_return"
 
 /**
  * Synchronous SharedPreferences backing for interactive command/output notifications so background
@@ -41,5 +42,12 @@ object NotificationPreferences {
 
     fun setNotifyOnActiveTab(context: Context, enabled: Boolean) {
         sharedPrefs(context).edit { putBoolean(KEY_NOTIFY_ACTIVE_TAB, enabled) }
+    }
+
+    fun isAutoDigestOnReturn(context: Context): Boolean =
+        sharedPrefs(context).getBoolean(KEY_AUTO_DIGEST_ON_RETURN, true)
+
+    fun setAutoDigestOnReturn(context: Context, enabled: Boolean) {
+        sharedPrefs(context).edit { putBoolean(KEY_AUTO_DIGEST_ON_RETURN, enabled) }
     }
 }

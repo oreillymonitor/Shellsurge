@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Folder
@@ -66,6 +67,7 @@ internal fun TerminalOverflowMenu(
     onStopLogging: () -> Unit,
     outputAlertsEnabled: Boolean = true,
     onToggleOutputAlerts: (() -> Unit)? = null,
+    onOpenGitDiff: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showingBell by remember { mutableStateOf(false) }
@@ -171,6 +173,21 @@ internal fun TerminalOverflowMenu(
                             onClick = {
                                 expanded = false
                                 onPromptComposer()
+                            },
+                        )
+                    }
+                    if (onOpenGitDiff != null) {
+                        DropdownMenuItem(
+                            text = { Text("Git diff & status…") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.Code,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onOpenGitDiff()
                             },
                         )
                     }

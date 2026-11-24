@@ -7,9 +7,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -25,6 +29,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.lordofpolls.shellwave.ssh.AgentTurnState
 import io.github.lordofpolls.shellwave.ssh.SessionStatus
 import java.util.Locale
 
@@ -34,6 +39,7 @@ data class SessionChipModel(
     val name: String,
     val status: SessionStatus,
     val agentForwarding: Boolean = false,
+    val turnState: AgentTurnState = AgentTurnState.IDLE,
 )
 
 /**
@@ -102,6 +108,21 @@ private fun SessionChip(
     modifier: Modifier = Modifier
 ) {
     val word = statusWord(session.status)
+    val turnLabel = if (session.status == SessionStatus.CONNECTED) {
+        when (session.turnState) {
+            AgentTurnState.IDLE -> null
+            AgentTurnState.RUNNING -> "running"
+            AgentTurnState.COMPLETED -> if (!isSelected) "completed" else null
+            AgentTurnState.RESPONSE_NEEDED -> "response needed"
+        }
+    } else {
+        null
+    }
+    val semanticsState = buildList {
+        add(word)
+        if (session.agentForwarding) add("agent forwarded")
+        if (turnLabel != null) add(turnLabel)
+    }.joinToString(", ")
     Surface(
         modifier =
             modifier
@@ -117,7 +138,7 @@ private fun SessionChip(
                     selected = isSelected
                     // Colour is invisible to TalkBack, so without this the chip announces a
                     // session's name and selection state but never its condition.
-                    stateDescription = if (session.agentForwarding) "$word, agent forwarded" else word
+                    stateDescription = semanticsState
                 },
         shape = MaterialTheme.shapes.small,
         color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -135,6 +156,36 @@ private fun SessionChip(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (session.status == SessionStatus.CONNECTED) {
+                when (session.turnState) {
+                    AgentTurnState.RUNNING -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(10.dp),
+                            strokeWidth = 1.5.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    AgentTurnState.RESPONSE_NEEDED -> {
+                        Icon(
+                            imageVector = Icons.Outlined.HelpOutline,
+                            contentDescription = null,
+                            tint = StatusColors.warn(),
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                    AgentTurnState.COMPLETED -> {
+                        if (!isSelected) {
+                            Icon(
+                                imageVector = Icons.Outlined.CheckCircle,
+                                contentDescription = null,
+                                tint = StatusColors.ok(),
+                                modifier = Modifier.size(13.dp),
+                            )
+                        }
+                    }
+                    AgentTurnState.IDLE -> Unit
+                }
+            }
             // Silent here: the chip's stateDescription already says it, and the merged label would repeat it.
             if (session.agentForwarding) AgentMarker(Modifier.clearAndSetSemantics {})
         }

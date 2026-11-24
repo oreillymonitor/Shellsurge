@@ -961,6 +961,11 @@ class MainActivity : FragmentActivity() {
                                             terminalProfileDao = terminalProfileDao,
                                             keyBarLayoutDao = keyBarLayoutDao,
                                             modifier = Modifier.weight(1f),
+                                            onEditRemoteFile = { sessionId, remotePath ->
+                                                browsingSessionId = sessionId
+                                                editingRemotePath = remotePath
+                                                push("remoteEdit")
+                                            },
                                         )
                                     }
 

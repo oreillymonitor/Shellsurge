@@ -139,6 +139,7 @@ fun SettingsScreen(
     val commandNotifyEnabled by rememberPrefState { NotificationPreferences.isCommandNotifyEnabled(it) }
     val outputIdleDelay by rememberPrefState { NotificationPreferences.getIdleDelay(it) }
     val notifyOnActiveTab by rememberPrefState { NotificationPreferences.isNotifyOnActiveTab(it) }
+    val autoDigestOnReturn by rememberPrefState { NotificationPreferences.isAutoDigestOnReturn(it) }
     val bellMode by rememberPrefState { BellPreferences.get(it) }
     val enabledAgents by rememberPrefState { AgentCliPreferences.getEnabledAgents(it) }
     var systemNotificationsEnabled by remember {
@@ -305,6 +306,15 @@ fun SettingsScreen(
                         }
                     }
                 }
+
+                SettingsCardDivider()
+
+                SettingsSwitch(
+                    title = "Auto-summarize completed tabs",
+                    description = "Show an on-device Gemini Nano digest capsule automatically when returning to a tab that finished while you were away.",
+                    checked = autoDigestOnReturn,
+                    onCheckedChange = { NotificationPreferences.setAutoDigestOnReturn(context, it) },
+                )
 
                 SettingsCardDivider()
 

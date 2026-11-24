@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.14.4 - 2026-11-24
+
+### Fixed
+- **Embedded Tailscale MagicDNS & short hostnames**: bypass Android's system DNS in `sshj` (`ShellwaveSshClient`) when dialing via `TailscaleSocketFactory` so MagicDNS FQDNs and short hostnames go unresolved straight to `tsnet`; auto-route matching known Tailnet peer names when connected and honor Auto-start for `*.ts.net` addresses; add peer-directory IP fallback in the Go bridge when a tailnet has MagicDNS disabled
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.3...1.14.4)
+
 ## 1.14.3 - 2026-11-24
 
 ### Fixed

@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.14.2 - 2026-11-24
+
+### Improved
+- **Embedded Tailscale crash diagnostics & JNI safety**: capture Android `ApplicationExitInfo` native crash reports, uncaught JVM exceptions, Go panic recovery traces, and granular startup stage breadcrumbs (`go.Seq.setContext` + `tsnet` startup stages), with a **Previous crash log** card (**Copy crash log** / **Dismiss**) right inside **Settings → Tailscale (Embedded)**
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.1...1.14.2)
+
 ## 1.14.1 - 2026-11-24
 
 ### Fixed

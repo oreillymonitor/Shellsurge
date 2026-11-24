@@ -27,6 +27,7 @@ type nodeStatusSnapshot struct {
 	MagicDNSSuffix string `json:"magicDnsSuffix"`
 	ProxyPort      int32  `json:"proxyPort"`
 	LastError      string `json:"lastError"`
+	Detail         string `json:"detail"`
 }
 
 type peerSnapshot struct {
@@ -57,6 +58,7 @@ type Node struct {
 	tailnetName    string
 	magicDNSSuffix string
 	lastError      string
+	detail         string
 	loginStarted   bool
 }
 
@@ -106,7 +108,7 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) error {
 		Hostname:   cleanHost,
 		AuthKey:    cleanAuthKey,
 		ControlURL: cleanControlURL,
-		Logf:       func(string, ...any) {},
+		Logf:       n.handleTsnetLog,
 	}
 	if err := srv.Start(); err != nil {
 		_ = srv.Close()
@@ -144,6 +146,7 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) error {
 	n.tailnetName = ""
 	n.magicDNSSuffix = ""
 	n.lastError = ""
+	n.detail = ""
 	n.loginStarted = false
 	n.mu.Unlock()
 
@@ -157,7 +160,31 @@ func (n *Node) setError(msg string) {
 	n.mu.Unlock()
 }
 
+func (n *Node) handleTsnetLog(format string, args ...any) {
+	msg := strings.TrimSpace(fmt.Sprintf(format, args...))
+	if msg == "" {
+		return
+	}
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "error") ||
+		strings.Contains(lower, "failed") ||
+		strings.Contains(lower, "denied") ||
+		strings.Contains(lower, "warning") ||
+		strings.Contains(lower, "timeout") {
+		n.mu.Lock()
+		if n.authURL == "" && n.state != "Running" {
+			if len(msg) > 220 {
+				msg = msg[:220] + "…"
+			}
+			n.detail = msg
+		}
+		n.mu.Unlock()
+	}
+}
+
 func (n *Node) watchBus(ctx context.Context, lc *local.Client, hasAuthKey bool) {
+	go n.pollAuthStatus(ctx, lc, hasAuthKey)
+
 	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialNetMap)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -166,6 +193,8 @@ func (n *Node) watchBus(ctx context.Context, lc *local.Client, hasAuthKey bool) 
 		return
 	}
 	defer watcher.Close()
+
+	go n.syncStatusFromLocalClient(ctx, lc, hasAuthKey)
 
 	for {
 		note, err := watcher.Next()
@@ -184,6 +213,7 @@ func (n *Node) watchBus(ctx context.Context, lc *local.Client, hasAuthKey bool) 
 			if *note.State == ipn.Running {
 				n.authURL = ""
 				n.lastError = ""
+				n.detail = ""
 				refreshStatus = true
 			} else if *note.State == ipn.NeedsLogin && !hasAuthKey && n.authURL == "" && !n.loginStarted {
 				n.loginStarted = true
@@ -192,6 +222,7 @@ func (n *Node) watchBus(ctx context.Context, lc *local.Client, hasAuthKey bool) 
 		}
 		if note.BrowseToURL != nil && *note.BrowseToURL != "" {
 			n.authURL = *note.BrowseToURL
+			n.detail = ""
 		}
 		if note.NetMap != nil {
 			if note.NetMap.SelfNode.Valid() {
@@ -226,26 +257,65 @@ func (n *Node) watchBus(ctx context.Context, lc *local.Client, hasAuthKey bool) 
 			go func() {
 				lCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 				defer cancel()
-				_ = lc.StartLoginInteractive(lCtx)
+				if err := lc.StartLoginInteractive(lCtx); err != nil && ctx.Err() == nil {
+					n.mu.Lock()
+					if n.lastError == "" {
+						n.detail = "StartLoginInteractive: " + err.Error()
+					}
+					n.mu.Unlock()
+				}
 			}()
 		}
 		if refreshStatus {
-			go n.refreshSelfStatus(ctx, lc)
+			go n.syncStatusFromLocalClient(ctx, lc, hasAuthKey)
 		}
 	}
 }
 
-func (n *Node) refreshSelfStatus(ctx context.Context, lc *local.Client) {
+func (n *Node) pollAuthStatus(ctx context.Context, lc *local.Client, hasAuthKey bool) {
+	ticker := time.NewTicker(1200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n.mu.Lock()
+			done := n.state == "Running" || (n.authURL != "" && n.state == "NeedsLogin")
+			n.mu.Unlock()
+			if done {
+				return
+			}
+			n.syncStatusFromLocalClient(ctx, lc, hasAuthKey)
+		}
+	}
+}
+
+func (n *Node) syncStatusFromLocalClient(ctx context.Context, lc *local.Client, hasAuthKey bool) {
 	sCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	st, err := lc.StatusWithoutPeers(sCtx)
 	if err != nil || st == nil {
 		return
 	}
+
+	var triggerInteractive bool
+
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	if st.BackendState != "" {
 		n.state = st.BackendState
+	}
+	if st.AuthURL != "" {
+		n.authURL = st.AuthURL
+		n.detail = ""
+	} else if st.BackendState == "Running" {
+		n.authURL = ""
+		n.lastError = ""
+		n.detail = ""
+	}
+	if st.BackendState == "NeedsLogin" && !hasAuthKey && n.authURL == "" && !n.loginStarted {
+		n.loginStarted = true
+		triggerInteractive = true
 	}
 	if len(st.TailscaleIPs) > 0 {
 		for _, ip := range st.TailscaleIPs {
@@ -269,6 +339,27 @@ func (n *Node) refreshSelfStatus(ctx context.Context, lc *local.Client) {
 	if st.Self != nil && st.Self.HostName != "" {
 		n.selfHostname = st.Self.HostName
 	}
+	if n.authURL == "" && st.BackendState != "Running" && len(st.Health) > 0 {
+		for _, h := range st.Health {
+			if strings.TrimSpace(h) != "" {
+				n.detail = strings.TrimSpace(h)
+				break
+			}
+		}
+	}
+	n.mu.Unlock()
+
+	if triggerInteractive {
+		lCtx, lCancel := context.WithTimeout(ctx, 15*time.Second)
+		defer lCancel()
+		if err := lc.StartLoginInteractive(lCtx); err != nil && ctx.Err() == nil {
+			n.mu.Lock()
+			if n.lastError == "" {
+				n.detail = "StartLoginInteractive: " + err.Error()
+			}
+			n.mu.Unlock()
+		}
+	}
 }
 
 func (n *Node) Stop() error {
@@ -287,6 +378,7 @@ func (n *Node) Stop() error {
 	n.selfIP = ""
 	n.tailnetName = ""
 	n.magicDNSSuffix = ""
+	n.detail = ""
 	n.loginStarted = false
 	n.mu.Unlock()
 
@@ -318,6 +410,11 @@ func (n *Node) Logout() error {
 		cancel()
 	}
 	return n.Stop()
+}
+
+func (n *Node) UpdateNetwork(defaultIface, gatewayIP, interfacesJSON string) {
+	UpdateAndroidNetwork(defaultIface, gatewayIP, interfacesJSON)
+	n.NotifyNetworkChanged()
 }
 
 func (n *Node) NotifyNetworkChanged() {
@@ -367,6 +464,7 @@ func (n *Node) StatusJSON() string {
 		MagicDNSSuffix: n.magicDNSSuffix,
 		ProxyPort:      0,
 		LastError:      n.lastError,
+		Detail:         n.detail,
 	}
 	if n.proxy != nil {
 		snap.ProxyPort = n.proxy.Port()

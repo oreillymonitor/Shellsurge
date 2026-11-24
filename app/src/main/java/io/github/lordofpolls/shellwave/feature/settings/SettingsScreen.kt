@@ -1,6 +1,9 @@
 package io.github.lordofpolls.shellwave.feature.settings
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -41,6 +44,7 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SmartToy
@@ -49,6 +53,7 @@ import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -989,6 +994,30 @@ private fun SupporterRow(state: SupporterState, onBecomeSupporter: (String) -> U
     }
 }
 
+private fun openBrowserUrl(
+    context: Context,
+    url: String,
+    uriHandler: UriHandler,
+): Result<Unit> = runCatching {
+    val parsed = Uri.parse(url)
+    val browsable = Intent(Intent.ACTION_VIEW, parsed).apply {
+        addCategory(Intent.CATEGORY_BROWSABLE)
+        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(browsable)
+    } catch (_: ActivityNotFoundException) {
+        val plain = Intent(Intent.ACTION_VIEW, parsed).apply {
+            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(plain)
+        } catch (_: Throwable) {
+            uriHandler.openUri(url)
+        }
+    }
+}
+
 @Composable
 private fun TailscaleSettingsCard(
     tailscaleManager: TailscaleManager,
@@ -997,6 +1026,7 @@ private fun TailscaleSettingsCard(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val status by tailscaleManager.status.collectAsState()
     val tsEnabled by rememberPrefState { TailscalePreferences.isEnabled(it) }
@@ -1008,6 +1038,26 @@ private fun TailscaleSettingsCard(
     var hostnameInput by remember(savedHostname) { mutableStateOf(savedHostname) }
     var controlUrlInput by remember(savedControlUrl) { mutableStateOf(savedControlUrl) }
     var authKeyInput by rememberSaveable { mutableStateOf("") }
+    var pendingBrowserSignIn by rememberSaveable { mutableStateOf(false) }
+    var lastAutoOpenedUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var browserLaunchError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(status.authUrl, status.state, pendingBrowserSignIn) {
+        if (status.isRunning || !status.isActive) {
+            pendingBrowserSignIn = false
+            browserLaunchError = null
+            return@LaunchedEffect
+        }
+        val url = status.authUrl
+        if (pendingBrowserSignIn && !url.isNullOrBlank() && url != lastAutoOpenedUrl) {
+            lastAutoOpenedUrl = url
+            pendingBrowserSignIn = false
+            openBrowserUrl(context, url, uriHandler).onFailure { err ->
+                browserLaunchError =
+                    "Could not open browser (${err.message ?: "no browser app found"}). Use Copy link below."
+            }
+        }
+    }
 
     val (badgeText, badgeColor) = when {
         status.isRunning -> "Connected" to Color(0xFF2E7D32)
@@ -1050,6 +1100,31 @@ private fun TailscaleSettingsCard(
                         )
                     }
                 }
+                if (status.isActive && !status.isRunning && status.authUrl == null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            text = "Waiting for Tailscale sign-in link…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (!status.isRunning) {
+                    status.detail?.let { info ->
+                        Text(
+                            text = info,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 if (status.isRunning) {
                     val info = listOfNotNull(
                         status.selfIp,
@@ -1067,6 +1142,78 @@ private fun TailscaleSettingsCard(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+                browserLaunchError?.let { err ->
+                    Text(
+                        text = err,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+
+        status.authUrl?.let { url ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Complete Tailscale sign-in in your browser:",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    MachineText(url)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                browserLaunchError = null
+                                openBrowserUrl(context, url, uriHandler).onFailure { err ->
+                                    val msg =
+                                        "Could not open browser (${err.message ?: "no browser app found"}). Use Copy link."
+                                    browserLaunchError = msg
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                }
+                            },
+                        ) {
+                            Icon(
+                                Icons.Outlined.OpenInBrowser,
+                                contentDescription = null,
+                                modifier = Modifier.size(ButtonDefaults.IconSize),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Open browser")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    clipboard.setClipEntry(
+                                        ClipEntry(
+                                            ClipData.newPlainText(
+                                                "Tailscale sign-in link",
+                                                url,
+                                            ),
+                                        ),
+                                    )
+                                }
+                                Toast.makeText(context, "Sign-in link copied", Toast.LENGTH_SHORT).show()
+                            },
+                        ) {
+                            Icon(
+                                Icons.Outlined.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(ButtonDefaults.IconSize),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy link")
+                        }
+                    }
+                }
             }
         }
 
@@ -1076,8 +1223,17 @@ private fun TailscaleSettingsCard(
             checked = tsEnabled || status.isActive,
             onCheckedChange = { checked ->
                 TailscalePreferences.setEnabled(context, checked)
+                if (checked) {
+                    pendingBrowserSignIn = authKeyInput.isBlank()
+                    lastAutoOpenedUrl = null
+                    browserLaunchError = null
+                } else {
+                    pendingBrowserSignIn = false
+                    lastAutoOpenedUrl = null
+                    browserLaunchError = null
+                }
                 scope.launch {
-                    if (checked) tailscaleManager.start() else tailscaleManager.stop()
+                    if (checked) tailscaleManager.start(authKeyInput) else tailscaleManager.stop()
                 }
             },
         )
@@ -1095,7 +1251,12 @@ private fun TailscaleSettingsCard(
         ) {
             if (!status.isActive) {
                 Button(
-                    onClick = { scope.launch { tailscaleManager.start(authKeyInput) } },
+                    onClick = {
+                        pendingBrowserSignIn = authKeyInput.isBlank()
+                        lastAutoOpenedUrl = null
+                        browserLaunchError = null
+                        scope.launch { tailscaleManager.start(authKeyInput) }
+                    },
                 ) {
                     Text("Connect")
                 }
@@ -1103,16 +1264,13 @@ private fun TailscaleSettingsCard(
                 OutlinedButton(
                     onClick = {
                         TailscalePreferences.setEnabled(context, false)
+                        pendingBrowserSignIn = false
+                        lastAutoOpenedUrl = null
+                        browserLaunchError = null
                         scope.launch { tailscaleManager.stop() }
                     },
                 ) {
                     Text("Disconnect")
-                }
-            }
-
-            status.authUrl?.let { url ->
-                Button(onClick = { runCatching { uriHandler.openUri(url) } }) {
-                    Text("Sign in")
                 }
             }
 
@@ -1132,7 +1290,12 @@ private fun TailscaleSettingsCard(
             }
             if (status.isActive) {
                 TextButton(
-                    onClick = { scope.launch { tailscaleManager.logout() } },
+                    onClick = {
+                        pendingBrowserSignIn = false
+                        lastAutoOpenedUrl = null
+                        browserLaunchError = null
+                        scope.launch { tailscaleManager.logout() }
+                    },
                 ) {
                     Text("Log out", color = MaterialTheme.colorScheme.error)
                 }

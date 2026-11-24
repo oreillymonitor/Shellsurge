@@ -20,6 +20,8 @@ private class FakeTailscaleNodeClient(
 ) : TailscaleNodeClient {
     var startedDir: String? = null
     var networkChangedCount = 0
+    var updateNetworkCount = 0
+    var lastDefaultIface: String? = null
 
     override fun start(stateDir: String, hostname: String, authKey: String, controlUrl: String) {
         startedDir = stateDir
@@ -29,6 +31,11 @@ private class FakeTailscaleNodeClient(
     override fun logout() {}
     override fun notifyNetworkChanged() {
         networkChangedCount++
+    }
+
+    override fun updateNetwork(defaultIface: String, gatewayIp: String, interfacesJson: String) {
+        updateNetworkCount++
+        lastDefaultIface = defaultIface
     }
 
     override fun proxyPort(): Int = portValue
@@ -65,6 +72,26 @@ class TailscaleManagerTest {
         val status = parseTailscaleStatusJson(
             """
             {
+              "state": "NeedsLogin",
+              "authUrl": "https://login.tailscale.com/a/test123",
+              "selfHostname": "shellsurge",
+              "selfIp": "",
+              "tailnetName": "",
+              "magicDnsSuffix": "",
+              "proxyPort": 41234,
+              "lastError": "",
+              "detail": "waiting for login"
+            }
+            """.trimIndent(),
+        )
+        assertTrue(status.needsLogin)
+        assertEquals("https://login.tailscale.com/a/test123", status.authUrl)
+        assertEquals("waiting for login", status.detail)
+        assertEquals(41234, status.proxyPort)
+
+        val running = parseTailscaleStatusJson(
+            """
+            {
               "state": "Running",
               "authUrl": "",
               "selfHostname": "shellsurge",
@@ -76,10 +103,10 @@ class TailscaleManagerTest {
             }
             """.trimIndent(),
         )
-        assertTrue(status.isRunning)
-        assertEquals("100.101.102.103", status.selfIp)
-        assertEquals("example.github", status.tailnetName)
-        assertEquals(41234, status.proxyPort)
+        assertTrue(running.isRunning)
+        assertEquals("100.101.102.103", running.selfIp)
+        assertEquals("example.github", running.tailnetName)
+        assertEquals(41234, running.proxyPort)
 
         val peers = parseTailscalePeersJson(
             """
@@ -115,8 +142,10 @@ class TailscaleManagerTest {
         val ok = mgr.ensureRunning(timeoutMs = 1_000L)
         assertTrue(ok.isSuccess)
         assertNotNull(ok.getOrNull())
+        assertTrue(fakeNode.updateNetworkCount >= 1)
         mgr.notifyNetworkChanged()
         assertEquals(1, fakeNode.networkChangedCount)
+        assertTrue(fakeNode.updateNetworkCount >= 2)
         mgr.stop()
 
         val loginMgr = TailscaleManager(TestTailscaleContext(dir))

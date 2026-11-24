@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"tailscale.com/net/netmon"
 )
 
 func TestSocks5IPv4ConnectAndEcho(t *testing.T) {
@@ -257,5 +259,44 @@ func TestGetIfAddrsReturnsLoopback(t *testing.T) {
 	}
 	if !foundLoopback {
 		t.Fatal("expected loopback interface with 127.0.0.1 address")
+	}
+}
+
+func TestParseAndroidInterfacesJSONAndOverride(t *testing.T) {
+	defer UpdateAndroidNetwork("", "", "[]")
+
+	payload := `[
+	  {"name":"lo","index":1,"mtu":65536,"up":true,"loopback":true,"addrs":["127.0.0.1/8","::1/128"]},
+	  {"name":"wlan0","index":24,"mtu":1500,"up":true,"broadcast":true,"multicast":true,"addrs":["192.168.1.42/24"]}
+	]`
+	UpdateAndroidNetwork("", "192.168.1.1", payload)
+
+	ifs, err := listInterfaces()
+	if err != nil {
+		t.Fatalf("listInterfaces failed: %v", err)
+	}
+	if len(ifs) != 2 {
+		t.Fatalf("expected 2 overridden interfaces, got %d", len(ifs))
+	}
+	var wlan *netmon.Interface
+	for i := range ifs {
+		if ifs[i].Name == "wlan0" {
+			wlan = &ifs[i]
+			break
+		}
+	}
+	if wlan == nil || !wlan.IsUp() {
+		t.Fatalf("expected wlan0 to be present and Up, got %+v", wlan)
+	}
+	addrs, err := wlan.Addrs()
+	if err != nil || len(addrs) != 1 || addrs[0].String() != "192.168.1.42/24" {
+		t.Fatalf("unexpected wlan0 addrs: %v err=%v", addrs, err)
+	}
+
+	androidNetMu.RLock()
+	defIf := androidDefaultIface
+	androidNetMu.RUnlock()
+	if defIf != "wlan0" {
+		t.Fatalf("expected inferred default interface wlan0, got %q", defIf)
 	}
 }

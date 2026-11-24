@@ -1,6 +1,7 @@
 package io.github.lordofpolls.shellwave.core.net
 
 import android.content.Context
+import android.net.ConnectivityManager
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -22,12 +23,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.lang.reflect.InvocationTargetException
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import javax.inject.Inject
 import javax.inject.Singleton
 import javax.net.SocketFactory
 
 private const val TAG = "TailscaleManager"
-private const val STATUS_POLL_INTERVAL_MS = 1_200L
+private const val STATUS_POLL_CONNECTING_MS = 400L
+private const val STATUS_POLL_INTERVAL_MS = 1_500L
 
 data class TailscaleStatus(
     val state: String = "Stopped",
@@ -38,6 +42,7 @@ data class TailscaleStatus(
     val magicDnsSuffix: String? = null,
     val proxyPort: Int = 0,
     val lastError: String? = null,
+    val detail: String? = null,
     val libraryAvailable: Boolean = true,
 ) {
     val isRunning: Boolean
@@ -72,6 +77,7 @@ internal interface TailscaleNodeClient {
     fun stop()
     fun logout()
     fun notifyNetworkChanged()
+    fun updateNetwork(defaultIface: String, gatewayIp: String, interfacesJson: String) {}
     fun proxyPort(): Int
     fun proxyUsername(): String
     fun proxyPassword(): String
@@ -106,6 +112,18 @@ internal class GomobileTailscaleNodeClient private constructor(
 
     override fun notifyNetworkChanged() {
         runCatching { invokeUnwrapped("notifyNetworkChanged", emptyArray()) }
+    }
+
+    override fun updateNetwork(defaultIface: String, gatewayIp: String, interfacesJson: String) {
+        runCatching {
+            invokeUnwrapped(
+                "updateNetwork",
+                arrayOf(String::class.java, String::class.java, String::class.java),
+                defaultIface,
+                gatewayIp,
+                interfacesJson,
+            )
+        }
     }
 
     override fun proxyPort(): Int =
@@ -172,6 +190,7 @@ internal fun parseTailscaleStatusJson(raw: String): TailscaleStatus {
             magicDnsSuffix = obj.optString("magicDnsSuffix", "").trim().takeIf { it.isNotEmpty() },
             proxyPort = obj.optInt("proxyPort", 0),
             lastError = obj.optString("lastError", "").trim().takeIf { it.isNotEmpty() },
+            detail = obj.optString("detail", "").trim().takeIf { it.isNotEmpty() },
             libraryAvailable = true,
         )
     }.getOrElse {
@@ -252,7 +271,13 @@ constructor(
 
             return@withContext runCatching {
                 TailscalePreferences.setEnabled(context, true)
-                _status.value = _status.value.copy(state = "Starting", lastError = null, libraryAvailable = true)
+                _status.value = _status.value.copy(
+                    state = "Starting",
+                    lastError = null,
+                    detail = null,
+                    libraryAvailable = true,
+                )
+                pushNetworkSnapshot(node)
                 val hostname = TailscalePreferences.getHostname(context)
                 val controlUrl = TailscalePreferences.getControlUrl(context)
                 node.start(stateDir().absolutePath, hostname, authKey.trim(), controlUrl)
@@ -344,7 +369,16 @@ constructor(
     }
 
     open fun notifyNetworkChanged() {
-        activeNode?.notifyNetworkChanged()
+        val node = activeNode ?: return
+        pushNetworkSnapshot(node)
+        node.notifyNetworkChanged()
+    }
+
+    private fun pushNetworkSnapshot(node: TailscaleNodeClient) {
+        val snap = collectAndroidNetworkSnapshot(context)
+        runCatching {
+            node.updateNetwork(snap.defaultIface, snap.gatewayIp, snap.interfacesJson)
+        }
     }
 
     private fun startPolling(node: TailscaleNodeClient) {
@@ -356,7 +390,7 @@ constructor(
                     lastLoadedRunningPeers = true
                     refreshPeers()
                 }
-                delay(STATUS_POLL_INTERVAL_MS)
+                delay(if (snap.isRunning) STATUS_POLL_INTERVAL_MS else STATUS_POLL_CONNECTING_MS)
             }
         }
     }
@@ -367,4 +401,74 @@ constructor(
         _status.value = parsed
         return parsed
     }
+}
+
+internal data class AndroidNetworkSnapshot(
+    val defaultIface: String,
+    val gatewayIp: String,
+    val interfacesJson: String,
+)
+
+internal fun collectAndroidNetworkSnapshot(context: Context): AndroidNetworkSnapshot {
+    var defaultIface = ""
+    var gatewayIp = ""
+    runCatching {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val activeNet = cm?.activeNetwork
+        val lp = activeNet?.let { cm.getLinkProperties(it) }
+        if (lp != null) {
+            defaultIface = lp.interfaceName?.trim().orEmpty()
+            val defaultRouteGw = lp.routes
+                .firstOrNull { it.isDefaultRoute && it.gateway != null && !it.gateway!!.isAnyLocalAddress }
+                ?.gateway
+                ?: lp.routes
+                    .filter { it.isDefaultRoute && it.gateway is Inet4Address && !it.gateway!!.isAnyLocalAddress }
+                    .mapNotNull { it.gateway }
+                    .firstOrNull()
+            gatewayIp = defaultRouteGw?.hostAddress?.substringBefore('%')?.trim().orEmpty()
+        }
+    }
+
+    val ifacesJson = runCatching {
+        val arr = JSONArray()
+        val enumIfaces = NetworkInterface.getNetworkInterfaces()
+        if (enumIfaces != null) {
+            for (nif in enumIfaces) {
+                val up = runCatching { nif.isUp }.getOrDefault(false)
+                val loopback = runCatching { nif.isLoopback }.getOrDefault(false)
+                val p2p = runCatching { nif.isPointToPoint }.getOrDefault(false)
+                val multicast = runCatching { nif.supportsMulticast() }.getOrDefault(false)
+                val mtu = runCatching { nif.mtu }.getOrDefault(1500)
+                val addrsJson = JSONArray()
+                runCatching {
+                    for (ifa in nif.interfaceAddresses) {
+                        val host = ifa.address?.hostAddress?.substringBefore('%')?.trim().orEmpty()
+                        val prefix = ifa.networkPrefixLength.toInt()
+                        if (host.isNotEmpty() && prefix > 0) {
+                            addrsJson.put("$host/$prefix")
+                        }
+                    }
+                }
+                if (addrsJson.length() == 0 && !up) continue
+                val obj = JSONObject()
+                obj.put("name", nif.name ?: continue)
+                obj.put("index", nif.index)
+                obj.put("mtu", mtu)
+                obj.put("up", up)
+                obj.put("loopback", loopback)
+                obj.put("pointToPoint", p2p)
+                obj.put("broadcast", !p2p && !loopback)
+                obj.put("multicast", multicast)
+                obj.put("addrs", addrsJson)
+                arr.put(obj)
+            }
+        }
+        arr.toString()
+    }.getOrDefault("[]")
+
+    return AndroidNetworkSnapshot(
+        defaultIface = defaultIface,
+        gatewayIp = gatewayIp,
+        interfacesJson = ifacesJson,
+    )
 }

@@ -21,6 +21,19 @@
          WAKE_LOCK and RECEIVE_BOOT_COMPLETED (WorkManager, via glance-appwidget); merged in, not
          declared here. -->
 
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="http" />
+        </intent>
+    </queries>
+
     <application
         android:name=".ShellwaveApplication"
         android:allowBackup="false"

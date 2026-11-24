@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
@@ -142,6 +143,8 @@ fun HomeScreen(
     onSetHostPositions: suspend (Map<Long, Int>) -> Unit = {},
     onSetGroupPositions: suspend (Map<Long, Int>) -> Unit = {},
     onMoveToGroup: (HostEntity, groupId: Long?) -> Unit = { _, _ -> },
+    tailscaleConnected: Boolean = false,
+    onOpenTailnetPeers: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // Hoisted because a LazyColumn item leaving composition would take the user's typing with it.
@@ -182,6 +185,17 @@ fun HomeScreen(
                 // ssh-config import is a once-per-install action at most, which does not earn
                 // permanent chrome.
                 actions = {
+                    IconButton(onClick = onOpenTailnetPeers) {
+                        Icon(
+                            imageVector = Icons.Outlined.Hub,
+                            contentDescription = "Tailnet devices",
+                            tint = if (tailscaleConnected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                     IconButton(onClick = onAddHost) {
                         Icon(Icons.Outlined.Add, contentDescription = "Add host")
                     }

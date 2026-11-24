@@ -18,4 +18,6 @@ data class ConnectionSpec(
     val proxyHops: List<ProxyHop> = emptyList(),
     val startupDirectory: String? = null,
     val autoLaunchCommand: String? = null,
+    val useTailscale: Boolean = false,
+    val useTailscaleSsh: Boolean = false,
 )

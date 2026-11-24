@@ -15,9 +15,11 @@ import io.github.lordofpolls.shellwave.core.db.entities.PortForwardEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardType
 import io.github.lordofpolls.shellwave.core.net.NetworkHandoffEvent
 import io.github.lordofpolls.shellwave.core.net.NetworkHandoffMonitor
+import io.github.lordofpolls.shellwave.core.net.TailscaleManager
 import io.github.lordofpolls.shellwave.core.prefs.AppearancePreferences
 import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
+import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.core.prefs.SupportPreferences
 import io.github.lordofpolls.shellwave.service.SessionAlerts
 import io.github.lordofpolls.shellwave.service.SessionService
@@ -39,11 +41,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.SocketFactory
 
 /** Shared with `ScriptRunner`'s capture mode so a script run and an interactive session trust the same known_hosts file. */
 internal const val KNOWN_HOSTS_FILE_NAME = "known_hosts"
@@ -162,6 +166,7 @@ constructor(
     private val hostVerificationGate: HostVerificationGate,
     private val keyboardInteractiveGate: KeyboardInteractiveGate,
     private val sessionAlerts: SessionAlerts,
+    private val tailscaleManager: TailscaleManager,
 ) {
     // Not tied to any Activity/Composition lifecycle; a coroutine launched here must keep running
     // (a reconnect backoff, a reader loop) regardless of what the UI is doing.
@@ -194,7 +199,14 @@ constructor(
     private var foregroundSessionId: Long? = null
 
     @Volatile
-    internal var onNetworkChangedListener: (() -> Unit)? = null
+    internal var onNetworkChangedListener: (() -> Unit)? = { tailscaleManager.notifyNetworkChanged() }
+
+    private fun isTailscaleEntry(entry: Entry): Boolean {
+        val hostTs = entry.spec.hostId?.let { TailscalePreferences.getHostConfig(context, it) }
+        return entry.spec.useTailscale ||
+            (hostTs?.useTailscale == true) ||
+            (tailscaleManager.isRunning() && TailscalePreferences.looksLikeTailscaleHost(entry.spec.hostname))
+    }
 
     private val networkHandoffMonitor = NetworkHandoffMonitor(
         context = context,
@@ -719,12 +731,34 @@ constructor(
         // that live override lands.
         applyColorSchemeAsDefault(scheme)
         val startup = entry.spec.hostId?.let { HostStartupPreferences.get(context, it) }
+        val hostTs = entry.spec.hostId?.let { TailscalePreferences.getHostConfig(context, it) }
+        val shouldUseTailscale = entry.spec.useTailscale ||
+            (hostTs?.useTailscale == true) ||
+            (tailscaleManager.isRunning() && TailscalePreferences.looksLikeTailscaleHost(entry.spec.hostname))
+        val effectiveAuth = if (entry.spec.useTailscaleSsh ||
+            (hostTs?.useTailscale == true && hostTs.useTailscaleSsh)
+        ) {
+            AuthMethod.TailscaleSsh
+        } else {
+            entry.spec.authMethod
+        }
         try {
+            val socketFactory: SocketFactory? = if (shouldUseTailscale) {
+                if (tailscaleManager.isRunning()) {
+                    tailscaleManager.socketFactory()
+                } else if (TailscalePreferences.isAutoStartEnabled(context)) {
+                    tailscaleManager.ensureRunning().getOrThrow()
+                } else {
+                    throw IOException("Embedded Tailscale is not connected. Enable or start it in Settings → Tailscale.")
+                }
+            } else {
+                null
+            }
             entry.connection.connect(
                 entry.spec.hostname,
                 entry.spec.port,
                 entry.spec.username,
-                entry.spec.authMethod,
+                effectiveAuth,
                 knownHosts,
                 size.cols,
                 size.rows,
@@ -737,6 +771,7 @@ constructor(
                 agentKeys = entry.agentKeys,
                 startupDirectory = entry.spec.startupDirectory ?: startup?.startupDirectory,
                 autoLaunchCommand = entry.spec.autoLaunchCommand ?: startup?.resolvedLaunchCommand,
+                socketFactory = socketFactory,
             )
             if (entry.generation.get() == myGeneration) {
                 entry.status = SessionStatus.CONNECTED
@@ -835,16 +870,18 @@ constructor(
                     entry.backoffJob = managerScope.launch { reconnectImmediatelyThenBackoff(entry) }
                 }
                 SessionStatus.CONNECTED -> {
-                    entry.outputWatcher?.cancel()
-                    entry.generation.incrementAndGet()
-                    entry.connection.stopAllForwards()
-                    entry.tunnels = emptyMap()
-                    entry.connectedAtElapsedRealtime = null
-                    entry.status = SessionStatus.RECONNECTING
-                    entry.error = "Network changed - reconnecting"
-                    transitionedConnected = true
-                    entry.backoffJob?.cancel()
-                    entry.backoffJob = managerScope.launch { reconnectImmediatelyThenBackoff(entry) }
+                    if (!isTailscaleEntry(entry)) {
+                        entry.outputWatcher?.cancel()
+                        entry.generation.incrementAndGet()
+                        entry.connection.stopAllForwards()
+                        entry.tunnels = emptyMap()
+                        entry.connectedAtElapsedRealtime = null
+                        entry.status = SessionStatus.RECONNECTING
+                        entry.error = "Network changed - reconnecting"
+                        transitionedConnected = true
+                        entry.backoffJob?.cancel()
+                        entry.backoffJob = managerScope.launch { reconnectImmediatelyThenBackoff(entry) }
+                    }
                 }
                 SessionStatus.CONNECTING,
                 SessionStatus.DISCONNECTED,

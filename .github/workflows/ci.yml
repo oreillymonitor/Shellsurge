@@ -45,6 +45,40 @@ jobs:
           cmdline-tools-version: '16111833'
           packages: 'platforms;android-37.0 build-tools;36.0.0'
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: tailscale-bridge/go.sum
+
+      - name: Cache embedded Tailscale AAR
+        id: ts-aar-cache
+        uses: actions/cache@v4
+        with:
+          path: app/libs/tailscale-bridge.aar
+          key: tsbridge-v1-${{ runner.os }}-${{ hashFiles('tailscale-bridge/**') }}
+
+      - name: Run embedded Tailscale Go tests and build AAR
+        if: steps.ts-aar-cache.outputs.cache-hit != 'true'
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          NDK_PATH=$(ls -d "$SDK_ROOT"/ndk/* 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$NDK_PATH" ]; then
+            sdkmanager --install "ndk;27.2.12479018"
+            NDK_PATH="$SDK_ROOT/ndk/27.2.12479018"
+          fi
+          export ANDROID_HOME="$SDK_ROOT"
+          export ANDROID_NDK_HOME="$NDK_PATH"
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          cd tailscale-bridge
+          go test -v ./...
+          mkdir -p ../app/libs
+          gomobile bind -v -target=android/arm64,android/amd64 -androidapi 31 -javapkg=io.github.lordofpolls.shellwave.tailscale -ldflags="-s -w" -o ../app/libs/tailscale-bridge.aar .
+          test -s ../app/libs/tailscale-bridge.aar
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 

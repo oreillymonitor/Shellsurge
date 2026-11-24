@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
@@ -45,12 +47,14 @@ import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,6 +63,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,6 +81,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
@@ -86,6 +94,7 @@ import com.google.mlkit.genai.common.FeatureStatus
 import io.github.lordofpolls.shellwave.BuildConfig
 import io.github.lordofpolls.shellwave.core.billing.SupporterState
 import io.github.lordofpolls.shellwave.core.billing.SupporterTier
+import io.github.lordofpolls.shellwave.core.net.TailscaleManager
 import io.github.lordofpolls.shellwave.core.prefs.AgentCli
 import io.github.lordofpolls.shellwave.core.prefs.AgentCliPreferences
 import io.github.lordofpolls.shellwave.core.prefs.BellMode
@@ -97,6 +106,7 @@ import io.github.lordofpolls.shellwave.core.prefs.NanoReleaseChannel
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.OutputIdleDelay
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityInterval
+import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.core.prefs.ThemeMode
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.feature.session.NanoClientManager
@@ -141,6 +151,8 @@ fun SettingsScreen(
     onOpenLicenses: () -> Unit,
     supporterState: SupporterState,
     onBecomeSupporter: (String) -> Unit,
+    tailscaleManager: TailscaleManager,
+    onOpenTailnetPeers: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -520,6 +532,13 @@ fun SettingsScreen(
                     onSelect = { BellPreferences.set(context, it) },
                 )
             }
+
+            // 2c. TAILSCALE (EMBEDDED)
+            TailscaleSettingsCard(
+                tailscaleManager = tailscaleManager,
+                onOpenTailnetPeers = onOpenTailnetPeers,
+                uriHandler = uriHandler,
+            )
 
             // 3. HOSTS & SECURITY
             SettingsGroupCard(title = "Hosts & Security", icon = Icons.Outlined.Dns) {
@@ -967,6 +986,210 @@ private fun SupporterRow(state: SupporterState, onBecomeSupporter: (String) -> U
             title = "You're a supporter",
             description = "Thank you!",
         )
+    }
+}
+
+@Composable
+private fun TailscaleSettingsCard(
+    tailscaleManager: TailscaleManager,
+    onOpenTailnetPeers: () -> Unit,
+    uriHandler: UriHandler,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val status by tailscaleManager.status.collectAsState()
+    val tsEnabled by rememberPrefState { TailscalePreferences.isEnabled(it) }
+    val autoStart by rememberPrefState { TailscalePreferences.isAutoStartEnabled(it) }
+    val savedHostname by rememberPrefState { TailscalePreferences.getHostname(it) }
+    val savedControlUrl by rememberPrefState { TailscalePreferences.getControlUrl(it) }
+
+    var showAdvanced by rememberSaveable { mutableStateOf(false) }
+    var hostnameInput by remember(savedHostname) { mutableStateOf(savedHostname) }
+    var controlUrlInput by remember(savedControlUrl) { mutableStateOf(savedControlUrl) }
+    var authKeyInput by rememberSaveable { mutableStateOf("") }
+
+    val (badgeText, badgeColor) = when {
+        status.isRunning -> "Connected" to Color(0xFF2E7D32)
+        status.needsLogin -> "Sign in required" to MaterialTheme.colorScheme.primary
+        status.isActive -> status.state to MaterialTheme.colorScheme.secondary
+        else -> "Stopped" to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    SettingsGroupCard(
+        title = "Tailscale (Embedded)",
+        icon = Icons.Outlined.Hub,
+        modifier = modifier,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Runs in-app via userspace tsnet without touching Android's VPN slot.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = badgeColor.copy(alpha = 0.14f),
+                    ) {
+                        Text(
+                            text = badgeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = badgeColor,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+                if (status.isRunning) {
+                    val info = listOfNotNull(
+                        status.selfIp,
+                        status.tailnetName,
+                        status.selfHostname,
+                    ).joinToString(" • ")
+                    if (info.isNotBlank()) {
+                        MachineText(info)
+                    }
+                }
+                status.lastError?.let { err ->
+                    Text(
+                        text = err,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+
+        SettingsSwitch(
+            title = "Enable embedded Tailscale",
+            description = "Connect inside ShellSurge while keeping any other Android VPN active.",
+            checked = tsEnabled || status.isActive,
+            onCheckedChange = { checked ->
+                TailscalePreferences.setEnabled(context, checked)
+                scope.launch {
+                    if (checked) tailscaleManager.start() else tailscaleManager.stop()
+                }
+            },
+        )
+
+        SettingsSwitch(
+            title = "Auto-start on Tailscale hosts",
+            description = "Automatically starts the embedded node when connecting to a Tailscale host or *.ts.net address.",
+            checked = autoStart,
+            onCheckedChange = { TailscalePreferences.setAutoStartEnabled(context, it) },
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (!status.isActive) {
+                Button(
+                    onClick = { scope.launch { tailscaleManager.start(authKeyInput) } },
+                ) {
+                    Text("Connect")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        TailscalePreferences.setEnabled(context, false)
+                        scope.launch { tailscaleManager.stop() }
+                    },
+                ) {
+                    Text("Disconnect")
+                }
+            }
+
+            status.authUrl?.let { url ->
+                Button(onClick = { runCatching { uriHandler.openUri(url) } }) {
+                    Text("Sign in")
+                }
+            }
+
+            if (status.isRunning) {
+                FilledTonalButton(onClick = onOpenTailnetPeers) {
+                    Text("Tailnet devices")
+                }
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                Text(if (showAdvanced) "Hide advanced" else "Hostname / Auth key / Headscale")
+            }
+            if (status.isActive) {
+                TextButton(
+                    onClick = { scope.launch { tailscaleManager.logout() } },
+                ) {
+                    Text("Log out", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = showAdvanced) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = hostnameInput,
+                    onValueChange = {
+                        hostnameInput = it
+                        TailscalePreferences.setHostname(context, it)
+                    },
+                    label = { Text("Device hostname") },
+                    placeholder = { Text("shellsurge") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = controlUrlInput,
+                    onValueChange = {
+                        controlUrlInput = it
+                        TailscalePreferences.setControlUrl(context, it)
+                    },
+                    label = { Text("Custom Control URL (Headscale, optional)") },
+                    placeholder = { Text("https://headscale.example.com") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Uri,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = authKeyInput,
+                    onValueChange = { authKeyInput = it },
+                    label = { Text("Pre-auth key (optional)") },
+                    placeholder = { Text("tskey-auth-...") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                    ),
+                    supportingText = {
+                        Text("Used once when connecting instead of interactive browser sign-in.")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
 

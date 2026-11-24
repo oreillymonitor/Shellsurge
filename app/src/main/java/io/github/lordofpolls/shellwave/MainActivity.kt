@@ -70,12 +70,15 @@ import io.github.lordofpolls.shellwave.core.db.entities.CredentialEntity
 import io.github.lordofpolls.shellwave.core.db.entities.HostEntity
 import io.github.lordofpolls.shellwave.core.db.entities.decodeAgentKeyIds
 import io.github.lordofpolls.shellwave.core.net.HostReachabilityProbe
+import io.github.lordofpolls.shellwave.core.net.TailscaleManager
 import io.github.lordofpolls.shellwave.core.net.sendMagicPacket
 import io.github.lordofpolls.shellwave.core.prefs.AppearancePreferences
 import io.github.lordofpolls.shellwave.core.prefs.AutomationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
+import io.github.lordofpolls.shellwave.core.prefs.HostTailscaleConfig
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SupportPreferences
+import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.core.prefs.ThemeMode
 import io.github.lordofpolls.shellwave.core.ui.AgentConsentRequest
@@ -119,6 +122,7 @@ import io.github.lordofpolls.shellwave.feature.settings.KeyBarLayoutsScreen
 import io.github.lordofpolls.shellwave.feature.settings.KnownHostsScreen
 import io.github.lordofpolls.shellwave.feature.settings.LicenseScreen
 import io.github.lordofpolls.shellwave.feature.settings.SettingsScreen
+import io.github.lordofpolls.shellwave.feature.settings.TailnetPeersSheet
 import io.github.lordofpolls.shellwave.feature.settings.TerminalSettingsScreen
 import io.github.lordofpolls.shellwave.service.SessionAlerts
 import io.github.lordofpolls.shellwave.ssh.AgentKey
@@ -287,6 +291,9 @@ class MainActivity : FragmentActivity() {
     @Inject
     lateinit var reachabilityProbe: HostReachabilityProbe
 
+    @Inject
+    lateinit var tailscaleManager: TailscaleManager
+
     @Inject lateinit var supporterBilling: SupporterBilling
 
     @Inject lateinit var sessionAlerts: SessionAlerts
@@ -356,6 +363,8 @@ class MainActivity : FragmentActivity() {
             val automationToken by rememberPrefState { AutomationPreferences.token(it) }
 
             val supporterState by supporterBilling.state.collectAsState()
+            val tailscaleStatus by tailscaleManager.status.collectAsState()
+            var showTailnetPeers by rememberSaveable { mutableStateOf(false) }
 
             val systemDarkTheme = isSystemInDarkTheme()
             val darkTheme =
@@ -850,6 +859,7 @@ class MainActivity : FragmentActivity() {
                                                         scriptRunController.reportError(blocked, title = "Couldn't delete host")
                                                     } else {
                                                         HostStartupPreferences.clear(this@MainActivity, host.id)
+                                                        TailscalePreferences.clearHostConfig(this@MainActivity, host.id)
                                                     }
                                                 }
                                             },
@@ -863,6 +873,7 @@ class MainActivity : FragmentActivity() {
                                                         portForwardDao,
                                                     )
                                                     HostStartupPreferences.copy(this@MainActivity, host.id, newHostId)
+                                                    TailscalePreferences.copyHostConfig(this@MainActivity, host.id, newHostId)
                                                 }
                                             },
                                             onWakeHost = { host ->
@@ -889,6 +900,8 @@ class MainActivity : FragmentActivity() {
                                                 )
                                             },
                                             onImportSshConfig = { push("importSshConfig") },
+                                            tailscaleConnected = tailscaleStatus.isRunning,
+                                            onOpenTailnetPeers = { showTailnetPeers = true },
                                             modifier = Modifier.weight(1f),
                                         )
                                     }
@@ -1121,6 +1134,8 @@ class MainActivity : FragmentActivity() {
                                             onOpenLicenses = { push("license") },
                                             supporterState = supporterState,
                                             onBecomeSupporter = { purchaseOptionId -> supporterBilling.launchPurchase(this@MainActivity, purchaseOptionId) },
+                                            tailscaleManager = tailscaleManager,
+                                            onOpenTailnetPeers = { showTailnetPeers = true },
                                             modifier = Modifier.weight(1f),
                                         )
                                     }
@@ -1310,6 +1325,67 @@ class MainActivity : FragmentActivity() {
                                     targetSessionId = sessionId
                                     openTerminal()
                                 },
+                            )
+                        }
+
+                        if (showTailnetPeers) {
+                            TailnetPeersSheet(
+                                tailscaleManager = tailscaleManager,
+                                onConnectPeer = { peerHost, peerPort, peerUser, useTsSsh, peerPassword ->
+                                    val sessionId = sessionManager.openSession(
+                                        ConnectionSpec(
+                                            hostname = peerHost,
+                                            port = peerPort,
+                                            username = peerUser,
+                                            authMethod = if (useTsSsh) {
+                                                AuthMethod.TailscaleSsh
+                                            } else {
+                                                AuthMethod.Password(peerPassword)
+                                            },
+                                            hostId = null,
+                                            useTailscale = true,
+                                            useTailscaleSsh = useTsSsh,
+                                        ),
+                                    )
+                                    targetSessionId = sessionId
+                                    openTerminal()
+                                },
+                                onSavePeer = { peerLabel, peerHost, peerPort, peerUser, useTsSsh, peerPassword ->
+                                    scope.launch {
+                                        val credId = if (useTsSsh) {
+                                            credentialVault.storeKeyboardInteractive(peerLabel)
+                                        } else {
+                                            credentialVault.storePassword(
+                                                peerPassword,
+                                                peerLabel,
+                                                requireBiometric = false,
+                                                activity = this@MainActivity,
+                                            )
+                                        }
+                                        val savedId = hostDao.insert(
+                                            HostEntity(
+                                                label = peerLabel,
+                                                hostname = peerHost,
+                                                port = peerPort,
+                                                username = peerUser,
+                                                credentialId = credId,
+                                                lastConnectedAt = null,
+                                                createdAt = System.currentTimeMillis(),
+                                            ),
+                                        )
+                                        TailscalePreferences.saveHostConfig(
+                                            this@MainActivity,
+                                            savedId,
+                                            HostTailscaleConfig(useTailscale = true, useTailscaleSsh = useTsSsh),
+                                        )
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "Saved $peerLabel",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
+                                onDismiss = { showTailnetPeers = false },
                             )
                         }
                     }

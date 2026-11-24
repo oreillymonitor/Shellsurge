@@ -7,6 +7,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.HostEntity
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.connection.channel.direct.DirectConnection
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
+import javax.net.SocketFactory
 
 /** In dial order, farthest from the target first. A bastion authenticates like any other host. */
 data class ProxyHop(
@@ -52,6 +53,7 @@ internal fun connectChainAndAuthenticate(
     targetUsername: String,
     targetAuthMethod: AuthMethod,
     hostKeyVerifier: HostKeyVerifier,
+    socketFactory: SocketFactory? = null,
 ): ProxyChainResources {
     if (hops.isEmpty()) {
         connectAndAuthenticate(
@@ -60,7 +62,8 @@ internal fun connectChainAndAuthenticate(
             targetPort,
             targetUsername,
             targetAuthMethod,
-            hostKeyVerifier
+            hostKeyVerifier,
+            socketFactory = socketFactory,
         )
         return ProxyChainResources(emptyList(), emptyList())
     }
@@ -80,7 +83,8 @@ internal fun connectChainAndAuthenticate(
                     hop.port,
                     hop.username,
                     hop.authMethod,
-                    hostKeyVerifier
+                    hostKeyVerifier,
+                    socketFactory = socketFactory,
                 )
             } else {
                 val channel = prev.newDirectConnection(hop.hostname, hop.port)

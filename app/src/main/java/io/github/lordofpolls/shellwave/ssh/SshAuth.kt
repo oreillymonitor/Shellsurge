@@ -5,7 +5,9 @@ import net.schmizz.sshj.connection.channel.direct.DirectConnection
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
 import net.schmizz.sshj.userauth.keyprovider.KeyProvider
 import net.schmizz.sshj.userauth.method.AuthKeyboardInteractive
+import net.schmizz.sshj.userauth.method.AuthNone
 import net.schmizz.sshj.userauth.password.PasswordUtils
+import javax.net.SocketFactory
 
 /**
  * `sshj`'s own keepalive (`keepalive@openssh.com` global requests). 5 missed replies (sshj's own
@@ -40,8 +42,12 @@ internal fun connectAndAuthenticate(
     username: String,
     authMethod: AuthMethod,
     hostKeyVerifier: HostKeyVerifier,
+    socketFactory: SocketFactory? = null,
 ) {
     ssh.addHostKeyVerifier(hostKeyVerifier)
+    if (socketFactory != null) {
+        ssh.socketFactory = socketFactory
+    }
     // Must be set before connect(); sshj starts the keepalive thread right after KEX, inside
     // connect() itself, only if the interval is already non-zero at that point.
     ssh.connection.keepAlive.keepAliveInterval = KEEPALIVE_INTERVAL_SECONDS
@@ -81,6 +87,7 @@ private fun authenticate(ssh: SSHClient, username: String, authMethod: AuthMetho
             username,
             AuthKeyboardInteractive(authMethod.provider)
         )
+        is AuthMethod.TailscaleSsh -> ssh.auth(username, AuthNone())
     }
 }
 

@@ -22,3 +22,7 @@ docs/
 .kotlin/
 *.apk
 build-artifacts/
+
+# Built by CI (gomobile bind) from tailscale-bridge/
+app/libs/tailscale-bridge.aar
+app/libs/tailscale-bridge-sources.jar

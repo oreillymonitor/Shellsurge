@@ -14,6 +14,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.HostEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardEntity
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
 import io.github.lordofpolls.shellwave.core.net.NetworkHandoffEvent
+import io.github.lordofpolls.shellwave.core.net.TailscaleManager
 import io.github.lordofpolls.shellwave.core.prefs.FakeSharedPreferences
 import io.github.lordofpolls.shellwave.service.SessionAlerts
 import kotlinx.coroutines.CompletableDeferred
@@ -32,6 +33,7 @@ import java.io.File
 import java.security.KeyPairGenerator
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import javax.net.SocketFactory
 
 /**
  * Just enough of [Context] for SessionManager's own code path: a working prefs store (used by
@@ -191,6 +193,7 @@ private class FakeSshConnection(
         agentKeys: List<AgentKey>,
         startupDirectory: String?,
         autoLaunchCommand: String?,
+        socketFactory: SocketFactory?,
     ) {
         agentKeysSeen = agentKeys
         connectStarted = true
@@ -222,6 +225,7 @@ class SessionManagerTest {
             HostVerificationGate(),
             KeyboardInteractiveGate(),
             NoopSessionAlerts(context, notices),
+            TailscaleManager(context),
         )
     }
 

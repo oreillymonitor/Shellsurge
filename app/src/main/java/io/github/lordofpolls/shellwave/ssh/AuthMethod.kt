@@ -13,4 +13,6 @@ sealed class AuthMethod {
     ) : AuthMethod()
 
     data class KeyboardInteractive(val provider: ChallengeResponseProvider) : AuthMethod()
+
+    data object TailscaleSsh : AuthMethod()
 }

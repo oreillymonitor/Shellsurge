@@ -44,3 +44,11 @@
 -dontwarn com.google.mlkit.genai.**
 -dontwarn com.google.android.gms.internal.mlkit_genai_prompt.**
 -dontwarn com.google.android.gms.internal.mlkit_genai_common.**
+
+# Embedded Tailscale (tsnet via gomobile bind) uses JNI callbacks into go.** and tsbridge.**
+-keep class go.** { *; }
+-keep interface go.** { *; }
+-keep class io.github.lordofpolls.shellwave.tailscale.tsbridge.** { *; }
+-keep interface io.github.lordofpolls.shellwave.tailscale.tsbridge.** { *; }
+-dontwarn go.**
+-dontwarn io.github.lordofpolls.shellwave.tailscale.tsbridge.**

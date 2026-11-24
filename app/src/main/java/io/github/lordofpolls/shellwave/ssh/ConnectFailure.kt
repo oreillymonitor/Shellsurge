@@ -30,6 +30,7 @@ internal fun describeConnectFailure(e: Throwable, authMethod: AuthMethod): Strin
                 is AuthMethod.PrivateKey -> "Authentication failed - the server rejected that username or key."
                 // The username was already accepted, or the method would not have prompted.
                 is AuthMethod.KeyboardInteractive -> "Authentication failed - the server rejected that response."
+                is AuthMethod.TailscaleSsh -> "Tailscale SSH authentication failed - check tailnet ACLs or run without Tailscale SSH."
             }
         // The stock JDK messages are too bare to stand alone: "Connection refused" with no subject,
         // a bare hostname, and "Timeout expired: 30000 MILLISECONDS".

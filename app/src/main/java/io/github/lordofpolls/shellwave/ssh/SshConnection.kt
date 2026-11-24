@@ -51,6 +51,7 @@ import java.net.ServerSocket
 import java.util.EnumSet
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.SocketFactory
 
 private const val LOG_TAG = "SshConnection"
 private const val READ_BUFFER_SIZE = 4096
@@ -340,6 +341,7 @@ open class SshConnection(
         agentKeys: List<AgentKey> = emptyList(),
         startupDirectory: String? = null,
         autoLaunchCommand: String? = null,
+        socketFactory: SocketFactory? = null,
     ) {
         cursorStyleOverride = cursorStyle
         withContext(Dispatchers.IO) {
@@ -352,7 +354,8 @@ open class SshConnection(
                 port,
                 username,
                 authMethod,
-                hostKeyVerifier
+                hostKeyVerifier,
+                socketFactory = socketFactory,
             )
 
             // Everything below runs on an authenticated transport nobody else owns yet. A failure here

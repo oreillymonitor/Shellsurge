@@ -100,6 +100,8 @@ import io.github.lordofpolls.shellwave.core.net.parseMacAddress
 import io.github.lordofpolls.shellwave.core.prefs.HostAutoLaunchPreset
 import io.github.lordofpolls.shellwave.core.prefs.HostStartupConfig
 import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
+import io.github.lordofpolls.shellwave.core.prefs.HostTailscaleConfig
+import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.feature.keys.credentialLabel
 import io.github.lordofpolls.shellwave.feature.keys.keyDescription
 import io.github.lordofpolls.shellwave.feature.home.nextGroupColor
@@ -252,6 +254,11 @@ fun AddEditHostScreen(
     var startupDirectory by rememberFormState(existingId) { initialStartup.startupDirectory.orEmpty() }
     var autoLaunchPreset by rememberFormState(existingId) { initialStartup.autoLaunchPreset }
     var customAutoLaunchCommand by rememberFormState(existingId) { initialStartup.customCommand.orEmpty() }
+    val initialTailscale = remember(existingId) {
+        if (existingId != null) TailscalePreferences.getHostConfig(activity, existingId) else HostTailscaleConfig()
+    }
+    var useTailscale by rememberFormState(existingId) { initialTailscale.useTailscale }
+    var useTailscaleSsh by rememberFormState(existingId) { initialTailscale.useTailscaleSsh }
     var macAddress by rememberFormState(existingId) { existing?.macAddress.orEmpty() }
     var agentForwarding by rememberFormState(existingId) { existing?.agentForwarding ?: false }
     var agentKeyIds by rememberFormState(existingId) {
@@ -567,7 +574,7 @@ fun AddEditHostScreen(
 
     fun canSave(): Boolean =
         hostname.isNotBlank() && username.isNotBlank() && port.toIntOrNull() != null &&
-                (keepExistingCredential ||
+                ((useTailscale && useTailscaleSsh) || keepExistingCredential ||
                         when (authKind) {
                             AuthKind.PASSWORD -> password.isNotEmpty()
                             AuthKind.STORED_KEY -> loginKeys.any { it.id == storedKeyId }
@@ -584,48 +591,66 @@ fun AddEditHostScreen(
         }
         scope.launch {
             try {
+                val keylessOverride = useTailscale && useTailscaleSsh
                 val plan = planCredentialSave(
                     authKind = authKind,
                     storedKeyId = storedKeyId,
                     keepExistingCredential = keepExistingCredential,
                     certificateTouched = certificateTouched,
                     existingCredentialId = existing?.credentialId,
-                ) ?: return@launch
-                plan.certificateTargetId?.let { credentialVault.setCertificate(it, importedCertificate) }
-                val credentialId =
+                )
+                val credentialId = if (plan != null) {
+                    plan.certificateTargetId?.let { credentialVault.setCertificate(it, importedCertificate) }
                     when (val choice = plan.credential) {
                         is CredentialChoice.Existing -> choice.id
                         is CredentialChoice.Stored -> choice.id
                         CredentialChoice.SealNew ->
                             when (authKind) {
-                                AuthKind.PASSWORD -> credentialVault.storePassword(
-                                    password,
-                                    label.ifBlank { null },
-                                    requireBiometric,
-                                    activity
-                                )
+                                AuthKind.PASSWORD ->
+                                    if (keylessOverride && password.isEmpty()) {
+                                        existing?.credentialId
+                                            ?: credentialVault.storeKeyboardInteractive(label.ifBlank { null })
+                                    } else {
+                                        credentialVault.storePassword(
+                                            password,
+                                            label.ifBlank { null },
+                                            requireBiometric,
+                                            activity
+                                        )
+                                    }
 
                                 AuthKind.IMPORT_KEY ->
-                                    credentialVault.storePrivateKey(
-                                        importedPem,
-                                        importedPassphrase.ifBlank { null },
-                                        importedPublicKeyPreview ?: return@launch,
-                                        hostKeyLabel(label),
-                                        requireBiometric,
-                                        activity,
-                                        importedCertificate,
-                                    )
+                                    if (keylessOverride && importedPublicKeyPreview == null) {
+                                        existing?.credentialId
+                                            ?: credentialVault.storeKeyboardInteractive(label.ifBlank { null })
+                                    } else {
+                                        credentialVault.storePrivateKey(
+                                            importedPem,
+                                            importedPassphrase.ifBlank { null },
+                                            importedPublicKeyPreview ?: return@launch,
+                                            hostKeyLabel(label),
+                                            requireBiometric,
+                                            activity,
+                                            importedCertificate,
+                                        )
+                                    }
 
                                 AuthKind.GENERATE_KEY -> {
-                                    val key = generatedKey ?: return@launch
-                                    credentialVault.storePrivateKey(
-                                        key.privateKeyPem,
-                                        null,
-                                        key.publicKeyLine,
-                                        hostKeyLabel(label),
-                                        requireBiometric,
-                                        activity
-                                    )
+                                    val key = generatedKey
+                                    if (key == null) {
+                                        if (!keylessOverride) return@launch
+                                        existing?.credentialId
+                                            ?: credentialVault.storeKeyboardInteractive(label.ifBlank { null })
+                                    } else {
+                                        credentialVault.storePrivateKey(
+                                            key.privateKeyPem,
+                                            null,
+                                            key.publicKeyLine,
+                                            hostKeyLabel(label),
+                                            requireBiometric,
+                                            activity
+                                        )
+                                    }
                                 }
 
                                 AuthKind.KEYBOARD_INTERACTIVE -> credentialVault.storeKeyboardInteractive(
@@ -634,6 +659,10 @@ fun AddEditHostScreen(
                                 AuthKind.STORED_KEY -> return@launch
                             }
                     }
+                } else {
+                    if (!keylessOverride) return@launch
+                    existing?.credentialId ?: credentialVault.storeKeyboardInteractive(label.ifBlank { null })
+                }
                 val now = System.currentTimeMillis()
                 val savedHostId = if (existing == null) {
                     hostDao.insert(
@@ -687,6 +716,14 @@ fun AddEditHostScreen(
                         startupDirectory = startupDirectory.trim().ifBlank { null },
                         autoLaunchPreset = autoLaunchPreset,
                         customCommand = customAutoLaunchCommand.trim().ifBlank { null },
+                    ),
+                )
+                TailscalePreferences.saveHostConfig(
+                    activity,
+                    savedHostId,
+                    HostTailscaleConfig(
+                        useTailscale = useTailscale,
+                        useTailscaleSsh = useTailscale && useTailscaleSsh,
                     ),
                 )
                 onDone()
@@ -769,7 +806,7 @@ fun AddEditHostScreen(
     }
 
     fun hasUnsavedChanges(): Boolean =
-        existing.formFields(initialStartup) != HostFormFields(
+        existing.formFields(initialStartup, initialTailscale) != HostFormFields(
             label = label,
             hostname = hostname,
             port = port,
@@ -780,6 +817,8 @@ fun AddEditHostScreen(
             startupDirectory = startupDirectory,
             autoLaunchPreset = autoLaunchPreset,
             customAutoLaunchCommand = customAutoLaunchCommand,
+            useTailscale = useTailscale,
+            useTailscaleSsh = useTailscaleSsh,
             macAddress = macAddress,
             agentForwarding = agentForwarding,
             agentKeyIds = agentKeyIds.toSet(),
@@ -1245,6 +1284,15 @@ fun AddEditHostScreen(
 
                     SettingsCardDivider()
 
+                    HostTailscaleOptionsFields(
+                        useTailscale = useTailscale,
+                        onUseTailscaleChange = { useTailscale = it },
+                        useTailscaleSsh = useTailscaleSsh,
+                        onUseTailscaleSshChange = { useTailscaleSsh = it },
+                    )
+
+                    SettingsCardDivider()
+
                     // Excludes this host itself - an immediate one-host cycle is the only case cheap to
                     // rule out.
                     val jumpHost = allHosts.firstOrNull { it.id == proxyJumpHostId }
@@ -1542,6 +1590,8 @@ private data class HostFormFields(
     val startupDirectory: String,
     val autoLaunchPreset: HostAutoLaunchPreset,
     val customAutoLaunchCommand: String,
+    val useTailscale: Boolean,
+    val useTailscaleSsh: Boolean,
     val macAddress: String,
     val agentForwarding: Boolean,
     val agentKeyIds: Set<Long>,
@@ -1549,7 +1599,10 @@ private data class HostFormFields(
     val proxyJumpHostId: Long?,
 )
 
-private fun HostEntity?.formFields(startup: HostStartupConfig): HostFormFields {
+private fun HostEntity?.formFields(
+    startup: HostStartupConfig,
+    tailscale: HostTailscaleConfig,
+): HostFormFields {
     val host = this
     return if (host == null) {
         HostFormFields(
@@ -1563,6 +1616,8 @@ private fun HostEntity?.formFields(startup: HostStartupConfig): HostFormFields {
             startupDirectory = startup.startupDirectory.orEmpty(),
             autoLaunchPreset = startup.autoLaunchPreset,
             customAutoLaunchCommand = startup.customCommand.orEmpty(),
+            useTailscale = tailscale.useTailscale,
+            useTailscaleSsh = tailscale.useTailscaleSsh,
             macAddress = "",
             agentForwarding = false,
             agentKeyIds = emptySet(),
@@ -1581,12 +1636,40 @@ private fun HostEntity?.formFields(startup: HostStartupConfig): HostFormFields {
             startupDirectory = startup.startupDirectory.orEmpty(),
             autoLaunchPreset = startup.autoLaunchPreset,
             customAutoLaunchCommand = startup.customCommand.orEmpty(),
+            useTailscale = tailscale.useTailscale,
+            useTailscaleSsh = tailscale.useTailscaleSsh,
             macAddress = host.macAddress.orEmpty(),
             agentForwarding = host.agentForwarding,
             agentKeyIds = decodeAgentKeyIds(host.agentKeyIdsJson).toSet(),
             keyBarLayoutId = host.keyBarLayoutId,
             proxyJumpHostId = host.proxyJumpHostId,
         )
+    }
+}
+
+@Composable
+private fun HostTailscaleOptionsFields(
+    useTailscale: Boolean,
+    onUseTailscaleChange: (Boolean) -> Unit,
+    useTailscaleSsh: Boolean,
+    onUseTailscaleSshChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsSwitch(
+            title = "Connect via embedded Tailscale",
+            description = "Routes this connection through ShellSurge's in-app Tailscale node (MagicDNS & 100.x IPs) without using Android's VPN slot.",
+            checked = useTailscale,
+            onCheckedChange = onUseTailscaleChange,
+        )
+        if (useTailscale) {
+            SettingsSwitch(
+                title = "Use Tailscale SSH (keyless)",
+                description = "Authenticate via tailnet identity (AuthNone) instead of an SSH password or key.",
+                checked = useTailscaleSsh,
+                onCheckedChange = onUseTailscaleSshChange,
+            )
+        }
     }
 }
 

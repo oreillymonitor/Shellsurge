@@ -188,6 +188,7 @@ configurations.all {
 
 dependencies {
     implementation(project(":terminal-core"))
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

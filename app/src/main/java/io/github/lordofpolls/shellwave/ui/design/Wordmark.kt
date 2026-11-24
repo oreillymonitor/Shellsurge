@@ -14,13 +14,13 @@ private const val WORDMARK_PREFIX = "~/"
 private const val WORDMARK_SPOKEN = "ShellSurge"
 
 /**
- * `~/shellwave`, where the tilde is both home and a wave.
+ * `~/shellsurge`, where the tilde is both home and a wave.
  *
  * Mono but not `MachineText`: that marks things a server asserts, and a brand name is the app
  * talking about itself. A theme that sets its own title face (Nothing's dot matrix) wins over
  * mono. Only the prefix takes `colorScheme.primary`, so the wordmark picks up
- * Material You while the launcher icon stays a fixed brand constant. TalkBack gets "Shellwave", not
- * the drawn string, which would announce as "tilde slash shellwave".
+ * Material You while the launcher icon stays a fixed brand constant. TalkBack gets "ShellSurge", not
+ * the drawn string, which would announce as "tilde slash shellsurge".
  */
 @Composable
 fun Wordmark(modifier: Modifier = Modifier) {

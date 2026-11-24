@@ -51,7 +51,7 @@ val allowDebugSignedRelease =
 if (!hasReleaseSigningConfig) {
     if (allowDebugSignedRelease) {
         logger.warn(
-            "Shellwave: shellwave.allowDebugSignedRelease=true and no real release signing config is " +
+            "ShellSurge: shellwave.allowDebugSignedRelease=true and no real release signing config is " +
                     "set (SHELLWAVE_RELEASE_* as an env var or a ~/.gradle/gradle.properties entry) - this " +
                     "release build will be signed with the DEBUG key (~/.android/debug.keystore, well-known " +
                     "password). This artifact is for LOCAL VERIFICATION ONLY and must never be distributed: " +
@@ -61,7 +61,7 @@ if (!hasReleaseSigningConfig) {
         )
     } else {
         logger.warn(
-            "Shellwave: no release signing config found (SHELLWAVE_RELEASE_* as an env var or a " +
+            "ShellSurge: no release signing config found (SHELLWAVE_RELEASE_* as an env var or a " +
                     "~/.gradle/gradle.properties entry) - the release build will be UNSIGNED and cannot be " +
                     "installed as-is. Pass -Pshellwave.allowDebugSignedRelease=true for a debug-signed, " +
                     "local-verification-only build instead.",

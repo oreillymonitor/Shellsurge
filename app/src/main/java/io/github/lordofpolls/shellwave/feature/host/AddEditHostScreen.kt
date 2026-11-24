@@ -237,59 +237,60 @@ fun AddEditHostScreen(
     val activity = LocalActivity.current as FragmentActivity
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboard.current
+    val existingId: Long? = existing?.id
 
-    // Keyed on existing?.id, never plain remember - see this screen's doc.
-    var label by rememberFormState(existing?.id) { existing?.label.orEmpty() }
-    var hostname by rememberFormState(existing?.id) { existing?.hostname.orEmpty() }
-    var port by rememberFormState(existing?.id) { (existing?.port ?: 22).toString() }
-    var username by rememberFormState(existing?.id) { existing?.username.orEmpty() }
-    var requireBiometric by rememberFormState(existing?.id) { false }
-    var resilientSession by rememberFormState(existing?.id) { existing?.resilientSession ?: false }
-    val initialStartup = remember(existing?.id) {
-        existing?.id?.let { HostStartupPreferences.get(activity, it) } ?: HostStartupConfig()
+    // Keyed on existingId, never plain remember - see this screen's doc.
+    var label by rememberFormState(existingId) { existing?.label.orEmpty() }
+    var hostname by rememberFormState(existingId) { existing?.hostname.orEmpty() }
+    var port by rememberFormState(existingId) { (existing?.port ?: 22).toString() }
+    var username by rememberFormState(existingId) { existing?.username.orEmpty() }
+    var requireBiometric by rememberFormState(existingId) { false }
+    var resilientSession by rememberFormState(existingId) { existing?.resilientSession ?: false }
+    val initialStartup = remember(existingId) {
+        if (existingId != null) HostStartupPreferences.get(activity, existingId) else HostStartupConfig()
     }
-    var startupDirectory by rememberFormState(existing?.id) { initialStartup.startupDirectory.orEmpty() }
-    var autoLaunchPreset by rememberFormState(existing?.id) { initialStartup.autoLaunchPreset }
-    var customAutoLaunchCommand by rememberFormState(existing?.id) { initialStartup.customCommand.orEmpty() }
-    var macAddress by rememberFormState(existing?.id) { existing?.macAddress.orEmpty() }
-    var agentForwarding by rememberFormState(existing?.id) { existing?.agentForwarding ?: false }
-    var agentKeyIds by rememberFormState(existing?.id) {
+    var startupDirectory by rememberFormState(existingId) { initialStartup.startupDirectory.orEmpty() }
+    var autoLaunchPreset by rememberFormState(existingId) { initialStartup.autoLaunchPreset }
+    var customAutoLaunchCommand by rememberFormState(existingId) { initialStartup.customCommand.orEmpty() }
+    var macAddress by rememberFormState(existingId) { existing?.macAddress.orEmpty() }
+    var agentForwarding by rememberFormState(existingId) { existing?.agentForwarding ?: false }
+    var agentKeyIds by rememberFormState(existingId) {
         existing?.let { decodeAgentKeyIds(it.agentKeyIdsJson) } ?: emptyList()
     }
     val storedKeysOrNull by credentialDao.observeAll().collectAsState<List<CredentialEntity>, List<CredentialEntity>?>(initial = null)
     val storedKeys = storedKeysOrNull.orEmpty()
-    var storedKeyId by rememberFormState<Long?>(existing?.id) { null }
+    var storedKeyId by rememberFormState<Long?>(existingId) { null }
     var detectingMac by remember { mutableStateOf(false) }
     var testingConnection by remember { mutableStateOf(false) }
     var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
     // Not saved: the override rows it edits are entities that can't be, so a restored editor
     // would open empty.
-    var overrideEditor by remember(existing?.id) { mutableStateOf<OverrideEditor?>(null) }
+    var overrideEditor by remember(existingId) { mutableStateOf<OverrideEditor?>(null) }
 
     // Each override is its own dedicated row, shared with nothing. Null means "no override yet"; a
     // non-null value is already persisted, inserted the moment the toggle is switched on, so its
     // id is exactly what save() writes into HostEntity.
-    var terminalProfileOverride by rememberFormState<TerminalProfileEntity?>(existing?.id) { null }
-    var colorSchemeOverride by rememberFormState<ColorSchemeEntity?>(existing?.id) { null }
+    var terminalProfileOverride by rememberFormState<TerminalProfileEntity?>(existingId) { null }
+    var colorSchemeOverride by rememberFormState<ColorSchemeEntity?>(existingId) { null }
     // The key bar points at one of the shared named layouts - a plain id, and no row this screen
     // owns.
-    var keyBarLayoutId by rememberFormState(existing?.id) { existing?.keyBarLayoutId }
+    var keyBarLayoutId by rememberFormState(existingId) { existing?.keyBarLayoutId }
     // Null means "connect directly". Cycle prevention stops at excluding this host itself: a
     // multi-hop cycle can only be seen by walking the whole chain, which resolveProxyChain already
     // does at connect time with a clear error.
-    var proxyJumpHostId by rememberFormState(existing?.id) { existing?.proxyJumpHostId }
+    var proxyJumpHostId by rememberFormState(existingId) { existing?.proxyJumpHostId }
     val allHosts by hostDao.observeAll().collectAsState(initial = emptyList())
-    var groupId by rememberFormState(existing?.id) { existing?.groupId }
-    var color by rememberFormState(existing?.id) { existing?.color }
-    var newGroupDialog by rememberFormState(existing?.id) { false }
-    var customColorDialog by rememberFormState(existing?.id) { false }
+    var groupId by rememberFormState(existingId) { existing?.groupId }
+    var color by rememberFormState(existingId) { existing?.color }
+    var newGroupDialog by rememberFormState(existingId) { false }
+    var customColorDialog by rememberFormState(existingId) { false }
     val groups by groupDao.observeAll().collectAsState(initial = emptyList())
 
-    LaunchedEffect(existing?.id, existing?.terminalProfileId) {
+    LaunchedEffect(existingId, existing?.terminalProfileId) {
         terminalProfileOverride =
             existing?.terminalProfileId?.let { terminalProfileDao.getById(it) }
     }
-    LaunchedEffect(existing?.id, existing?.colorSchemeId) {
+    LaunchedEffect(existingId, existing?.colorSchemeId) {
         colorSchemeOverride = existing?.colorSchemeId?.let { colorSchemeDao.getById(it) }
     }
     val keyBarLayouts by keyBarLayoutDao.observeAll().collectAsState(initial = emptyList())
@@ -376,21 +377,21 @@ fun AddEditHostScreen(
     // Seeded from the stored credential's own certificate when editing (see the LaunchedEffect
     // below); certificateTouched tracks whether the user actually picked or cleared one this
     // session, so save() knows whether to write it back at all.
-    var importedCertificate by rememberFormState<String?>(existing?.id) { null }
-    var certificateTouched by rememberFormState(existing?.id) { false }
+    var importedCertificate by rememberFormState<String?>(existingId) { null }
+    var certificateTouched by rememberFormState(existingId) { false }
     var certificateError by remember { mutableStateOf<String?>(null) }
     var certificateNote by remember { mutableStateOf<String?>(null) }
     var certificateDropped by remember { mutableStateOf(false) }
     // The stored key's own public line, for the ed25519 certificate note when editing without
     // having re-typed the key (so importedPublicKeyPreview is still empty).
-    var existingPublicKeyText by rememberFormState<String?>(existing?.id) { null }
+    var existingPublicKeyText by rememberFormState<String?>(existingId) { null }
 
     var generatedKey by remember { mutableStateOf<GeneratedKey?>(null) }
     var generateAlgorithm by rememberSaveable { mutableStateOf(GeneratedKeyAlgorithm.ED25519) }
 
     // A config import creates credentials with no sealed secret, and this is the screen that fills
     // one in. Assumed present until described, so an existing host never flashes the notice below.
-    var storedSecretPresent by rememberFormState(existing?.id) { true }
+    var storedSecretPresent by rememberFormState(existingId) { true }
 
     LaunchedEffect(existing?.credentialId) {
         val credentialId = existing?.credentialId ?: return@LaunchedEffect
@@ -1233,58 +1234,14 @@ fun AddEditHostScreen(
 
                     SettingsCardDivider()
 
-                    OutlinedTextField(
-                        value = startupDirectory,
-                        onValueChange = { startupDirectory = it },
-                        label = { Text("Startup directory (optional)") },
-                        placeholder = { Text("e.g. ~/projects/app") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.None,
-                            autoCorrectEnabled = false,
-                            keyboardType = KeyboardType.Uri,
-                        ),
-                        supportingText = {
-                            Text("Runs cd to this directory automatically when connecting.")
-                        },
-                        modifier = Modifier.fillMaxWidth(),
+                    HostStartupOptionsFields(
+                        startupDirectory = startupDirectory,
+                        onStartupDirectoryChange = { startupDirectory = it },
+                        autoLaunchPreset = autoLaunchPreset,
+                        onAutoLaunchPresetChange = { autoLaunchPreset = it },
+                        customAutoLaunchCommand = customAutoLaunchCommand,
+                        onCustomAutoLaunchCommandChange = { customAutoLaunchCommand = it },
                     )
-
-                    PickerRow(
-                        title = "Auto-launch on connect",
-                        value = {
-                            if (autoLaunchPreset == HostAutoLaunchPreset.NONE) {
-                                DimText(autoLaunchPreset.label)
-                            } else {
-                                Text(autoLaunchPreset.label)
-                            }
-                        },
-                    ) { dismiss ->
-                        HostAutoLaunchPreset.entries.forEach { preset ->
-                            DropdownMenuItem(
-                                text = { Text(preset.label) },
-                                onClick = { autoLaunchPreset = preset; dismiss() },
-                            )
-                        }
-                    }
-                    DimText(
-                        "Launches automatically after connecting (or when starting a new tmux " +
-                            "session; reattaching an existing tmux session won't re-run it).",
-                    )
-                    if (autoLaunchPreset == HostAutoLaunchPreset.CUSTOM) {
-                        OutlinedTextField(
-                            value = customAutoLaunchCommand,
-                            onValueChange = { customAutoLaunchCommand = it },
-                            label = { Text("Custom startup command") },
-                            placeholder = { Text("e.g. claude --resume") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.None,
-                                autoCorrectEnabled = false,
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
 
                     SettingsCardDivider()
 
@@ -1301,7 +1258,7 @@ fun AddEditHostScreen(
                             text = { Text("Connect directly") },
                             onClick = { proxyJumpHostId = null; dismiss() },
                         )
-                        allHosts.filter { it.id != existing?.id }.forEach { candidate ->
+                        allHosts.filter { it.id != existingId }.forEach { candidate ->
                             DropdownMenuItem(
                                 text = { HostChoice(candidate) },
                                 onClick = { proxyJumpHostId = candidate.id; dismiss() },
@@ -1592,23 +1549,112 @@ private data class HostFormFields(
     val proxyJumpHostId: Long?,
 )
 
-private fun HostEntity?.formFields(startup: HostStartupConfig) = HostFormFields(
-    label = this?.label.orEmpty(),
-    hostname = this?.hostname.orEmpty(),
-    port = (this?.port ?: 22).toString(),
-    username = this?.username.orEmpty(),
-    groupId = this?.groupId,
-    color = this?.color,
-    resilientSession = this?.resilientSession ?: false,
-    startupDirectory = startup.startupDirectory.orEmpty(),
-    autoLaunchPreset = startup.autoLaunchPreset,
-    customAutoLaunchCommand = startup.customCommand.orEmpty(),
-    macAddress = this?.macAddress.orEmpty(),
-    agentForwarding = this?.agentForwarding ?: false,
-    agentKeyIds = this?.let { decodeAgentKeyIds(it.agentKeyIdsJson).toSet() }.orEmpty(),
-    keyBarLayoutId = this?.keyBarLayoutId,
-    proxyJumpHostId = this?.proxyJumpHostId,
-)
+private fun HostEntity?.formFields(startup: HostStartupConfig): HostFormFields {
+    val host = this
+    return if (host == null) {
+        HostFormFields(
+            label = "",
+            hostname = "",
+            port = "22",
+            username = "",
+            groupId = null,
+            color = null,
+            resilientSession = false,
+            startupDirectory = startup.startupDirectory.orEmpty(),
+            autoLaunchPreset = startup.autoLaunchPreset,
+            customAutoLaunchCommand = startup.customCommand.orEmpty(),
+            macAddress = "",
+            agentForwarding = false,
+            agentKeyIds = emptySet(),
+            keyBarLayoutId = null,
+            proxyJumpHostId = null,
+        )
+    } else {
+        HostFormFields(
+            label = host.label.orEmpty(),
+            hostname = host.hostname,
+            port = host.port.toString(),
+            username = host.username,
+            groupId = host.groupId,
+            color = host.color,
+            resilientSession = host.resilientSession,
+            startupDirectory = startup.startupDirectory.orEmpty(),
+            autoLaunchPreset = startup.autoLaunchPreset,
+            customAutoLaunchCommand = startup.customCommand.orEmpty(),
+            macAddress = host.macAddress.orEmpty(),
+            agentForwarding = host.agentForwarding,
+            agentKeyIds = decodeAgentKeyIds(host.agentKeyIdsJson).toSet(),
+            keyBarLayoutId = host.keyBarLayoutId,
+            proxyJumpHostId = host.proxyJumpHostId,
+        )
+    }
+}
+
+@Composable
+private fun HostStartupOptionsFields(
+    startupDirectory: String,
+    onStartupDirectoryChange: (String) -> Unit,
+    autoLaunchPreset: HostAutoLaunchPreset,
+    onAutoLaunchPresetChange: (HostAutoLaunchPreset) -> Unit,
+    customAutoLaunchCommand: String,
+    onCustomAutoLaunchCommandChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = startupDirectory,
+            onValueChange = onStartupDirectoryChange,
+            label = { Text("Startup directory (optional)") },
+            placeholder = { Text("e.g. ~/projects/app") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+                keyboardType = KeyboardType.Uri,
+            ),
+            supportingText = {
+                Text("Runs cd to this directory automatically when connecting.")
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        PickerRow(
+            title = "Auto-launch on connect",
+            value = {
+                if (autoLaunchPreset == HostAutoLaunchPreset.NONE) {
+                    DimText(autoLaunchPreset.label)
+                } else {
+                    Text(autoLaunchPreset.label)
+                }
+            },
+        ) { dismiss ->
+            HostAutoLaunchPreset.entries.forEach { preset ->
+                DropdownMenuItem(
+                    text = { Text(preset.label) },
+                    onClick = { onAutoLaunchPresetChange(preset); dismiss() },
+                )
+            }
+        }
+        DimText(
+            "Launches automatically after connecting (or when starting a new tmux " +
+                "session; reattaching an existing tmux session won't re-run it).",
+        )
+        if (autoLaunchPreset == HostAutoLaunchPreset.CUSTOM) {
+            OutlinedTextField(
+                value = customAutoLaunchCommand,
+                onValueChange = onCustomAutoLaunchCommandChange,
+                label = { Text("Custom startup command") },
+                placeholder = { Text("e.g. claude --resume") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
 
 /** Swaps the comment, which may itself contain spaces, after an OpenSSH line's type and key. */
 internal fun withPublicKeyComment(line: String, label: String?): String =

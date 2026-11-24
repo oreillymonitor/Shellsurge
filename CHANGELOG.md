@@ -1,6 +1,21 @@
 # Changelog
 
 
+## 1.14.0 - 2026-11-24
+
+### New
+- **Embedded Tailscale (`tsnet`)**: run a userspace Tailscale node directly inside ShellSurge without occupying Android's VPN slot — includes interactive OAuth sign-in, optional pre-auth key and Headscale Control URL, MagicDNS resolution, a Tailnet Devices browser (1-tap Connect or Save Host), and per-host Embedded Tailscale & keyless Tailscale SSH (`AuthNone`) options
+- **Per-host startup directory & auto-launch options**: configure a startup directory (`cd`) and auto-launch CLI agent preset (`claude`, `claude -c`, `opencode`, `codex`, `aider`, `agy`, `agy -c`, or custom command) per host, safely preserving existing resilient `tmux` sessions on reattach
+- **Instant Wi-Fi ↔ 5G handoff**: monitor Android default network transitions to immediately wake reconnecting sessions, proactively refresh stale non-Tailscale sessions on network switches, and notify embedded Tailscale on link changes
+
+### Improved
+- **Settings Support card**: clarify that ShellSurge is a fork of Shellwave and link directly to the original Shellwave repository
+
+### Fixed
+- **Gemini Nano digests & TUI sanitizer**: replace XML prompt tags (`<facts>`, `<turn>`, `<draft>`, `<request>`) with plain labeled prompts and add a meta-refusal fallback guard so digests never emit `"the user provided no facts or turn."`; preserve `"Follow-Ups"` prose and strip TUI ghost prompts in `TerminalTextSanitizer`
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.13.2...1.14.0)
+
 ## 1.13.2 - 2026-11-24
 
 ### Improved

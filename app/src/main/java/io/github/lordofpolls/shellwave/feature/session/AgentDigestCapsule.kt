@@ -220,6 +220,7 @@ internal fun AgentDigestCapsule(
 internal fun AgentDigestLoadingCapsule(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    streamingText: String? = null,
 ) {
     AnimatedVisibility(
         visible = true,
@@ -258,12 +259,15 @@ internal fun AgentDigestLoadingCapsule(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
+                val hasStream = !streamingText.isNullOrBlank()
                 Text(
-                    text = "Gemini is summarizing terminal...",
+                    text = if (hasStream) streamingText!! else "Gemini is summarizing terminal...",
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Medium,
                         fontSize = 13.sp,
                     ),
+                    maxLines = if (hasStream) 4 else 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )

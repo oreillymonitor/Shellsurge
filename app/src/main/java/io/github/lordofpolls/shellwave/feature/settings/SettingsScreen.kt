@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Dns
@@ -57,6 +58,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,6 +82,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.google.mlkit.genai.common.FeatureStatus
 import io.github.lordofpolls.shellwave.BuildConfig
 import io.github.lordofpolls.shellwave.core.billing.SupporterState
 import io.github.lordofpolls.shellwave.core.billing.SupporterTier
@@ -88,11 +91,17 @@ import io.github.lordofpolls.shellwave.core.prefs.AgentCliPreferences
 import io.github.lordofpolls.shellwave.core.prefs.BellMode
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.core.prefs.ColourTheme
+import io.github.lordofpolls.shellwave.core.prefs.NanoModelPreferences
+import io.github.lordofpolls.shellwave.core.prefs.NanoModelTier
+import io.github.lordofpolls.shellwave.core.prefs.NanoReleaseChannel
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.OutputIdleDelay
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityInterval
 import io.github.lordofpolls.shellwave.core.prefs.ThemeMode
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
+import io.github.lordofpolls.shellwave.feature.session.NanoClientManager
+import io.github.lordofpolls.shellwave.feature.session.NanoDiagnostics
+import io.github.lordofpolls.shellwave.feature.session.formatModelLabel
 import io.github.lordofpolls.shellwave.service.ACTION_RUN_SCRIPT
 import io.github.lordofpolls.shellwave.service.EXTRA_SCRIPT_ID
 import io.github.lordofpolls.shellwave.service.EXTRA_TOKEN
@@ -142,6 +151,18 @@ fun SettingsScreen(
     val autoDigestOnReturn by rememberPrefState { NotificationPreferences.isAutoDigestOnReturn(it) }
     val bellMode by rememberPrefState { BellPreferences.get(it) }
     val enabledAgents by rememberPrefState { AgentCliPreferences.getEnabledAgents(it) }
+    val nanoTier by rememberPrefState { NanoModelPreferences.getModelTier(it) }
+    val nanoChannel by rememberPrefState { NanoModelPreferences.getReleaseChannel(it) }
+    val nanoThinking by rememberPrefState { NanoModelPreferences.isThinkingModeEnabled(it) }
+    val nanoWarmup by rememberPrefState { NanoModelPreferences.isWarmupEnabled(it) }
+    val settingsScope = rememberCoroutineScope()
+    var nanoDiag by remember { mutableStateOf<NanoDiagnostics?>(null) }
+    var nanoActionStatus by remember { mutableStateOf<String?>(null) }
+    var nanoBusy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(nanoTier, nanoChannel) {
+        nanoDiag = NanoClientManager.inspectDiagnostics(context, forceRefresh = true)
+    }
     var systemNotificationsEnabled by remember {
         mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
     }
@@ -230,6 +251,179 @@ fun SettingsScreen(
                         },
                     )
                 }
+            }
+
+            // 2a-bis. ON-DEVICE AI (GEMINI NANO)
+            SettingsGroupCard(title = "On-Device AI (Gemini Nano)", icon = Icons.Outlined.AutoAwesome) {
+                val diag = nanoDiag
+                val statusLabel = when (diag?.status) {
+                    FeatureStatus.AVAILABLE -> "Available"
+                    FeatureStatus.DOWNLOADABLE -> "Download required"
+                    FeatureStatus.DOWNLOADING -> "Downloading…"
+                    FeatureStatus.UNAVAILABLE -> "Unavailable"
+                    null -> "Checking AICore…"
+                    else -> "Status ${diag.status}"
+                }
+                val capabilities = buildList {
+                    if (diag?.supportsSystemPrompt == true) add("System Prompt")
+                    if (diag?.supportsPrefixCaching == true) add("Prefix Cache")
+                    if (diag?.supportsThinkingMode == true) add("Thinking Mode")
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = "${formatModelLabel(diag?.baseModelName, nanoTier, nanoChannel)} · $statusLabel",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        if (diag?.status == FeatureStatus.AVAILABLE) {
+                            val tokenText = diag.tokenLimit?.let { "Context window: $it tokens" } ?: "Context window: default"
+                            val featText = if (capabilities.isNotEmpty()) {
+                                " · Features: ${capabilities.joinToString(", ")}"
+                            } else {
+                                ""
+                            }
+                            Text(
+                                text = "$tokenText$featText",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else if (!diag?.errorMessage.isNullOrBlank()) {
+                            Text(
+                                text = diag?.errorMessage.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+
+                        nanoActionStatus?.let { msg ->
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (diag?.status == FeatureStatus.DOWNLOADABLE) {
+                                OutlinedButton(
+                                    enabled = !nanoBusy,
+                                    onClick = {
+                                        nanoBusy = true
+                                        nanoActionStatus = "Starting AICore download…"
+                                        settingsScope.launch {
+                                            try {
+                                                nanoDiag = NanoClientManager.downloadIfNeeded(context) { progress ->
+                                                    nanoActionStatus = progress
+                                                }
+                                            } finally {
+                                                nanoBusy = false
+                                            }
+                                        }
+                                    },
+                                ) {
+                                    Text("Download")
+                                }
+                            } else if (diag?.status == FeatureStatus.AVAILABLE) {
+                                OutlinedButton(
+                                    enabled = !nanoBusy,
+                                    onClick = {
+                                        nanoBusy = true
+                                        nanoActionStatus = "Warming up Gemini Nano…"
+                                        settingsScope.launch {
+                                            try {
+                                                val res = NanoClientManager.warmupIfEnabled(context, force = true)
+                                                nanoActionStatus = if (res.isSuccess) {
+                                                    "Gemini Nano warmed up and ready"
+                                                } else {
+                                                    "Warmup failed: ${res.exceptionOrNull()?.message ?: "unknown error"}"
+                                                }
+                                            } finally {
+                                                nanoBusy = false
+                                            }
+                                        }
+                                    },
+                                ) {
+                                    Text("Warm up")
+                                }
+                            }
+
+                            OutlinedButton(
+                                enabled = !nanoBusy,
+                                onClick = {
+                                    nanoBusy = true
+                                    nanoActionStatus = "Refreshing AICore status…"
+                                    settingsScope.launch {
+                                        try {
+                                            nanoDiag = NanoClientManager.inspectDiagnostics(context, forceRefresh = true)
+                                            nanoActionStatus = null
+                                        } finally {
+                                            nanoBusy = false
+                                        }
+                                    }
+                                },
+                            ) {
+                                Text("Refresh")
+                            }
+                        }
+                    }
+                }
+
+                SettingsSegmentedGroup(
+                    label = "Model preference",
+                    description = "Full favors quality (larger Nano variant when available); Fast favors lower latency.",
+                    options = NanoModelTier.entries,
+                    selected = nanoTier,
+                    labelOf = { it.label },
+                    onSelect = {
+                        NanoModelPreferences.setModelTier(context, it)
+                        NanoClientManager.invalidate()
+                        nanoActionStatus = null
+                    },
+                )
+
+                SettingsSegmentedGroup(
+                    label = "Release channel",
+                    description = "Preview selects experimental AICore builds when enabled in Android Developer Options → AICore Settings.",
+                    options = NanoReleaseChannel.entries,
+                    selected = nanoChannel,
+                    labelOf = { it.label },
+                    onSelect = {
+                        NanoModelPreferences.setReleaseChannel(context, it)
+                        NanoClientManager.invalidate()
+                        nanoActionStatus = null
+                    },
+                )
+
+                SettingsCardDivider()
+
+                SettingsSwitch(
+                    title = "Thinking mode",
+                    description = if (diag?.supportsThinkingMode == true) {
+                        "Allow Gemini Nano to reason before refining prompts or generating shell commands."
+                    } else {
+                        "Enabled when supported by the active AICore model on your device."
+                    },
+                    checked = nanoThinking,
+                    onCheckedChange = { NanoModelPreferences.setThinkingModeEnabled(context, it) },
+                )
+
+                SettingsCardDivider()
+
+                SettingsSwitch(
+                    title = "Pre-warm on session open",
+                    description = "Preload Gemini Nano into AICore memory when opening a session or Prompt Composer.",
+                    checked = nanoWarmup,
+                    onCheckedChange = { NanoModelPreferences.setWarmupEnabled(context, it) },
+                )
             }
 
             // 2b. NOTIFICATIONS

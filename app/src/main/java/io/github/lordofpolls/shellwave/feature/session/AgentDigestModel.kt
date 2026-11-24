@@ -1,10 +1,6 @@
 package io.github.lordofpolls.shellwave.feature.session
 
-import android.util.Log
-import com.google.mlkit.genai.common.DownloadStatus
-import com.google.mlkit.genai.common.FeatureStatus
-import com.google.mlkit.genai.prompt.Generation
-import com.google.mlkit.genai.prompt.GenerativeModel
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -29,14 +25,25 @@ data class AgentDigestResult(
  * with an intelligent fallback analyzer for local command & agent outputs.
  */
 internal object AgentDigestModel {
-    private const val TAG = "AgentDigestModel"
-    private var cachedModel: GenerativeModel? = null
+    private val DIGEST_SYSTEM_INSTRUCTION = """
+        Brief a software developer on a terminal tail in 2 to 3 crisp spoken sentences.
+        State what finished or failed, key file names or error causes, and whether it is waiting on confirmation.
+        Use zero greetings, intros, markdown formatting, or meta-talk.
 
-    private fun getModel(): GenerativeModel {
-        return cachedModel ?: Generation.getClient().also { cachedModel = it }
-    }
+        Example 1:
+        Terminal: ./gradlew test -> 128 tests passed, BUILD SUCCESSFUL in 6s
+        Briefing: The Gradle test suite passed all 128 tests cleanly in six seconds. The terminal is back at the shell prompt ready for your next command.
 
-    suspend fun analyzeTerminalTail(sanitizedOutput: String): AgentDigestResult = withContext(Dispatchers.IO) {
+        Example 2:
+        Terminal: Edited PromptRefiner.kt. Apply patch and commit? [y/N]
+        Briefing: PromptRefiner.kt was updated and the agent is waiting for confirmation to apply the patch and commit. Reply yes to proceed or no to cancel.
+    """.trimIndent()
+
+    suspend fun analyzeTerminalTail(
+        sanitizedOutput: String,
+        context: Context? = null,
+        onPartialText: ((String) -> Unit)? = null,
+    ): AgentDigestResult = withContext(Dispatchers.IO) {
         val trimmed = sanitizedOutput.trim()
         if (trimmed.isBlank()) {
             return@withContext AgentDigestResult(
@@ -47,50 +54,29 @@ internal object AgentDigestModel {
 
         val detectedActions = extractNumberedOptions(trimmed)
 
-        // Try Gemini Nano first if available or downloadable on device
-        try {
-            val model = getModel()
-            var status = model.checkStatus()
+        val outcome = NanoClientManager.generateText(
+            context = context,
+            systemInstruction = DIGEST_SYSTEM_INSTRUCTION,
+            userText = "Terminal:\n$trimmed\n\nBriefing:",
+            temperature = 0.2f,
+            topK = 16,
+            maxOutputTokens = 160,
+            allowThinking = false,
+            onPartialText = onPartialText,
+        )
 
-            if (status == FeatureStatus.DOWNLOADABLE) {
-                try {
-                    model.download().collect { dStatus ->
-                        if (dStatus is DownloadStatus.DownloadCompleted) {
-                            status = FeatureStatus.AVAILABLE
-                        }
-                    }
-                } catch (e: Throwable) {
-                    Log.w(TAG, "Gemini Nano download error: ${e.message}")
-                }
+        val rawResponse = outcome.text
+        if (!rawResponse.isNullOrBlank()) {
+            val structured = extractStructuredResult(rawResponse)
+            return@withContext if (detectedActions.isNotEmpty()) {
+                structured.copy(
+                    usedAi = true,
+                    hasQuestion = true,
+                    quickActions = detectedActions,
+                )
+            } else {
+                structured.copy(usedAi = true)
             }
-
-            if (status == FeatureStatus.AVAILABLE) {
-                val prompt = """
-                    Brief the developer on this terminal status in 3 to 4 spoken sentences.
-                    State what ran or finished, any errors or modified files, and what it's waiting on.
-                    No greetings, intros, or meta-talk. Begin directly with the status.
-
-                    Terminal:
-                    $trimmed
-                """.trimIndent()
-
-                val response = model.generateContent(prompt)
-                val rawResponse = response.candidates.firstOrNull()?.text?.trim()
-                if (!rawResponse.isNullOrBlank()) {
-                    val structured = extractStructuredResult(rawResponse)
-                    return@withContext if (detectedActions.isNotEmpty()) {
-                        structured.copy(
-                            usedAi = true,
-                            hasQuestion = true,
-                            quickActions = detectedActions,
-                        )
-                    } else {
-                        structured.copy(usedAi = true)
-                    }
-                }
-            }
-        } catch (e: Throwable) {
-            Log.w(TAG, "Gemini Nano analysis unavailable or failed", e)
         }
 
         // Fallback to intelligent rule-based extractor

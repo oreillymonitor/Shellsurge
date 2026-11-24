@@ -536,6 +536,7 @@ internal fun SessionTabBody(
     var isVoiceListening by remember { mutableStateOf(false) }
     var activeDigest by remember { mutableStateOf<AgentDigestResult?>(null) }
     var isAnalyzingDigest by remember { mutableStateOf(false) }
+    var streamingDigestText by remember(sessionId) { mutableStateOf<String?>(null) }
     var activePromptSignature by remember(sessionId) { mutableStateOf<String?>(null) }
     var dismissedPromptSignature by remember(sessionId) { mutableStateOf<String?>(null) }
     var tabPromptComposerOpen by remember { mutableStateOf(false) }
@@ -587,21 +588,37 @@ internal fun SessionTabBody(
         onDispose { voiceEngine.release() }
     }
 
+    LaunchedEffect(sessionId, summary.status) {
+        if (summary.status == SessionStatus.CONNECTED) {
+            NanoClientManager.warmupIfEnabled(localContext)
+        }
+    }
+
     fun triggerDigest(speakImmediately: Boolean = false) {
         val emulator = terminalEmulator ?: return
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         isAnalyzingDigest = true
+        streamingDigestText = null
         activePromptSignature = null
         activeDigest = null
         val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 100)
         coroutineScope.launch {
             try {
-                val result = AgentDigestModel.analyzeTerminalTail(tail)
+                val result = AgentDigestModel.analyzeTerminalTail(
+                    sanitizedOutput = tail,
+                    context = localContext,
+                    onPartialText = { partial ->
+                        coroutineScope.launch {
+                            streamingDigestText = partial
+                        }
+                    },
+                )
                 activeDigest = result
                 if (speakImmediately) {
                     voiceEngine.speak(result.spokenSummary, listenAfter = hasAudioPermission())
                 }
             } finally {
+                streamingDigestText = null
                 isAnalyzingDigest = false
             }
         }
@@ -751,7 +768,7 @@ internal fun SessionTabBody(
             if (signature != null) {
                 if (signature != dismissedPromptSignature) {
                     val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 60)
-                    val result = AgentDigestModel.analyzeTerminalTail(tail)
+                    val result = AgentDigestModel.analyzeTerminalTail(tail, context = localContext)
                     activePromptSignature = signature
                     activeDigest = result
                 }
@@ -1280,7 +1297,11 @@ internal fun SessionTabBody(
 
         if (isAnalyzingDigest) {
             AgentDigestLoadingCapsule(
-                onDismiss = { isAnalyzingDigest = false },
+                onDismiss = {
+                    streamingDigestText = null
+                    isAnalyzingDigest = false
+                },
+                streamingText = streamingDigestText,
             )
         } else {
             activeDigest?.let { digest ->

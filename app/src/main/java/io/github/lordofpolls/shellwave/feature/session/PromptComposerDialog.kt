@@ -54,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -108,6 +109,10 @@ internal fun PromptComposerDialog(
     var statusMessage by remember { mutableStateOf<String?>(null) }
     val enabledAgents by rememberPrefState { AgentCliPreferences.getEnabledAgents(it) }
     val activeAgent by rememberPrefState { AgentCliPreferences.getSelectedAgent(it) }
+
+    LaunchedEffect(Unit) {
+        NanoClientManager.warmupIfEnabled(context)
+    }
 
     fun selectAgent(agent: AgentCli) {
         AgentCliPreferences.setSelectedAgent(context, agent)
@@ -253,9 +258,20 @@ internal fun PromptComposerDialog(
         statusMessage = "Refining prompt…"
         scope.launch {
             try {
-                val result = PromptRefiner.refinePrompt(original, activeAgent) { progress ->
-                    statusMessage = progress
-                }
+                val result = PromptRefiner.refinePrompt(
+                    rawInput = original,
+                    activeAgent = activeAgent,
+                    context = context,
+                    onProgress = { progress -> statusMessage = progress },
+                    onPartialText = { partial ->
+                        scope.launch {
+                            if (partial.isNotBlank()) {
+                                preTransformText = original
+                                text = partial
+                            }
+                        }
+                    },
+                )
                 if (result.text != original) {
                     preTransformText = original
                     text = result.text
@@ -274,9 +290,19 @@ internal fun PromptComposerDialog(
         statusMessage = "Translating to shell command…"
         scope.launch {
             try {
-                val result = PromptRefiner.generateShellCommand(original) { progress ->
-                    statusMessage = progress
-                }
+                val result = PromptRefiner.generateShellCommand(
+                    rawInput = original,
+                    context = context,
+                    onProgress = { progress -> statusMessage = progress },
+                    onPartialText = { partial ->
+                        scope.launch {
+                            if (partial.isNotBlank()) {
+                                preTransformText = original
+                                text = partial
+                            }
+                        }
+                    },
+                )
                 if (result.text != original) {
                     preTransformText = original
                     text = result.text

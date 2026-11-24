@@ -1,11 +1,8 @@
 package io.github.lordofpolls.shellwave.feature.session
 
-import android.util.Log
-import com.google.mlkit.genai.common.DownloadStatus
-import com.google.mlkit.genai.common.FeatureStatus
-import com.google.mlkit.genai.prompt.Generation
-import com.google.mlkit.genai.prompt.GenerativeModel
+import android.content.Context
 import io.github.lordofpolls.shellwave.core.prefs.AgentCli
+import io.github.lordofpolls.shellwave.core.prefs.NanoModelPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -19,12 +16,42 @@ internal data class RefineResult(
  * on Pixel 9 and compatible devices, with intelligent rule-based formatting fallback.
  */
 internal object PromptRefiner {
-    private const val TAG = "PromptRefiner"
-    private var cachedModel: GenerativeModel? = null
 
-    private fun getModel(): GenerativeModel {
-        return cachedModel ?: Generation.getClient().also { cachedModel = it }
-    }
+    private val REFINE_SYSTEM_INSTRUCTION = """
+        You refine spoken voice notes from developers into crisp, direct prompts for AI coding agents (claude, opencode, codex, aider, agy).
+        Rules:
+        - Remove spoken fillers (um, uh, like, hey, basically, please, you know).
+        - Preserve every file path, symbol name, CLI flag, and slash command (/plan, /diff, /model, /models, /goal).
+        - Use a concise markdown bulleted list when there are multiple distinct tasks.
+        - Output ONLY the refined prompt with zero greeting or explanation.
+
+        Example 1:
+        Input: hey um can you check why SessionManager is reconnecting twice and also add a unit test for it
+        Output:
+        Investigate and fix double reconnects in SessionManager:
+        - Identify why reconnects trigger twice on disconnect.
+        - Add a unit test verifying single reconnect behavior.
+
+        Example 2:
+        Input: slash plan refactor PromptRefiner so basically we reuse one client
+        Output:
+        /plan Refactor PromptRefiner to reuse a single client instance.
+    """.trimIndent()
+
+    private val SHELL_CMD_SYSTEM_INSTRUCTION = """
+        Convert a developer's natural-language request into a single safe, idiomatic POSIX/Linux shell command.
+        Output ONLY the raw one-line command with no markdown code fences, no backticks, no explanation, and no leading $.
+
+        Examples:
+        Request: find all log files modified in the last 2 days and delete them
+        Command: find . -type f -name '*.log' -mtime -2 -delete
+
+        Request: show processes listening on tcp ports
+        Command: ss -tulpn
+
+        Request: show last 5 git commits on one line
+        Command: git log -n 5 --oneline
+    """.trimIndent()
 
     /**
      * Converts common spoken phrases into markdown structure and agent-aware CLI slash commands.
@@ -61,58 +88,6 @@ internal object PromptRefiner {
         return result
     }
 
-    private suspend fun ensureNanoAvailable(onProgress: (String) -> Unit): Pair<GenerativeModel?, String?> {
-        return try {
-            val model = getModel()
-            var status = model.checkStatus()
-
-            if (status == FeatureStatus.DOWNLOADABLE) {
-                onProgress("Downloading Gemini Nano from AICore…")
-                var downloadSucceeded = false
-                try {
-                    model.download().collect { dStatus ->
-                        when (dStatus) {
-                            is DownloadStatus.DownloadProgress -> {
-                                val mb = dStatus.totalBytesDownloaded / (1024 * 1024)
-                                onProgress("Downloading Gemini Nano: ${mb}MB…")
-                            }
-                            is DownloadStatus.DownloadCompleted -> {
-                                downloadSucceeded = true
-                                onProgress("Gemini Nano ready. Generating…")
-                            }
-                            is DownloadStatus.DownloadFailed -> {
-                                Log.w(TAG, "Download failed: $dStatus")
-                            }
-                            else -> {}
-                        }
-                    }
-                } catch (e: Throwable) {
-                    Log.w(TAG, "Download flow error: ${e.message}")
-                }
-                if (downloadSucceeded) {
-                    status = FeatureStatus.AVAILABLE
-                }
-            }
-
-            if (status == FeatureStatus.AVAILABLE) {
-                model to null
-            } else {
-                val reason = when (status) {
-                    FeatureStatus.DOWNLOADING -> "Gemini Nano is downloading via AICore."
-                    FeatureStatus.DOWNLOADABLE -> "Gemini Nano download required in AICore."
-                    FeatureStatus.UNAVAILABLE -> "Gemini Nano unavailable. Enable AICore in Developer Options."
-                    else -> "AICore status: $status"
-                }
-                Log.d(TAG, reason)
-                null to reason
-            }
-        } catch (e: Throwable) {
-            val err = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
-            Log.w(TAG, "Gemini Nano unavailable", e)
-            null to err
-        }
-    }
-
     /**
      * Refines a raw voice prompt using on-device Gemini Nano if available,
      * or falls back to intelligent rule-based cleaning.
@@ -120,41 +95,41 @@ internal object PromptRefiner {
     suspend fun refinePrompt(
         rawInput: String,
         activeAgent: AgentCli? = null,
+        context: Context? = null,
         onProgress: (String) -> Unit = {},
+        onPartialText: ((String) -> Unit)? = null,
     ): RefineResult = withContext(Dispatchers.IO) {
         val withMacros = applyVoiceMacros(rawInput, activeAgent).trim()
         if (withMacros.isBlank()) return@withContext RefineResult(withMacros, null)
 
-        val (model, unavailableReason) = ensureNanoAvailable(onProgress)
-        if (model != null) {
-            try {
-                onProgress("Refining with Gemini Nano…")
-                val fullPrompt = """
-                    You are a developer prompt refiner for an AI coding agent (like claude, opencode, codex, aider, or agy).
-                    Transform the following user's spoken voice note into a crisp, direct, professional instruction.
-                    Guidelines:
-                    - Remove spoken filler words (uh, um, like, you know, so basically, hey).
-                    - If there are multiple tasks or steps, organize them into a clean markdown bulleted list.
-                    - Preserve all technical names, file paths, commands, flags, and slash commands (e.g. /goal, /plan).
-                    - Output ONLY the refined prompt text without any introductory remarks or conversational preamble.
+        onProgress("Refining with Gemini Nano…")
+        val outcome = NanoClientManager.generateText(
+            context = context,
+            systemInstruction = REFINE_SYSTEM_INSTRUCTION,
+            userText = "Voice Note:\n$withMacros",
+            temperature = 0.2f,
+            topK = 16,
+            maxOutputTokens = 256,
+            allowThinking = true,
+            onProgress = onProgress,
+            onPartialText = onPartialText,
+        )
 
-                    Voice Note:
-                    $withMacros
-                """.trimIndent()
-
-                val response = model.generateContent(fullPrompt)
-                val output = response.candidates.firstOrNull()?.text?.trim()
-                if (!output.isNullOrBlank()) {
-                    return@withContext RefineResult(output, "Polished with Gemini Nano (on-device)")
-                }
-            } catch (e: Throwable) {
-                val err = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
-                Log.w(TAG, "Gemini Nano polish failed", e)
-                return@withContext RefineResult(smartClean(withMacros), "AICore unavailable ($err). Used smart formatting.")
+        val output = outcome.text?.trim()
+        if (!output.isNullOrBlank()) {
+            val modelTag = if (context != null) {
+                formatModelLabel(
+                    outcome.baseModelName,
+                    NanoModelPreferences.getModelTier(context),
+                    NanoModelPreferences.getReleaseChannel(context),
+                )
+            } else {
+                outcome.baseModelName ?: "Gemini Nano"
             }
+            return@withContext RefineResult(output, "Polished with $modelTag")
         }
 
-        val notice = unavailableReason?.let { reason ->
+        val notice = outcome.unavailableNotice?.let { reason ->
             if (reason.startsWith("Gemini") || reason.startsWith("AICore")) reason
             else "AICore unavailable ($reason). Used smart formatting."
         }
@@ -182,37 +157,38 @@ internal object PromptRefiner {
      */
     suspend fun generateShellCommand(
         rawInput: String,
+        context: Context? = null,
         onProgress: (String) -> Unit = {},
+        onPartialText: ((String) -> Unit)? = null,
     ): RefineResult = withContext(Dispatchers.IO) {
         val trimmed = rawInput.trim()
         if (trimmed.isBlank()) return@withContext RefineResult(trimmed, null)
 
-        val (model, unavailableReason) = ensureNanoAvailable(onProgress)
-        if (model != null) {
-            try {
-                onProgress("Translating to shell command…")
-                val prompt = """
-                    Convert the developer's request into a single safe, idiomatic Linux/POSIX shell command.
-                    Output ONLY the raw runnable command on one line with no markdown code fences, no backticks, no explanation, and no leading $.
-
-                    Request:
-                    $trimmed
-                """.trimIndent()
-
-                val response = model.generateContent(prompt)
-                val rawOutput = response.candidates.firstOrNull()?.text?.trim()
-                val cmd = rawOutput?.let(::stripShellCommandFormatting)?.takeIf { it.isNotBlank() }
-                if (cmd != null) {
-                    return@withContext RefineResult(cmd, "Generated shell command with Gemini Nano")
+        onProgress("Translating to shell command…")
+        val outcome = NanoClientManager.generateText(
+            context = context,
+            systemInstruction = SHELL_CMD_SYSTEM_INSTRUCTION,
+            userText = "Request: $trimmed\nCommand:",
+            temperature = 0.0f,
+            topK = 5,
+            maxOutputTokens = 96,
+            allowThinking = true,
+            onProgress = onProgress,
+            onPartialText = onPartialText?.let { callback ->
+                { partial ->
+                    val cleaned = stripShellCommandFormatting(partial)
+                    if (cleaned.isNotBlank()) callback(cleaned)
                 }
-            } catch (e: Throwable) {
-                val err = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
-                Log.w(TAG, "Shell command generation failed", e)
-                return@withContext RefineResult(trimmed, "Shell command generation unavailable ($err).")
-            }
+            },
+        )
+
+        val cmd = outcome.text?.let(::stripShellCommandFormatting)?.takeIf { it.isNotBlank() }
+        if (cmd != null) {
+            val modelTag = outcome.baseModelName ?: "Gemini Nano"
+            return@withContext RefineResult(cmd, "Generated shell command ($modelTag)")
         }
 
-        val notice = unavailableReason ?: "Gemini Nano unavailable on this device."
+        val notice = outcome.unavailableNotice ?: "Gemini Nano unavailable on this device."
         RefineResult(trimmed, notice)
     }
 

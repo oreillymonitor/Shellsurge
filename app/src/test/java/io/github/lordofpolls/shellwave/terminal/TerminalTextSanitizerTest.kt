@@ -139,4 +139,48 @@ class TerminalTextSanitizerTest {
         assertTrue(cleaned.contains("Diff app/Foo.kt (+1/-1)"))
         assertTrue(cleaned.contains("All 42 tests passed cleanly"))
     }
+
+    @Test
+    fun packTurnBottomUpDropsGradleCruftAndAnchorsSpecificError() {
+        val log = buildString {
+            appendLine("> Task :terminal-core:compileDebugJavaWithJavac UP-TO-DATE")
+            appendLine("> Task :app:compileFossDebugKotlin FAILED")
+            appendLine("e: MainActivity.kt:142:9 Unresolved reference 'missingSymbol'")
+            appendLine("at java.base/java.lang.Thread.run(Thread.java:1583)")
+            appendLine()
+            (1..18).forEach { appendLine("Verbose diagnostic filler line $it for spacing") }
+            appendLine()
+            appendLine("BUILD FAILED in 9s")
+            appendLine("* Try:")
+            appendLine("> Run with --stacktrace option to get the stack trace.")
+            appendLine("> Get more help at https://help.gradle.org.")
+            appendLine("24 actionable tasks: 4 executed, 20 up-to-date")
+        }
+
+        val packed = TerminalTextSanitizer.packTurnBottomUp(log, maxLines = 12, maxChars = 600)
+        assertTrue(packed.contains("Unresolved reference 'missingSymbol'"))
+        assertTrue(packed.contains("BUILD FAILED in 9s"))
+        assertFalse(packed.contains("* Try:"))
+        assertFalse(packed.contains("--stacktrace"))
+        assertFalse(packed.contains("UP-TO-DATE"))
+        assertFalse(packed.contains("Thread.java"))
+        assertFalse(packed.contains("24 actionable tasks"))
+    }
+
+    @Test
+    fun packTurnBottomUpSkipsToolTraceNoiseAboveFinalAnswer() {
+        val agentTurn = """
+            Read(app/MainActivity.kt)
+            Grep(SessionManager)
+            
+            Updated SessionManager.kt and added unit tests.
+            Ready to push? [y/N]
+        """.trimIndent()
+
+        val packed = TerminalTextSanitizer.packTurnBottomUp(agentTurn, maxLines = 10, maxChars = 500)
+        assertFalse(packed.contains("Read(app/MainActivity.kt)"))
+        assertFalse(packed.contains("Grep(SessionManager)"))
+        assertTrue(packed.contains("Updated SessionManager.kt and added unit tests."))
+        assertTrue(packed.contains("Ready to push? [y/N]"))
+    }
 }

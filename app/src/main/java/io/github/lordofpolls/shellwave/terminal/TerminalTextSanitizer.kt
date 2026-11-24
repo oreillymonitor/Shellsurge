@@ -165,6 +165,150 @@ object TerminalTextSanitizer {
             .trim()
     }
 
+    private val GRADLE_BOILERPLATE_LINE = Regex(
+        "^(?:\\*\\s*Try:|>\\s*Run with --(?:stacktrace|info|debug|scan)|>\\s*Get more help at|Deprecated Gradle features|You can use '--warning-mode all'|See https://docs\\.gradle\\.org|Configuration cache entry |\\d+ actionable tasks?:|\\[Incubating]\\s+Problems report).*"
+    )
+    private val GRADLE_NOOP_TASK_LINE = Regex(
+        "^>\\s*Task\\s+:[^\\s]+(?:\\s+(?:UP-TO-DATE|FROM-CACHE|NO-SOURCE|SKIPPED))?\\s*$"
+    )
+    private val FRAMEWORK_STACK_FRAME_LINE = Regex(
+        "^\\s*(?:at\\s+(?:java|javax|sun|jdk|kotlin|kotlinx|org\\.gradle|org\\.junit|androidx|android|com\\.android)\\.|\\.\\.\\.\\s*\\d+\\s+more\\s*$).*"
+    )
+    private val TRANSFER_NOISE_LINE = Regex(
+        "^(?:Downloading|Fetching|Resolving|Unpacking|Counting objects:|Compressing objects:|Writing objects:|remote:\\s*(?:Enumerating|Counting|Compressing|Total)).*"
+    )
+    private val TOOL_TRACE_LINE = Regex(
+        "^(?:[●•*]\\s*)?(?:Read|Glob|Grep|Search|List|Viewed|Checked)\\b(?:\\(|:| ).{0,80}$"
+    )
+    private val SPECIFIC_ERROR_LINE = Regex(
+        "(?i)(?:^e:\\s|error:|Exception:|AssertionError|FAILURE:|fatal:|Traceback|SyntaxError|TypeError)"
+    )
+
+    private fun isCruftLine(line: String): Boolean =
+        GRADLE_BOILERPLATE_LINE.matches(line) ||
+            GRADLE_NOOP_TASK_LINE.matches(line) ||
+            FRAMEWORK_STACK_FRAME_LINE.matches(line) ||
+            TRANSFER_NOISE_LINE.matches(line)
+
+    /**
+     * Packs a cleaned turn from the bottom up into a dense, low-cruft excerpt for on-device Nano
+     * narration. Drops Gradle/build boilerplate, framework stack frames, transfer progress noise,
+     * and repetitive tool-call trace blocks above the final answer, while anchoring the most
+     * specific compiler/runtime error block if one appeared higher in the turn.
+     */
+    fun packTurnBottomUp(
+        cleanedTurn: String,
+        maxLines: Int = 20,
+        maxChars: Int = 900,
+    ): String {
+        if (cleanedTurn.isBlank() || maxLines <= 0 || maxChars <= 0) return ""
+
+        val nonPrompt = cleanedTurn.lines()
+            .map { it.trimEnd() }
+            .filter { line ->
+                val t = line.trim()
+                t.isEmpty() || (!BARE_PROMPT_LINE.matches(t) && !isCruftLine(t))
+            }
+        val filtered = if (nonPrompt.any { it.isNotBlank() }) nonPrompt else cleanedTurn.lines()
+
+        // Split into logical blocks on blank lines or new command/Diff boundaries.
+        val blocks = mutableListOf<List<String>>()
+        val current = mutableListOf<String>()
+        fun flushBlock() {
+            val cleaned = current.map { it.trimEnd() }.filter { it.isNotBlank() }
+            if (cleaned.isNotEmpty()) blocks.add(cleaned)
+            current.clear()
+        }
+        for (line in filtered) {
+            val t = line.trim()
+            if (t.isEmpty()) {
+                flushBlock()
+                continue
+            }
+            if ((TURN_START_PROMPT.matches(t) || DIFF_GIT_HEADER.matches(t) || t.startsWith("Diff ")) &&
+                current.isNotEmpty()
+            ) {
+                flushBlock()
+            }
+            current.add(t)
+        }
+        flushBlock()
+        if (blocks.isEmpty()) return ""
+
+        fun isToolTraceBlock(block: List<String>): Boolean =
+            block.all { TOOL_TRACE_LINE.matches(it) } &&
+                block.none { SPECIFIC_ERROR_LINE.containsMatchIn(it) || it.endsWith("?") }
+
+        val pickedIndices = mutableSetOf<Int>()
+        var usedLines = 0
+        var usedChars = 0
+
+        for (idx in blocks.indices.reversed()) {
+            val block = blocks[idx]
+            if (pickedIndices.isNotEmpty() && isToolTraceBlock(block)) {
+                continue
+            }
+            val blockText = block.joinToString("\n")
+            val addedLines = block.size
+            val addedChars = blockText.length + if (pickedIndices.isEmpty()) 0 else 1
+
+            if (pickedIndices.isEmpty() && (addedLines > maxLines || addedChars > maxChars)) {
+                // Bottom-most block alone exceeds budget: take its trailing lines within budget.
+                val tailLines = ArrayDeque<String>()
+                var chars = 0
+                for (lIdx in block.indices.reversed()) {
+                    val l = block[lIdx]
+                    val nextChars = chars + l.length + if (tailLines.isEmpty()) 0 else 1
+                    if (tailLines.size + 1 > maxLines || nextChars > maxChars) break
+                    tailLines.addFirst(l)
+                    chars = nextChars
+                }
+                if (tailLines.isNotEmpty()) {
+                    blocks[idx] = tailLines.toList()
+                    pickedIndices.add(idx)
+                } else {
+                    blocks[idx] = listOf(block.last().takeLast(maxChars))
+                    pickedIndices.add(idx)
+                }
+                break
+            }
+
+            if (usedLines + addedLines > maxLines || usedChars + addedChars > maxChars) {
+                continue
+            }
+            pickedIndices.add(idx)
+            usedLines += addedLines
+            usedChars += addedChars
+        }
+
+        val hasSpecificErrorAlready = pickedIndices.any { idx ->
+            blocks[idx].any { SPECIFIC_ERROR_LINE.containsMatchIn(it) }
+        }
+        val anchorPrefix = if (!hasSpecificErrorAlready) {
+            val errorIdx = (blocks.indices.reversed()).firstOrNull { idx ->
+                idx !in pickedIndices && blocks[idx].any { SPECIFIC_ERROR_LINE.containsMatchIn(it) }
+            }
+            errorIdx?.let { idx ->
+                val errorLines = blocks[idx].filter { SPECIFIC_ERROR_LINE.containsMatchIn(it) }
+                    .ifEmpty { blocks[idx] }
+                    .takeLast(4)
+                val joined = errorLines.joinToString("\n")
+                if (joined.length <= 280) joined else joined.take(279) + "…"
+            }
+        } else {
+            null
+        }
+
+        val chronologicallyOrdered = pickedIndices.sorted().joinToString("\n") { idx ->
+            blocks[idx].joinToString("\n")
+        }
+        return if (anchorPrefix != null) {
+            "$anchorPrefix\n$chronologicallyOrdered"
+        } else {
+            chronologicallyOrdered
+        }
+    }
+
     fun sanitize(raw: String, maxLines: Int = 120): String {
         val noAnsi = ANSI_PATTERN.replace(raw, "")
         val lines = noAnsi.lines()

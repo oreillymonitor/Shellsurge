@@ -201,7 +201,8 @@ internal object AgentDigestModel {
             }
         }.trim()
 
-        val turnSnippet = cleanedTurn.lines().takeLast(28).joinToString("\n")
+        val turnSnippet = TerminalTextSanitizer.packTurnBottomUp(cleanedTurn, maxLines = 20, maxChars = 900)
+            .ifBlank { cleanedTurn.lines().takeLast(12).joinToString("\n") }
         val promptInput = buildString {
             if (factsBlock.isNotEmpty()) {
                 appendLine("<facts>")

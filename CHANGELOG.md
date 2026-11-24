@@ -1,6 +1,14 @@
 # Changelog
 
 
+## 1.13.2 - 2026-11-24
+
+### Improved
+- On-device AI digest: add turn-aware TUI sanitization, diff collapsing, bottom-up smart block packing (cruft filtering + compiler/runtime error anchoring), deterministic fact extraction, and an expandable structured capsule with error callouts and tappable touched-file chips
+- Notifications: strip TUI box borders, input boxes, shortcut footers, and tmux status bars before classifying prompts; detect conversational agent questions and numbered approval menus reliably; passively alert on background-resumed turns; prevent tmux clock ticks from starving the idle timer; attach contextual quick-action buttons (`Yes`/`No` or top numbered options + `Reply`) with raw-mode TUI Enter timing
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.13.1...1.13.2)
+
 ## 1.13.1 - 2026-11-24
 
 ### Fixed

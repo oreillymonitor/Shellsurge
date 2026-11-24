@@ -13,6 +13,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.ColorSchemeEntity
 import io.github.lordofpolls.shellwave.core.db.entities.HostEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardEntity
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
+import io.github.lordofpolls.shellwave.core.net.NetworkHandoffEvent
 import io.github.lordofpolls.shellwave.core.prefs.FakeSharedPreferences
 import io.github.lordofpolls.shellwave.service.SessionAlerts
 import kotlinx.coroutines.CompletableDeferred
@@ -702,6 +703,94 @@ class SessionManagerTest {
             "expected the second backoff gap (${secondGapMs}ms) to be roughly double the first (${firstGapMs}ms)",
             secondGapMs >= firstGapMs * 1.5,
         )
+    }
+
+    @Test
+    fun networkHandoff_wakesReconnectingSessionImmediately() {
+        val tempDir = createTempDir()
+        val manager = newManager(tempDir)
+        val connections = CopyOnWriteArrayList<FakeSshConnection>()
+        manager.connectionFactory = { _ ->
+            FakeSshConnection(
+                CoroutineScope(SupervisorJob() + Dispatchers.Default),
+                FakeContext(tempDir),
+            ).apply { connectGate.complete(Unit) }.also { connections += it }
+        }
+
+        val id = manager.openSession(spec())
+        manager.beginConnectIfNeeded(id, 80, 24, 8, 16)
+        waitUntil(message = "timed out waiting for CONNECTED") {
+            summaryOf(manager, id).status == SessionStatus.CONNECTED
+        }
+
+        handleDisconnected(manager, id, clean = false)
+        assertEquals(SessionStatus.RECONNECTING, summaryOf(manager, id).status)
+
+        val listenerCount = AtomicInteger(0)
+        manager.onNetworkChangedListener = { listenerCount.incrementAndGet() }
+
+        val startedBefore = System.nanoTime()
+        manager.onNetworkHandoff(NetworkHandoffEvent.NETWORK_RECOVERED)
+        waitUntil(timeoutMs = 1_000, message = "timed out waiting for immediate handoff reconnect") {
+            summaryOf(manager, id).status == SessionStatus.CONNECTED && connections.size >= 2
+        }
+        val elapsedMs = (System.nanoTime() - startedBefore) / 1_000_000
+        assertTrue("expected immediate reconnect well under 1000ms, took ${elapsedMs}ms", elapsedMs < 1_000)
+        assertEquals(1, listenerCount.get())
+    }
+
+    @Test
+    fun networkHandoff_switchesConnectedSessionProactively() {
+        val tempDir = createTempDir()
+        val manager = newManager(tempDir)
+        val connections = CopyOnWriteArrayList<FakeSshConnection>()
+        manager.connectionFactory = { _ ->
+            FakeSshConnection(
+                CoroutineScope(SupervisorJob() + Dispatchers.Default),
+                FakeContext(tempDir),
+            ).apply { connectGate.complete(Unit) }.also { connections += it }
+        }
+
+        val id = manager.openSession(spec())
+        manager.beginConnectIfNeeded(id, 80, 24, 8, 16)
+        waitUntil(message = "timed out waiting for initial CONNECTED") {
+            summaryOf(manager, id).status == SessionStatus.CONNECTED
+        }
+        val firstConnection = connections[0]
+
+        manager.onNetworkHandoff(NetworkHandoffEvent.NETWORK_SWITCHED)
+        waitUntil(timeoutMs = 1_500, message = "timed out waiting for switched CONNECTED") {
+            connections.size >= 2 && summaryOf(manager, id).status == SessionStatus.CONNECTED
+        }
+        assertTrue(firstConnection.disconnectCalls >= 1)
+        assertTrue(firstConnection.stopAllForwardsCalls >= 1)
+    }
+
+    @Test
+    fun networkHandoff_ignoresCleanlyDisconnectedSession() {
+        val tempDir = createTempDir()
+        val manager = newManager(tempDir)
+        val connections = CopyOnWriteArrayList<FakeSshConnection>()
+        manager.connectionFactory = { _ ->
+            FakeSshConnection(
+                CoroutineScope(SupervisorJob() + Dispatchers.Default),
+                FakeContext(tempDir),
+            ).apply { connectGate.complete(Unit) }.also { connections += it }
+        }
+
+        val id = manager.openSession(spec())
+        manager.beginConnectIfNeeded(id, 80, 24, 8, 16)
+        waitUntil(message = "timed out waiting for initial CONNECTED") {
+            summaryOf(manager, id).status == SessionStatus.CONNECTED
+        }
+
+        handleDisconnected(manager, id, clean = true)
+        assertEquals(SessionStatus.DISCONNECTED, summaryOf(manager, id).status)
+
+        manager.onNetworkHandoff(NetworkHandoffEvent.NETWORK_SWITCHED)
+        Thread.sleep(100)
+        assertEquals(1, connections.size)
+        assertEquals(SessionStatus.DISCONNECTED, summaryOf(manager, id).status)
     }
 }
 

@@ -13,6 +13,8 @@ import io.github.lordofpolls.shellwave.core.db.dao.TerminalProfileDao
 import io.github.lordofpolls.shellwave.core.db.entities.ColorSchemeEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardType
+import io.github.lordofpolls.shellwave.core.net.NetworkHandoffEvent
+import io.github.lordofpolls.shellwave.core.net.NetworkHandoffMonitor
 import io.github.lordofpolls.shellwave.core.prefs.AppearancePreferences
 import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
@@ -191,6 +193,15 @@ constructor(
     @Volatile
     private var foregroundSessionId: Long? = null
 
+    @Volatile
+    internal var onNetworkChangedListener: (() -> Unit)? = null
+
+    private val networkHandoffMonitor = NetworkHandoffMonitor(
+        context = context,
+        scope = managerScope,
+        onHandoff = ::onNetworkHandoff,
+    )
+
     private class Entry(
         val id: Long,
         val spec: ConnectionSpec,
@@ -264,6 +275,7 @@ constructor(
         )
         entry.outputWatcher = newWatcher(entry)
         entries[id] = entry
+        networkHandoffMonitor.start()
         publish()
         // The entry above is visible before this starts the service, so if SessionService's
         // onCreate races ahead of openSession's caller, it still observes a non-empty list.
@@ -343,6 +355,9 @@ constructor(
             )
         }
         publish()
+        if (entries.isEmpty()) {
+            networkHandoffMonitor.stop()
+        }
     }
 
     fun setForegroundSession(id: Long) {
@@ -806,6 +821,55 @@ constructor(
             entry.backoffJob?.cancel()
             entry.backoffJob = managerScope.launch { reconnectWithBackoff(entry) }
         }
+    }
+
+    @VisibleForTesting
+    internal fun onNetworkHandoff(event: NetworkHandoffEvent) {
+        if (event == NetworkHandoffEvent.NONE) return
+        onNetworkChangedListener?.invoke()
+        var transitionedConnected = false
+        for (entry in entries.values) {
+            when (entry.status) {
+                SessionStatus.RECONNECTING -> {
+                    entry.backoffJob?.cancel()
+                    entry.backoffJob = managerScope.launch { reconnectImmediatelyThenBackoff(entry) }
+                }
+                SessionStatus.CONNECTED -> {
+                    entry.outputWatcher?.cancel()
+                    entry.generation.incrementAndGet()
+                    entry.connection.stopAllForwards()
+                    entry.tunnels = emptyMap()
+                    entry.connectedAtElapsedRealtime = null
+                    entry.status = SessionStatus.RECONNECTING
+                    entry.error = "Network changed - reconnecting"
+                    transitionedConnected = true
+                    entry.backoffJob?.cancel()
+                    entry.backoffJob = managerScope.launch { reconnectImmediatelyThenBackoff(entry) }
+                }
+                SessionStatus.CONNECTING,
+                SessionStatus.DISCONNECTED,
+                SessionStatus.FAILED,
+                -> Unit
+            }
+        }
+        if (transitionedConnected) {
+            publish()
+        }
+    }
+
+    private suspend fun reconnectImmediatelyThenBackoff(entry: Entry) {
+        if (entries[entry.id] !== entry) return
+        if (entry.status != SessionStatus.RECONNECTING) return
+        entry.connection.disconnect()
+        entry.connection = connectionFactory(entry.id)
+        attemptConnect(entry)
+        if (entry.status == SessionStatus.CONNECTED) return
+        if (entries[entry.id] !== entry) return
+        if (entry.status != SessionStatus.RECONNECTING) {
+            entry.status = SessionStatus.RECONNECTING
+            publish()
+        }
+        reconnectWithBackoff(entry)
     }
 
     /** Exponential backoff, capped, for as long as [entries] still holds this id and nothing else has intervened. */

@@ -573,6 +573,7 @@ class SessionManagerTest {
             HostVerificationGate(),
             gate,
             NoopSessionAlerts(context),
+            TailscaleManager(context),
         )
         manager.connectionFactory = { id ->
             FakeSshConnection(

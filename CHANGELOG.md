@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.14.3 - 2026-11-24
+
+### Fixed
+- **Embedded Tailscale startup panic on Android**: configure sandboxed `TS_LOGS_DIR`, `TMPDIR`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, and `HOME` directories inside app storage before `tsnet.Server.Start()`, fixing the `logpolicy.LogsDir` panic (`"no safe place found to store log state"`) when connecting on Android
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.2...1.14.3)
+
 ## 1.14.2 - 2026-11-24
 
 ### Improved

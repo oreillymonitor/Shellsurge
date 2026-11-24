@@ -92,6 +92,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -999,7 +1000,7 @@ private fun openBrowserUrl(
     url: String,
     uriHandler: UriHandler,
 ): Result<Unit> = runCatching {
-    val parsed = Uri.parse(url)
+    val parsed = url.toUri()
     val browsable = Intent(Intent.ACTION_VIEW, parsed).apply {
         addCategory(Intent.CATEGORY_BROWSABLE)
         if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

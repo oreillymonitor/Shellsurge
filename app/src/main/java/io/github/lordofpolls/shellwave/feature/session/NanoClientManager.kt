@@ -321,10 +321,7 @@ internal object NanoClientManager {
                     builder.enableThinking = true
                 }
                 if (diag.supportsSystemPrompt && diag.supportsPrefixCaching) {
-                    builder.promptPrefix = PromptPrefix(
-                        shouldCacheSystemInstruction = true,
-                        shouldCacheTools = false,
-                    )
+                    builder.promptPrefix = PromptPrefix(true, false)
                 }
                 return builder.build()
             }

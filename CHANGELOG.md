@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.13.1 - 2026-11-24
+
+### Fixed
+- Gemini Nano: eliminate few-shot prompt bleed in Prompt Polish, Shell cmd, and Terminal Digest by switching to zero-shot tag-delimited prompts and removing shared prefix caching across tasks
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.13.0...1.13.1)
+
 ## 1.13.0 - 2026-11-23
 
 ### New

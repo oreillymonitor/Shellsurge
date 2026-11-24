@@ -4,6 +4,7 @@ import io.github.lordofpolls.shellwave.core.prefs.NanoModelTier
 import io.github.lordofpolls.shellwave.core.prefs.NanoReleaseChannel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -35,6 +36,22 @@ class NanoClientManagerTest {
         assertEquals(
             "Gemini Nano (Fast/Stable)",
             formatModelLabel(null, NanoModelTier.FAST, NanoReleaseChannel.STABLE),
+        )
+    }
+
+    @Test
+    fun `unbounded Int MAX_VALUE token limit does not overflow char budget or wipe prompt`() {
+        assertNull(sanitizeTokenLimit(Int.MAX_VALUE))
+        assertNull(sanitizeTokenLimit(0))
+        assertEquals(4096, sanitizeTokenLimit(4096))
+
+        val maxTokens = computeMaxInputTokens(Int.MAX_VALUE, maxOutputTokens = 256)
+        val charBudget = computeMaxInputCharBudget(Int.MAX_VALUE, maxOutputTokens = 256)
+        assertEquals(32384, maxTokens)
+        assertTrue(charBudget > 0)
+        assertEquals(
+            "fix login timeout",
+            trimTailLinesToCharBudget("fix login timeout", charBudget),
         )
     }
 }

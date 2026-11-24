@@ -18,15 +18,19 @@ internal data class RefineResult(
 internal object PromptRefiner {
 
     internal val REFINE_SYSTEM_INSTRUCTION =
-        "You are a text editor. Rewrite the user's draft into clear, concise English. " +
-            "Remove spoken filler words, preserve every file path, identifier, flag, and slash command verbatim, " +
-            "and do not invent new steps or details. Reply with only the rewritten message."
+        "You are a technical editor. Polish and refine the user's draft into a clear, concise, well-structured instruction. " +
+            "Fix grammar and awkward phrasing, remove spoken filler words, use short bullet points if there are multiple tasks, " +
+            "preserve every file path, identifier, flag, and slash command verbatim, and do not invent new requirements. " +
+            "Reply with only the refined text."
 
     internal val SHELL_CMD_SYSTEM_INSTRUCTION =
         "Translate the user's task into one safe POSIX/Linux shell command. " +
             "Reply with only the raw one-line command, with no markdown, backticks, explanation, or leading $."
 
     private val ECHO_LEAK_PHRASES = listOf(
+        "you are a technical editor",
+        "polish and refine the user's draft",
+        "reply with only the refined text",
         "you are a text editor",
         "rewrite the user's",
         "rewrite this rough draft",
@@ -102,6 +106,7 @@ internal object PromptRefiner {
         if (labelMatch != null) {
             val precedingLower = cleaned.substring(0, labelMatch.range.first).trimStart().lowercase()
             val looksEchoedBlock = precedingLower.contains("original:") ||
+                precedingLower.startsWith("you are a technical editor") ||
                 precedingLower.startsWith("you are a text editor") ||
                 precedingLower.startsWith("rewrite") ||
                 precedingLower.startsWith("draft:")

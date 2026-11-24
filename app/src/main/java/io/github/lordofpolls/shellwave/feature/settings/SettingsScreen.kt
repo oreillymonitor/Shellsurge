@@ -304,7 +304,7 @@ fun SettingsScreen(
                             fontWeight = FontWeight.SemiBold,
                         )
                         if (diag?.status == FeatureStatus.AVAILABLE) {
-                            val tokenText = diag.tokenLimit?.let { "Context window: $it tokens" } ?: "Context window: default"
+                            val tokenText = diag.tokenLimit?.let { "Context window: $it tokens" } ?: "Context window: dynamic"
                             val featText = if (capabilities.isNotEmpty()) {
                                 " · Features: ${capabilities.joinToString(", ")}"
                             } else {

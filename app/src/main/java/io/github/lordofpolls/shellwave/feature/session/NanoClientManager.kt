@@ -38,6 +38,37 @@ internal data class NanoGenerationOutcome(
     val unavailableNotice: String?,
 )
 
+private const val MAX_SANE_TOKEN_LIMIT = 1_000_000
+private const val FALLBACK_UNBOUNDED_TOKEN_LIMIT = 32_768
+
+internal fun sanitizeTokenLimit(rawLimit: Int?): Int? =
+    rawLimit?.takeIf { it in 1..MAX_SANE_TOKEN_LIMIT }
+
+internal fun computeMaxInputTokens(
+    tokenLimit: Int?,
+    maxOutputTokens: Int,
+    defaultLimit: Int = 4096,
+): Int {
+    val effectiveLimit = when {
+        tokenLimit == null || tokenLimit <= 0 -> defaultLimit.toLong()
+        tokenLimit > MAX_SANE_TOKEN_LIMIT -> FALLBACK_UNBOUNDED_TOKEN_LIMIT.toLong()
+        else -> tokenLimit.toLong()
+    }
+    return (effectiveLimit - maxOutputTokens.toLong() - 128L)
+        .coerceAtLeast(512L)
+        .coerceAtMost(MAX_SANE_TOKEN_LIMIT.toLong())
+        .toInt()
+}
+
+internal fun computeMaxInputCharBudget(
+    tokenLimit: Int?,
+    maxOutputTokens: Int,
+    defaultLimit: Int = 4096,
+): Int =
+    (computeMaxInputTokens(tokenLimit, maxOutputTokens, defaultLimit).toLong() * 4L)
+        .coerceAtMost(Int.MAX_VALUE.toLong())
+        .toInt()
+
 internal fun trimTailLinesToCharBudget(text: String, maxChars: Int): String {
     if (maxChars <= 0) return ""
     if (text.length <= maxChars) return text
@@ -175,7 +206,7 @@ internal object NanoClientManager {
         status: Int,
     ): NanoDiagnostics {
         val baseModelName = runCatching { model.getBaseModelName() }.getOrNull()?.takeIf { it.isNotBlank() }
-        val tokenLimit = runCatching { model.getTokenLimit() }.getOrNull()?.takeIf { it > 0 }
+        val tokenLimit = sanitizeTokenLimit(runCatching { model.getTokenLimit() }.getOrNull())
         val supportsSystemPrompt = runCatching { model.isSystemPromptAvailable() }.getOrDefault(false)
         val supportsThinkingMode = runCatching { model.isThinkingModeAvailable() }.getOrDefault(false)
         val supportsPrefixCaching = runCatching { model.isCachingFeatureAvailable() }.getOrDefault(false)
@@ -301,8 +332,8 @@ internal object NanoClientManager {
                 diag.supportsThinkingMode &&
                 (context?.let { NanoModelPreferences.isThinkingModeEnabled(it) } ?: false)
 
-            val tokenLimit = diag.tokenLimit ?: DEFAULT_TOKEN_LIMIT
-            val maxInputTokens = (tokenLimit - maxOutputTokens - 128).coerceAtLeast(512)
+            val maxInputTokens = computeMaxInputTokens(diag.tokenLimit, maxOutputTokens, DEFAULT_TOKEN_LIMIT)
+            val initialCharBudget = computeMaxInputCharBudget(diag.tokenLimit, maxOutputTokens, DEFAULT_TOKEN_LIMIT)
 
             fun buildRequest(body: String): GenerateContentRequest {
                 val builder = if (diag.supportsSystemPrompt) {
@@ -323,14 +354,17 @@ internal object NanoClientManager {
             }
 
             // Trim input tail safely to fit inside the active Nano model's context window.
-            var boundedBody = trimTailLinesToCharBudget(userText, maxInputTokens * 4)
+            var boundedBody = trimTailLinesToCharBudget(userText, initialCharBudget)
             repeat(3) {
                 val tokenCount = runCatching {
                     model.countTokens(buildRequest(boundedBody)).totalTokens
                 }.getOrNull() ?: return@repeat
                 if (tokenCount <= maxInputTokens) return@repeat
                 val ratio = maxInputTokens.toDouble() / tokenCount.toDouble()
-                val nextBudget = (boundedBody.length * ratio * 0.90).toInt().coerceAtLeast(256)
+                val nextBudget = (boundedBody.length.toDouble() * ratio * 0.90)
+                    .toLong()
+                    .coerceIn(256L, Int.MAX_VALUE.toLong())
+                    .toInt()
                 boundedBody = trimTailLinesToCharBudget(boundedBody, nextBudget)
             }
 

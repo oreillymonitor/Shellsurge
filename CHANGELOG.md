@@ -1,6 +1,20 @@
 # Changelog
 
 
+## 1.12.0 - 2026-11-23
+
+### New
+- SFTP browser: move, copy, compress, multi-download, open-with, copy path, open folder in terminal, breadcrumb following, and back navigation through visited folders
+- Terminal: option to hide the key bar when a physical keyboard is attached (detected via `InputDevice` and configuration)
+- Terminal: show the server's pre-login SSH banner
+
+### Fixed
+- Physical keyboard: send `AltGr` characters properly
+- Navigation: leave the terminal screen when the last session closes
+- File transfer: report unverified uploads as failures and truncate on download
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.11.1...1.12.0)
+
 ## 1.11.1 - 2026-11-23
 
 ### Fixed

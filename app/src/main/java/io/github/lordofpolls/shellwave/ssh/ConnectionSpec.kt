@@ -16,4 +16,6 @@ data class ConnectionSpec(
     val hostId: Long?,
     val resilientSession: Boolean = false,
     val proxyHops: List<ProxyHop> = emptyList(),
+    val startupDirectory: String? = null,
+    val autoLaunchCommand: String? = null,
 )

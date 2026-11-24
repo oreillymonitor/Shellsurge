@@ -14,6 +14,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.ColorSchemeEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardEntity
 import io.github.lordofpolls.shellwave.core.db.entities.PortForwardType
 import io.github.lordofpolls.shellwave.core.prefs.AppearancePreferences
+import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SupportPreferences
 import io.github.lordofpolls.shellwave.service.SessionAlerts
@@ -702,6 +703,7 @@ constructor(
         // the wrong colours; it only affects how correct the very first rendered frame looks before
         // that live override lands.
         applyColorSchemeAsDefault(scheme)
+        val startup = entry.spec.hostId?.let { HostStartupPreferences.get(context, it) }
         try {
             entry.connection.connect(
                 entry.spec.hostname,
@@ -718,6 +720,8 @@ constructor(
                 transcriptRows = profile.scrollbackLines,
                 hops = entry.spec.proxyHops,
                 agentKeys = entry.agentKeys,
+                startupDirectory = entry.spec.startupDirectory ?: startup?.startupDirectory,
+                autoLaunchCommand = entry.spec.autoLaunchCommand ?: startup?.resolvedLaunchCommand,
             )
             if (entry.generation.get() == myGeneration) {
                 entry.status = SessionStatus.CONNECTED

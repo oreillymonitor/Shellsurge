@@ -188,6 +188,8 @@ private class FakeSshConnection(
         transcriptRows: Int?,
         hops: List<ProxyHop>,
         agentKeys: List<AgentKey>,
+        startupDirectory: String?,
+        autoLaunchCommand: String?,
     ) {
         agentKeysSeen = agentKeys
         connectStarted = true

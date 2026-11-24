@@ -97,6 +97,9 @@ import io.github.lordofpolls.shellwave.core.db.entities.decodeAgentKeyIds
 import io.github.lordofpolls.shellwave.core.db.entities.encodeAgentKeyIds
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
 import io.github.lordofpolls.shellwave.core.net.parseMacAddress
+import io.github.lordofpolls.shellwave.core.prefs.HostAutoLaunchPreset
+import io.github.lordofpolls.shellwave.core.prefs.HostStartupConfig
+import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
 import io.github.lordofpolls.shellwave.feature.keys.credentialLabel
 import io.github.lordofpolls.shellwave.feature.keys.keyDescription
 import io.github.lordofpolls.shellwave.feature.home.nextGroupColor
@@ -242,6 +245,12 @@ fun AddEditHostScreen(
     var username by rememberFormState(existing?.id) { existing?.username.orEmpty() }
     var requireBiometric by rememberFormState(existing?.id) { false }
     var resilientSession by rememberFormState(existing?.id) { existing?.resilientSession ?: false }
+    val initialStartup = remember(existing?.id) {
+        existing?.id?.let { HostStartupPreferences.get(activity, it) } ?: HostStartupConfig()
+    }
+    var startupDirectory by rememberFormState(existing?.id) { initialStartup.startupDirectory.orEmpty() }
+    var autoLaunchPreset by rememberFormState(existing?.id) { initialStartup.autoLaunchPreset }
+    var customAutoLaunchCommand by rememberFormState(existing?.id) { initialStartup.customCommand.orEmpty() }
     var macAddress by rememberFormState(existing?.id) { existing?.macAddress.orEmpty() }
     var agentForwarding by rememberFormState(existing?.id) { existing?.agentForwarding ?: false }
     var agentKeyIds by rememberFormState(existing?.id) {
@@ -625,7 +634,7 @@ fun AddEditHostScreen(
                             }
                     }
                 val now = System.currentTimeMillis()
-                if (existing == null) {
+                val savedHostId = if (existing == null) {
                     hostDao.insert(
                         HostEntity(
                             label = label.ifBlank { null },
@@ -668,7 +677,17 @@ fun AddEditHostScreen(
                             agentKeyIdsJson = encodeAgentKeyIds(agentKeyIds),
                         ),
                     )
+                    existing.id
                 }
+                HostStartupPreferences.save(
+                    activity,
+                    savedHostId,
+                    HostStartupConfig(
+                        startupDirectory = startupDirectory.trim().ifBlank { null },
+                        autoLaunchPreset = autoLaunchPreset,
+                        customCommand = customAutoLaunchCommand.trim().ifBlank { null },
+                    ),
+                )
                 onDone()
             } catch (e: Exception) {
                 error = e.message ?: "Failed to save host"
@@ -749,7 +768,7 @@ fun AddEditHostScreen(
     }
 
     fun hasUnsavedChanges(): Boolean =
-        existing.formFields() != HostFormFields(
+        existing.formFields(initialStartup) != HostFormFields(
             label = label,
             hostname = hostname,
             port = port,
@@ -757,6 +776,9 @@ fun AddEditHostScreen(
             groupId = groupId,
             color = color,
             resilientSession = resilientSession,
+            startupDirectory = startupDirectory,
+            autoLaunchPreset = autoLaunchPreset,
+            customAutoLaunchCommand = customAutoLaunchCommand,
             macAddress = macAddress,
             agentForwarding = agentForwarding,
             agentKeyIds = agentKeyIds.toSet(),
@@ -1211,6 +1233,61 @@ fun AddEditHostScreen(
 
                     SettingsCardDivider()
 
+                    OutlinedTextField(
+                        value = startupDirectory,
+                        onValueChange = { startupDirectory = it },
+                        label = { Text("Startup directory (optional)") },
+                        placeholder = { Text("e.g. ~/projects/app") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.None,
+                            autoCorrectEnabled = false,
+                            keyboardType = KeyboardType.Uri,
+                        ),
+                        supportingText = {
+                            Text("Runs cd to this directory automatically when connecting.")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    PickerRow(
+                        title = "Auto-launch on connect",
+                        value = {
+                            if (autoLaunchPreset == HostAutoLaunchPreset.NONE) {
+                                DimText(autoLaunchPreset.label)
+                            } else {
+                                Text(autoLaunchPreset.label)
+                            }
+                        },
+                    ) { dismiss ->
+                        HostAutoLaunchPreset.entries.forEach { preset ->
+                            DropdownMenuItem(
+                                text = { Text(preset.label) },
+                                onClick = { autoLaunchPreset = preset; dismiss() },
+                            )
+                        }
+                    }
+                    DimText(
+                        "Launches automatically after connecting (or when starting a new tmux " +
+                            "session; reattaching an existing tmux session won't re-run it).",
+                    )
+                    if (autoLaunchPreset == HostAutoLaunchPreset.CUSTOM) {
+                        OutlinedTextField(
+                            value = customAutoLaunchCommand,
+                            onValueChange = { customAutoLaunchCommand = it },
+                            label = { Text("Custom startup command") },
+                            placeholder = { Text("e.g. claude --resume") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
+                                autoCorrectEnabled = false,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    SettingsCardDivider()
+
                     // Excludes this host itself - an immediate one-host cycle is the only case cheap to
                     // rule out.
                     val jumpHost = allHosts.firstOrNull { it.id == proxyJumpHostId }
@@ -1505,6 +1582,9 @@ private data class HostFormFields(
     val groupId: Long?,
     val color: Int?,
     val resilientSession: Boolean,
+    val startupDirectory: String,
+    val autoLaunchPreset: HostAutoLaunchPreset,
+    val customAutoLaunchCommand: String,
     val macAddress: String,
     val agentForwarding: Boolean,
     val agentKeyIds: Set<Long>,
@@ -1512,7 +1592,7 @@ private data class HostFormFields(
     val proxyJumpHostId: Long?,
 )
 
-private fun HostEntity?.formFields() = HostFormFields(
+private fun HostEntity?.formFields(startup: HostStartupConfig) = HostFormFields(
     label = this?.label.orEmpty(),
     hostname = this?.hostname.orEmpty(),
     port = (this?.port ?: 22).toString(),
@@ -1520,6 +1600,9 @@ private fun HostEntity?.formFields() = HostFormFields(
     groupId = this?.groupId,
     color = this?.color,
     resilientSession = this?.resilientSession ?: false,
+    startupDirectory = startup.startupDirectory.orEmpty(),
+    autoLaunchPreset = startup.autoLaunchPreset,
+    customAutoLaunchCommand = startup.customCommand.orEmpty(),
     macAddress = this?.macAddress.orEmpty(),
     agentForwarding = this?.agentForwarding ?: false,
     agentKeyIds = this?.let { decodeAgentKeyIds(it.agentKeyIdsJson).toSet() }.orEmpty(),

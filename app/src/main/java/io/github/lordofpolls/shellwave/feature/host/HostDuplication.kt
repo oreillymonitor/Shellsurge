@@ -34,7 +34,7 @@ suspend fun duplicateHost(
     terminalProfileDao: TerminalProfileDao,
     colorSchemeDao: ColorSchemeDao,
     portForwardDao: PortForwardDao,
-) {
+): Long {
     val newHost = host.copy(
         id = 0,
         label = "${host.label ?: host.hostname} (copy)",
@@ -64,4 +64,5 @@ suspend fun duplicateHost(
         )
     }
     assets.portForwards.forEach { portForwardDao.insert(it) }
+    return newHostId
 }

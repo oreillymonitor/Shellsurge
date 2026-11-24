@@ -16,6 +16,7 @@ import com.termux.terminal.TerminalSessionClient
 import io.github.lordofpolls.shellwave.R
 import io.github.lordofpolls.shellwave.core.prefs.BellMode
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
+import io.github.lordofpolls.shellwave.core.util.posixQuote
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -75,6 +76,74 @@ private const val BELL_VIBRATION_MS = 150L
 internal const val RESILIENT_SESSION_BOOTSTRAP =
     "command -v tmux >/dev/null 2>&1 && exec tmux new -A -s shellsurge || " +
             "echo '[shellsurge] tmux not found on this host - staying in a plain shell.'"
+
+/**
+ * POSIX-quotes a per-host startup directory while expanding leading `~` via `"$HOME"`.
+ */
+internal fun quoteStartupDirectory(dir: String): String? {
+    val clean = dir.replace("\r", "").replace("\n", "").trim()
+    if (clean.isEmpty()) return null
+    return when {
+        clean == "~" -> "\"\$HOME\""
+        clean.startsWith("~/") -> "\"\$HOME\"/" + posixQuote(clean.removePrefix("~/"))
+        else -> posixQuote(clean)
+    }
+}
+
+/**
+ * Builds the first-line shell command combining optional resilient tmux attachment, startup
+ * directory change, and auto-launch command. Returns null when nothing needs to run on connect.
+ */
+internal fun buildStartupBootstrap(
+    resilientSession: Boolean,
+    startupDirectory: String?,
+    autoLaunchCommand: String?,
+): String? {
+    val quotedDir = startupDirectory?.let(::quoteStartupDirectory)
+    val launchCmd = autoLaunchCommand
+        ?.replace("\r", "")
+        ?.replace("\n", "")
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+
+    if (!resilientSession) {
+        return when {
+            quotedDir != null && launchCmd != null -> "cd $quotedDir && $launchCmd"
+            quotedDir != null -> "cd $quotedDir"
+            launchCmd != null -> launchCmd
+            else -> null
+        }
+    }
+
+    if (quotedDir == null && launchCmd == null) {
+        return RESILIENT_SESSION_BOOTSTRAP
+    }
+
+    val fallbackBody = when {
+        quotedDir != null && launchCmd != null -> "cd $quotedDir && $launchCmd"
+        quotedDir != null -> "cd $quotedDir"
+        else -> launchCmd!!
+    }
+    val fallbackClause =
+        "{ echo '[shellsurge] tmux not found on this host - staying in a plain shell.'; $fallbackBody; }"
+
+    val tmuxNewClause = buildString {
+        if (quotedDir != null) append("cd $quotedDir && ")
+        if (launchCmd != null) {
+            append("tmux new -d -s shellsurge && ")
+            append("tmux send-keys -t shellsurge -l ${posixQuote(launchCmd)} && ")
+            append("tmux send-keys -t shellsurge C-m && ")
+            append("exec tmux attach -t shellsurge")
+        } else {
+            append("exec tmux new -s shellsurge")
+        }
+    }
+
+    return "if command -v tmux >/dev/null 2>&1; then " +
+        "if tmux has-session -t shellsurge 2>/dev/null; then exec tmux attach -t shellsurge; " +
+        "else $tmuxNewClause; fi; " +
+        "else $fallbackClause; fi"
+}
 
 /**
  * One SSH connection driving one [TerminalEmulator]. Owns the sshj session and shell plus the
@@ -269,6 +338,8 @@ open class SshConnection(
         transcriptRows: Int? = null,
         hops: List<ProxyHop> = emptyList(),
         agentKeys: List<AgentKey> = emptyList(),
+        startupDirectory: String? = null,
+        autoLaunchCommand: String? = null,
     ) {
         cursorStyleOverride = cursorStyle
         withContext(Dispatchers.IO) {
@@ -319,8 +390,8 @@ open class SshConnection(
                     emulator.append(banner, banner.size)
                 }
 
-                if (resilientSession) {
-                    val bootstrap = (RESILIENT_SESSION_BOOTSTRAP + "\n").toByteArray(Charsets.UTF_8)
+                buildStartupBootstrap(resilientSession, startupDirectory, autoLaunchCommand)?.let { line ->
+                    val bootstrap = (line + "\n").toByteArray(Charsets.UTF_8)
                     newShell.outputStream.write(bootstrap)
                     newShell.outputStream.flush()
                 }

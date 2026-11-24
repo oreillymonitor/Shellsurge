@@ -73,6 +73,7 @@ import io.github.lordofpolls.shellwave.core.net.HostReachabilityProbe
 import io.github.lordofpolls.shellwave.core.net.sendMagicPacket
 import io.github.lordofpolls.shellwave.core.prefs.AppearancePreferences
 import io.github.lordofpolls.shellwave.core.prefs.AutomationPreferences
+import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SupportPreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
@@ -844,19 +845,24 @@ class MainActivity : FragmentActivity() {
                                             },
                                             onDeleteHost = { host ->
                                                 scope.launch {
-                                                    deleteHostWithCleanup(host, hostDao, credentialDao)
-                                                        ?.let { scriptRunController.reportError(it, title = "Couldn't delete host") }
+                                                    val blocked = deleteHostWithCleanup(host, hostDao, credentialDao)
+                                                    if (blocked != null) {
+                                                        scriptRunController.reportError(blocked, title = "Couldn't delete host")
+                                                    } else {
+                                                        HostStartupPreferences.clear(this@MainActivity, host.id)
+                                                    }
                                                 }
                                             },
                                             onDuplicateHost = { host ->
                                                 scope.launch {
-                                                    duplicateHost(
+                                                    val newHostId = duplicateHost(
                                                         host,
                                                         hostDao,
                                                         terminalProfileDao,
                                                         colorSchemeDao,
                                                         portForwardDao,
                                                     )
+                                                    HostStartupPreferences.copy(this@MainActivity, host.id, newHostId)
                                                 }
                                             },
                                             onWakeHost = { host ->

@@ -42,6 +42,7 @@ import io.github.lordofpolls.shellwave.ui.design.LocalReadableInset
  * points here if that isn't true yet.
  */
 internal const val SOURCE_REPOSITORY_URL = "https://github.com/oreillymonitor/Shellsurge"
+internal const val UPSTREAM_SHELLWAVE_URL = "https://github.com/LordOfPolls/shellwave"
 
 /**
  * A literal and not read out of NOTICE at runtime: unlike the licence and attribution text below,

@@ -595,11 +595,17 @@ fun SettingsScreen(
 
             // 6. SUPPORT
             SettingsGroupCard(title = "Support", icon = Icons.Outlined.FavoriteBorder) {
+                Text(
+                    text = "ShellSurge is a fork of Shellwave. If you find this app useful, please support the original developer of Shellwave.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingsCardDivider()
                 SettingsRow(
-                    title = "GitHub",
-                    description = SOURCE_REPOSITORY_URL,
+                    title = "Support Shellwave",
+                    description = UPSTREAM_SHELLWAVE_URL,
                     chevron = true,
-                    onClick = { runCatching { uriHandler.openUri(SOURCE_REPOSITORY_URL) } },
+                    onClick = { runCatching { uriHandler.openUri(UPSTREAM_SHELLWAVE_URL) } },
                 )
                 if (supporterState != SupporterState.Unavailable) {
                     SettingsCardDivider()

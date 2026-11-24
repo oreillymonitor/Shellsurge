@@ -1,6 +1,20 @@
 # Changelog
 
 
+## 1.13.0 - 2026-11-23
+
+### New
+- Notifications: add inline **Yes** / **No** quick actions and **Reply** (`RemoteInput`) direct input to command/agent notifications
+- Terminal tabs: show live `RUNNING`, `COMPLETED`, and `RESPONSE_NEEDED` status badges on `SessionChipRail`
+- Auto-digest: automatically summarize tabs that finish while away when returning to them (with a toggle in Settings)
+- Agent Digest: detect numbered CLI approval menus (`1. Allow once`, `2. Allow for session`, etc.) beyond `[y/N]` and stream live Gemini Nano summaries
+- Prompt Composer: add **Shell cmd** mode (natural language → POSIX command), **Undo** transform restore, **Image** photo-picker SFTP upload (`/tmp/shellsurge-*`), and agent-aware voice slash macros (`/model` vs `/models`, `/diff`, `/review`, `/clear`, `/undo`)
+- Mobile Git Diff & Status sheet: inspect branch, changed files, color-coded diff hunks, jump to SFTP edit, or ask your agent to review changes
+- Terminal links: tap compiler/stacktrace file paths (`path/to/File.kt:142`) to **Ask Agent** to fix, **Edit** in the remote text editor, **Download**, or **Copy**
+- On-Device AI (Gemini Nano): add Settings card showing active model name, context token limit, capabilities, **Download / Warm up / Refresh** actions, **Full vs Fast** preference, **Stable vs Preview** channel, **Thinking mode**, and **Pre-warm on session open**, backed by tuned sampling, few-shot prompts, prefix caching, and token-budget trimming
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.12.0...1.13.0)
+
 ## 1.12.0 - 2026-11-23
 
 ### New

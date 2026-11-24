@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.14.7 - 2026-11-24
+
+### Fixed
+- **Persistent `known_hosts` trust over Embedded Tailscale**: override `getPort()` and `getRemoteSocketAddress()` on `TailscaleSocks5Socket` to report the actual SSH target port (e.g., `22`) instead of the ephemeral local SOCKS5 proxy port, so trusted hosts are not re-prompted after every app restart or update
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.6...1.14.7)
+
 ## 1.14.6 - 2026-11-24
 
 ### Fixed

@@ -103,5 +103,26 @@ class AgentDigestModelTest {
         assertEquals(3, result.quickActions.size)
         assertEquals("1", result.quickActions[0].sendText)
         assertEquals("3", result.quickActions[2].sendText)
+        assertEquals("Approval needed", result.headlineFact)
+    }
+
+    @Test
+    fun `extractTerminalFacts pulls headline, first error, and touched files`() {
+        val buildOutput = """
+            > Task :app:compileFossDebugKotlin FAILED
+            Diff app/MainActivity.kt (+10/-2)
+            e: app/MainActivity.kt:142:9 Unresolved reference 'foo'
+            BUILD FAILED in 8s
+        """.trimIndent()
+
+        val facts = AgentDigestModel.extractTerminalFacts(buildOutput)
+        assertTrue(facts.isError)
+        assertEquals("app/MainActivity.kt:142:9 Unresolved reference 'foo'", facts.firstError)
+        assertTrue(facts.touchedFiles.contains("app/MainActivity.kt"))
+        assertTrue(facts.headlineFact?.contains("BUILD FAILED") == true)
+
+        val fallback = AgentDigestModel.fallbackAnalyze(buildOutput)
+        assertEquals(facts.firstError, fallback.firstError)
+        assertEquals(facts.touchedFiles, fallback.touchedFiles)
     }
 }

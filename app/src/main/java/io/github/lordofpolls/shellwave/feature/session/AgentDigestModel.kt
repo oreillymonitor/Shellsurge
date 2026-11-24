@@ -1,6 +1,7 @@
 package io.github.lordofpolls.shellwave.feature.session
 
 import android.content.Context
+import io.github.lordofpolls.shellwave.terminal.TerminalTextSanitizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -18,42 +19,207 @@ data class AgentDigestResult(
     val quickActions: List<DigestQuickAction> = emptyList(),
     val isError: Boolean = false,
     val usedAi: Boolean = false,
+    val headlineFact: String? = null,
+    val touchedFiles: List<String> = emptyList(),
+    val firstError: String? = null,
+)
+
+internal data class TerminalFacts(
+    val headlineFact: String? = null,
+    val firstError: String? = null,
+    val touchedFiles: List<String> = emptyList(),
+    val pendingQuestion: String? = null,
+    val quickActions: List<DigestQuickAction> = emptyList(),
+    val isYesNoPrompt: Boolean = false,
+    val isError: Boolean = false,
 )
 
 /**
- * On-device terminal output digest engine using Gemini Nano via Android AICore / ML Kit GenAI,
- * with an intelligent fallback analyzer for local command & agent outputs.
+ * On-device terminal output digest engine combining deterministic TUI parsing & fact extraction
+ * with compact 1-2 sentence Gemini Nano narration, plus an intelligent rule-based fallback.
  */
 internal object AgentDigestModel {
     internal val DIGEST_SYSTEM_INSTRUCTION = """
-        Summarize ONLY the terminal output inside <terminal>...</terminal> in 2 to 3 crisp spoken sentences.
-        State what actually ran, succeeded, or failed, any files or errors explicitly shown in <terminal>, and whether it is waiting on confirmation.
-        Never invent commands, files, or test results not shown in <terminal>.
-        Use zero greetings, intros, markdown formatting, labels, or XML tags.
+        Write 1 to 2 short spoken sentences explaining what just happened based ONLY on <facts> and <turn>.
+        State the concrete outcome, error cause, or action awaiting approval.
+        Never invent files, commands, or test results not shown in <facts> or <turn>.
+        Use zero greetings, bullet points, markdown formatting, labels, or XML tags.
     """.trimIndent()
+
+    private val YES_NO_REGEX = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
+    private val PROMPT_LINE_REGEX = Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯➜%]\\s*$")
+    private val DIFF_SUMMARY_REGEX = Regex("^Diff\\s+(.+?)\\s+\\(\\+\\d+/-\\d+\\)$")
+    private val TOUCHED_VERB_REGEX = Regex(
+        "(?i)\\b(?:edited|modified|updated|created|wrote|written|deleted|removed|edit|write|read)\\b\\s+[`\"']?((?:[\\w.-]+/)*[\\w.-]+\\.[a-zA-Z0-9]{1,8})[`\"']?"
+    )
+    private val COMPILER_FILE_REGEX = Regex(
+        "(?:^|[\\s(\"'`])((?:[\\w./-]+/)*[\\w.-]+\\.(?:kt|kts|java|py|ts|tsx|js|jsx|rs|go|c|cc|cpp|h|hpp|rb|php|cs|swift|sh|yaml|yml|json|toml|xml|md|gradle|sql|css|scss|html))(?::\\d+)?"
+    )
+    private val OUTCOME_FACT_REGEX = Regex(
+        "(?i)(BUILD SUCCESSFUL[^\\n]*|BUILD FAILED[^\\n]*|\\d+\\s+tests?\\s+(?:completed|passed|failed)[^\\n]*|All\\s+\\d+\\s+tests\\s+passed[^\\n]*|\\d+\\s+passed(?:,\\s*\\d+\\s+failed)?[^\\n]*|Tests run:[^\\n]*)"
+    )
+
+    internal fun extractTerminalFacts(cleanedTurn: String): TerminalFacts {
+        val allLines = cleanedTurn.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (allLines.isEmpty()) return TerminalFacts()
+
+        val meaningful = allLines.filter { !PROMPT_LINE_REGEX.matches(it) }
+        val pool = if (meaningful.isNotEmpty()) meaningful else allLines
+
+        val numberedActions = extractNumberedOptions(cleanedTurn)
+        val tail8 = pool.takeLast(8)
+        val yesNoLine = tail8.lastOrNull { YES_NO_REGEX.containsMatchIn(it) }
+        val isYesNoPrompt = yesNoLine != null
+
+        val pendingQuestion: String? = when {
+            numberedActions.isNotEmpty() -> {
+                allLines.dropLast(numberedActions.size).lastOrNull { line ->
+                    !PROMPT_LINE_REGEX.matches(line) && (
+                        line.endsWith("?") ||
+                            line.contains("allow", ignoreCase = true) ||
+                            line.contains("approve", ignoreCase = true) ||
+                            line.contains("choose", ignoreCase = true) ||
+                            line.contains("select", ignoreCase = true) ||
+                            line.startsWith("Bash(", ignoreCase = true) ||
+                            line.startsWith("Edit(", ignoreCase = true) ||
+                            line.startsWith("Write(", ignoreCase = true)
+                        )
+                } ?: "Choose an option:"
+            }
+            yesNoLine != null -> {
+                YES_NO_REGEX.replace(yesNoLine, "").trim().removeSuffix("?") + "?"
+            }
+            else -> {
+                pool.takeLast(2).lastOrNull { line ->
+                    line.endsWith("?") ||
+                        line.contains("confirm", ignoreCase = true) ||
+                        line.contains("approve", ignoreCase = true) ||
+                        line.contains("would you like", ignoreCase = true) ||
+                        line.contains("do you want", ignoreCase = true)
+                }
+            }
+        }
+
+        // Prefer detailed compiler/runtime error lines over generic "BUILD FAILED in Xs" lines.
+        val errorCandidates = pool.filter { line ->
+            line.startsWith("e: ") ||
+                line.contains("error:", ignoreCase = true) ||
+                line.contains("Exception:", ignoreCase = true) ||
+                line.contains("AssertionError", ignoreCase = true) ||
+                line.contains("FAILURE:", ignoreCase = true) ||
+                line.contains("fatal:", ignoreCase = true) ||
+                line.contains("Traceback", ignoreCase = true) ||
+                line.contains("SyntaxError", ignoreCase = true) ||
+                line.contains("TypeError", ignoreCase = true) ||
+                line.contains("BUILD FAILED", ignoreCase = true) ||
+                line.contains("FAILURES!!!", ignoreCase = true)
+        }
+        val specificError = errorCandidates.lastOrNull { !it.startsWith("BUILD FAILED", ignoreCase = true) }
+            ?: errorCandidates.lastOrNull()
+        val firstError = specificError?.removePrefix("e: ")?.trim()?.take(140)
+
+        var outcomeFact: String? = null
+        for (line in pool.takeLast(12).reversed()) {
+            val match = OUTCOME_FACT_REGEX.find(line)
+            if (match != null) {
+                outcomeFact = match.groupValues[1].trim()
+                break
+            }
+        }
+        if (outcomeFact == null) {
+            outcomeFact = pool.takeLast(6).lastOrNull { line ->
+                line.contains("committed", ignoreCase = true) ||
+                    line.contains("pushed", ignoreCase = true) ||
+                    line.contains("up to date", ignoreCase = true)
+            }?.take(80)
+        }
+
+        val files = LinkedHashSet<String>()
+        for (line in allLines) {
+            DIFF_SUMMARY_REGEX.matchEntire(line)?.let { files.add(it.groupValues[1]) }
+            for (m in TOUCHED_VERB_REGEX.findAll(line)) {
+                files.add(m.groupValues[1])
+            }
+            for (m in COMPILER_FILE_REGEX.findAll(line)) {
+                files.add(m.groupValues[1])
+            }
+        }
+        val touchedFiles = files.take(4)
+
+        val isError = firstError != null || outcomeFact?.contains("FAIL", ignoreCase = true) == true
+        val isApprovalMenu = numberedActions.isNotEmpty() || (
+            pendingQuestion != null && (
+                pendingQuestion.contains("allow", ignoreCase = true) ||
+                    pendingQuestion.contains("approve", ignoreCase = true) ||
+                    pendingQuestion.contains("permission", ignoreCase = true)
+                )
+            )
+        val headlineFact = when {
+            isApprovalMenu -> "Approval needed"
+            pendingQuestion != null -> "Waiting for input"
+            outcomeFact != null -> outcomeFact.take(80)
+            isError -> "Command failed"
+            touchedFiles.isNotEmpty() -> "Updated ${touchedFiles.size} file${if (touchedFiles.size == 1) "" else "s"}"
+            else -> null
+        }
+
+        return TerminalFacts(
+            headlineFact = headlineFact,
+            firstError = firstError,
+            touchedFiles = touchedFiles,
+            pendingQuestion = pendingQuestion,
+            quickActions = numberedActions,
+            isYesNoPrompt = isYesNoPrompt,
+            isError = isError,
+        )
+    }
 
     suspend fun analyzeTerminalTail(
         sanitizedOutput: String,
         context: Context? = null,
         onPartialText: ((String) -> Unit)? = null,
     ): AgentDigestResult = withContext(Dispatchers.IO) {
-        val trimmed = sanitizedOutput.trim()
-        if (trimmed.isBlank()) {
+        val rawTrimmed = sanitizedOutput.trim()
+        if (rawTrimmed.isBlank()) {
             return@withContext AgentDigestResult(
                 spokenSummary = "Terminal is idle with no recent output.",
                 hasQuestion = false,
             )
         }
 
-        val detectedActions = extractNumberedOptions(trimmed)
+        val cleanedTurn = TerminalTextSanitizer.cleanForDigest(rawTrimmed, maxLines = 60)
+            .ifBlank { rawTrimmed }
+        val facts = extractTerminalFacts(cleanedTurn)
+
+        val factsBlock = buildString {
+            facts.headlineFact?.let { appendLine("headline: $it") }
+            facts.firstError?.let { appendLine("error: $it") }
+            if (facts.touchedFiles.isNotEmpty()) appendLine("files: ${facts.touchedFiles.joinToString(", ")}")
+            facts.pendingQuestion?.let { appendLine("waiting_on: $it") }
+            if (facts.quickActions.isNotEmpty()) {
+                appendLine("options: ${facts.quickActions.joinToString("; ") { it.label }}")
+            }
+        }.trim()
+
+        val turnSnippet = cleanedTurn.lines().takeLast(28).joinToString("\n")
+        val promptInput = buildString {
+            if (factsBlock.isNotEmpty()) {
+                appendLine("<facts>")
+                appendLine(factsBlock)
+                appendLine("</facts>")
+            }
+            appendLine("<turn>")
+            appendLine(turnSnippet)
+            append("</turn>")
+        }
 
         val outcome = NanoClientManager.generateText(
             context = context,
             systemInstruction = DIGEST_SYSTEM_INSTRUCTION,
-            userText = "<terminal>\n$trimmed\n</terminal>",
-            temperature = 0.15f,
-            topK = 12,
-            maxOutputTokens = 160,
+            userText = promptInput,
+            temperature = 0.1f,
+            topK = 10,
+            maxOutputTokens = 110,
             allowThinking = false,
             onPartialText = onPartialText,
         )
@@ -61,19 +227,29 @@ internal object AgentDigestModel {
         val rawResponse = outcome.text
         if (!rawResponse.isNullOrBlank()) {
             val structured = extractStructuredResult(rawResponse)
-            return@withContext if (detectedActions.isNotEmpty()) {
-                structured.copy(
-                    usedAi = true,
-                    hasQuestion = true,
-                    quickActions = detectedActions,
-                )
-            } else {
-                structured.copy(usedAi = true)
+            val hasQuestion = facts.pendingQuestion != null ||
+                facts.quickActions.isNotEmpty() ||
+                facts.isYesNoPrompt
+            val quickOptions = when {
+                facts.quickActions.isNotEmpty() -> facts.quickActions.map { it.label }
+                hasQuestion -> listOf("Yes", "No")
+                else -> emptyList()
             }
+            return@withContext structured.copy(
+                hasQuestion = hasQuestion,
+                question = facts.pendingQuestion,
+                quickOptions = quickOptions,
+                quickActions = facts.quickActions,
+                isError = facts.isError || structured.isError,
+                usedAi = true,
+                headlineFact = facts.headlineFact,
+                touchedFiles = facts.touchedFiles,
+                firstError = facts.firstError,
+            )
         }
 
         // Fallback to intelligent rule-based extractor
-        fallbackAnalyze(trimmed)
+        fallbackAnalyzeWithFacts(cleanedTurn, facts)
     }
 
     /**
@@ -182,7 +358,10 @@ internal object AgentDigestModel {
         }
     }
 
-    internal fun fallbackAnalyze(output: String): AgentDigestResult {
+    internal fun fallbackAnalyze(output: String): AgentDigestResult =
+        fallbackAnalyzeWithFacts(output, extractTerminalFacts(output))
+
+    private fun fallbackAnalyzeWithFacts(output: String, facts: TerminalFacts): AgentDigestResult {
         val allLines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
         if (allLines.isEmpty()) {
             return AgentDigestResult(
@@ -191,66 +370,61 @@ internal object AgentDigestModel {
             )
         }
 
-        val numberedActions = extractNumberedOptions(output)
+        val numberedActions = facts.quickActions.ifEmpty { extractNumberedOptions(output) }
         if (numberedActions.isNotEmpty()) {
-            val promptHeader = allLines
-                .dropLast(numberedActions.size)
-                .lastOrNull { it.endsWith("?") || it.contains("allow", ignoreCase = true) || it.contains("choose", ignoreCase = true) || it.contains("select", ignoreCase = true) }
-            val headline = promptHeader ?: "Choose an option:"
+            val headline = facts.pendingQuestion ?: "Choose an option:"
             return AgentDigestResult(
-                spokenSummary = "The agent is waiting for your selection: $headline ${numberedActions.joinToString(", ") { it.label }}.",
+                spokenSummary = "Waiting for selection: $headline ${numberedActions.joinToString(", ") { it.label }}.",
                 hasQuestion = true,
                 question = headline,
                 quickOptions = numberedActions.map { it.label },
                 quickActions = numberedActions,
-                isError = false,
+                isError = facts.isError,
                 usedAi = false,
+                headlineFact = facts.headlineFact ?: "Approval needed",
+                touchedFiles = facts.touchedFiles,
+                firstError = facts.firstError,
             )
         }
 
-        // Identify shell prompt lines (e.g., user@host:~$ or ending with $, #, >)
-        val promptRegex = Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯%]\\s*$")
         val meaningfulLines = allLines.filter { line ->
-            !promptRegex.matches(line) && !line.endsWith("$") && !line.endsWith("#") && !line.endsWith(">")
+            !PROMPT_LINE_REGEX.matches(line) && !line.endsWith("$") && !line.endsWith("#") && !line.endsWith(">")
         }
 
         val analysisPool = if (meaningfulLines.isNotEmpty()) meaningfulLines else allLines
         val lastFew = analysisPool.takeLast(12)
 
         // 1. Detect pending prompt questions (e.g. [y/N], (y/n), or trailing question)
-        val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
         val questionLine = lastFew.lastOrNull { line ->
-            yesNoRegex.containsMatchIn(line) || line.endsWith("?") || line.contains("confirm", ignoreCase = true)
+            YES_NO_REGEX.containsMatchIn(line) || line.endsWith("?") || line.contains("confirm", ignoreCase = true)
         }
 
         if (questionLine != null) {
-            val cleanQuestion = yesNoRegex.replace(questionLine, "").trim().removeSuffix("?") + "?"
+            val cleanQuestion = YES_NO_REGEX.replace(questionLine, "").trim().removeSuffix("?") + "?"
             return AgentDigestResult(
-                spokenSummary = "The agent has completed its current step and is waiting for your confirmation: $cleanQuestion. Please review the proposal before proceeding. Would you like to proceed?",
+                spokenSummary = "Waiting for your confirmation: $cleanQuestion",
                 hasQuestion = true,
                 question = cleanQuestion,
                 quickOptions = listOf("Yes", "No"),
-                isError = false,
+                isError = facts.isError,
                 usedAi = false,
+                headlineFact = facts.headlineFact ?: "Waiting for input",
+                touchedFiles = facts.touchedFiles,
+                firstError = facts.firstError,
             )
         }
 
         // 2. Detect error or failure
-        val failureLine = lastFew.lastOrNull { line ->
-            line.contains("BUILD FAILED", ignoreCase = true) ||
-                line.contains("FAILURES!!!", ignoreCase = true) ||
-                line.contains("FAILURE:", ignoreCase = true) ||
-                line.contains("error:", ignoreCase = true) ||
-                line.contains("Exception:", ignoreCase = true) ||
-                line.contains("fatal:", ignoreCase = true)
-        }
-        if (failureLine != null) {
-            val cleanError = failureLine.removePrefix("e: ").trim()
+        if (facts.isError || facts.firstError != null) {
+            val cleanError = facts.firstError ?: "Execution failed"
             return AgentDigestResult(
-                spokenSummary = "The command execution failed with an error: $cleanError. The terminal reported a failure during this task. Please inspect the recent error trace or run with debug flags to troubleshoot.",
+                spokenSummary = "Command failed: $cleanError",
                 hasQuestion = false,
                 isError = true,
                 usedAi = false,
+                headlineFact = facts.headlineFact ?: "Command failed",
+                touchedFiles = facts.touchedFiles,
+                firstError = cleanError,
             )
         }
 
@@ -259,6 +433,7 @@ internal object AgentDigestModel {
             line.contains("BUILD SUCCESSFUL", ignoreCase = true) ||
                 line.contains("Tests run:", ignoreCase = true) ||
                 line.contains("passed in", ignoreCase = true) ||
+                line.contains("all tests passed", ignoreCase = true) ||
                 line.contains("up to date", ignoreCase = true) ||
                 line.contains("done", ignoreCase = true) ||
                 line.contains("completed", ignoreCase = true) ||
@@ -267,10 +442,13 @@ internal object AgentDigestModel {
         }
         if (successLine != null) {
             return AgentDigestResult(
-                spokenSummary = "Agent completed task successfully: $successLine. All build steps and operations finished cleanly without errors. The terminal is back at the shell prompt ready for your next instruction.",
+                spokenSummary = "Completed successfully: $successLine.",
                 hasQuestion = false,
                 isError = false,
                 usedAi = false,
+                headlineFact = facts.headlineFact,
+                touchedFiles = facts.touchedFiles,
+                firstError = null,
             )
         }
 
@@ -278,17 +456,19 @@ internal object AgentDigestModel {
         if (meaningfulLines.isNotEmpty()) {
             val summaryText = meaningfulLines.takeLast(2).joinToString(". ")
             return AgentDigestResult(
-                spokenSummary = "Latest agent activity recorded: $summaryText. The background operation has concluded its phase. The session is active and waiting for your next input.",
+                spokenSummary = summaryText,
                 hasQuestion = false,
                 isError = false,
                 usedAi = false,
+                headlineFact = facts.headlineFact,
+                touchedFiles = facts.touchedFiles,
+                firstError = null,
             )
         }
 
         // True idle prompt
-        val lastPrompt = allLines.lastOrNull() ?: "idle"
         return AgentDigestResult(
-            spokenSummary = "Terminal is idle at the command prompt. No background processes or agent actions are currently running. Enter a command or launch an agent to begin.",
+            spokenSummary = "Terminal is idle at the command prompt.",
             hasQuestion = false,
             isError = false,
             usedAi = false,

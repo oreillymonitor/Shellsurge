@@ -601,7 +601,7 @@ internal fun SessionTabBody(
         streamingDigestText = null
         activePromptSignature = null
         activeDigest = null
-        val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 100)
+        val tail = TerminalTextSanitizer.extractTurnForDigest(emulator, maxLines = 60)
         coroutineScope.launch {
             try {
                 val result = AgentDigestModel.analyzeTerminalTail(
@@ -767,7 +767,7 @@ internal fun SessionTabBody(
             }
             if (signature != null) {
                 if (signature != dismissedPromptSignature) {
-                    val tail = TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 60)
+                    val tail = TerminalTextSanitizer.extractTurnForDigest(emulator, maxLines = 50)
                     val result = AgentDigestModel.analyzeTerminalTail(tail, context = localContext)
                     activePromptSignature = signature
                     activeDigest = result
@@ -1336,6 +1336,16 @@ internal fun SessionTabBody(
                         dismissedPromptSignature = activePromptSignature
                         activeDigest = null
                         voiceEngine.stopListening()
+                    },
+                    onFileClick = { filePath ->
+                        detectedLink = TerminalLink(
+                            type = LinkType.PATH,
+                            text = filePath,
+                            startCol = 0,
+                            endCol = 0,
+                            row = 0,
+                            sourceLine = digest.firstError,
+                        )
                     },
                 )
             }

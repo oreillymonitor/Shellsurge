@@ -105,4 +105,38 @@ class TerminalTextSanitizerTest {
         val result3 = AgentDigestModel.extractStructuredResult(quoted)
         assertEquals("Gradle task :app:assembleDebug finished in 14 seconds.", result3.spokenSummary)
     }
+
+    @Test
+    fun cleanForDigestStripsTuiChromeCollapsesDiffsAndSlicesLatestTurn() {
+        val raw = """
+            user@dev:~/repo$ git status
+            nothing to commit
+            user@dev:~/repo$ ./gradlew test
+            ╭───────────────────────────────────────╮
+            │ Running tests on app module           │
+            ╰───────────────────────────────────────╯
+            [=====>     ] 55%
+            [main] 0:bash*                     22:14
+            diff --git a/app/Foo.kt b/app/Foo.kt
+            index 111..222 100644
+            --- a/app/Foo.kt
+            +++ b/app/Foo.kt
+            @@ -1,2 +1,3 @@
+             fun ok() {}
+            +fun added() {}
+            -fun removed() {}
+            ? for shortcuts  |  shift+tab to accept edits
+            All 42 tests passed cleanly
+        """.trimIndent()
+
+        val cleaned = TerminalTextSanitizer.cleanForDigest(raw)
+        assertFalse(cleaned.contains("nothing to commit"))
+        assertFalse(cleaned.contains("? for shortcuts"))
+        assertFalse(cleaned.contains("[=====>"))
+        assertFalse(cleaned.contains("[main] 0:bash*"))
+        assertFalse(cleaned.contains("╭"))
+        assertTrue(cleaned.contains("Running tests on app module"))
+        assertTrue(cleaned.contains("Diff app/Foo.kt (+1/-1)"))
+        assertTrue(cleaned.contains("All 42 tests passed cleanly"))
+    }
 }

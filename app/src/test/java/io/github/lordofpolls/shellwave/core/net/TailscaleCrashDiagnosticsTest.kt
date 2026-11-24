@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import io.github.lordofpolls.shellwave.core.prefs.FakeSharedPreferences
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -61,8 +62,9 @@ class TailscaleCrashDiagnosticsTest {
             IllegalStateException("boom from test"),
         )
 
-        val report = TailscaleCrashDiagnostics.readLastCrashReport(ctx)!!
-        assertTrue(report.contains("1:load_library_gojni"))
+        val report = TailscaleCrashDiagnostics.readLastCrashReport(ctx)
+        assertNotNull(report)
+        assertTrue(report!!.contains("1:load_library_gojni"))
         assertTrue(report.contains("IllegalStateException: boom from test"))
 
         TailscaleCrashDiagnostics.dismissCrashReport(ctx)

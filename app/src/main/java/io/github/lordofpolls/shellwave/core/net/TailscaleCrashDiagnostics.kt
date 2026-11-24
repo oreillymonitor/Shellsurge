@@ -95,12 +95,16 @@ object TailscaleCrashDiagnostics {
         }
 
         val pageSize = runCatching { Os.sysconf(OsConstants._SC_PAGESIZE) }.getOrNull()
+        val abis = Build.SUPPORTED_ABIS
+            ?.takeIf { it.isNotEmpty() }
+            ?.joinToString(", ")
+            ?: "unknown"
 
         return buildString {
             appendLine("=== ShellSurge Crash Diagnostics ===")
             appendLine("App: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} / Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
-            appendLine("ABIs: ${Build.SUPPORTED_ABIS.joinToString(", ")} | PageSize: ${pageSize ?: "unknown"}")
+            appendLine("ABIs: $abis | PageSize: ${pageSize ?: "unknown"}")
             ktStage?.let { appendLine("Kotlin stage: $it") }
             goStage?.let { appendLine("Go stage: $it") }
             if (goPanic != null) {

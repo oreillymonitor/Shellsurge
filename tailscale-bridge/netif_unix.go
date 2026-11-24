@@ -175,7 +175,13 @@ func parseAndroidInterfacesJSON(raw string) ([]netmon.Interface, string) {
 	return out, inferredDefault
 }
 
-func listInterfaces() ([]netmon.Interface, error) {
+func listInterfaces() (res []netmon.Interface, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = nil
+			retErr = fmt.Errorf("listInterfaces panic: %v", r)
+		}
+	}()
 	androidNetMu.RLock()
 	cached := slices.Clone(androidInterfaces)
 	androidNetMu.RUnlock()

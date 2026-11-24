@@ -100,6 +100,7 @@ import com.google.mlkit.genai.common.FeatureStatus
 import io.github.lordofpolls.shellwave.BuildConfig
 import io.github.lordofpolls.shellwave.core.billing.SupporterState
 import io.github.lordofpolls.shellwave.core.billing.SupporterTier
+import io.github.lordofpolls.shellwave.core.net.TailscaleCrashDiagnostics
 import io.github.lordofpolls.shellwave.core.net.TailscaleManager
 import io.github.lordofpolls.shellwave.core.prefs.AgentCli
 import io.github.lordofpolls.shellwave.core.prefs.AgentCliPreferences
@@ -1042,6 +1043,7 @@ private fun TailscaleSettingsCard(
     var pendingBrowserSignIn by rememberSaveable { mutableStateOf(false) }
     var lastAutoOpenedUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var browserLaunchError by remember { mutableStateOf<String?>(null) }
+    var crashReport by remember { mutableStateOf(TailscaleCrashDiagnostics.readLastCrashReport(context)) }
 
     LaunchedEffect(status.authUrl, status.state, pendingBrowserSignIn) {
         if (status.isRunning || !status.isActive) {
@@ -1149,6 +1151,65 @@ private fun TailscaleSettingsCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
+                }
+            }
+        }
+
+        crashReport?.let { report ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Previous crash log",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    MachineText(
+                        text = report,
+                        maxLines = 10,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    clipboard.setClipEntry(
+                                        ClipEntry(
+                                            ClipData.newPlainText(
+                                                "ShellSurge Tailscale crash log",
+                                                report,
+                                            ),
+                                        ),
+                                    )
+                                }
+                                Toast.makeText(context, "Crash log copied", Toast.LENGTH_SHORT).show()
+                            },
+                        ) {
+                            Icon(
+                                Icons.Outlined.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(ButtonDefaults.IconSize),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy crash log")
+                        }
+                        TextButton(
+                            onClick = {
+                                TailscaleCrashDiagnostics.dismissCrashReport(context)
+                                crashReport = null
+                            },
+                        ) {
+                            Text("Dismiss")
+                        }
+                    }
                 }
             }
         }

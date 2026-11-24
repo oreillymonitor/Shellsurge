@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -51,6 +53,7 @@ type Node struct {
 	proxyPass string
 	cancel    context.CancelFunc
 
+	stateDir       string
 	state          string
 	authURL        string
 	selfHostname   string
@@ -60,6 +63,35 @@ type Node struct {
 	lastError      string
 	detail         string
 	loginStarted   bool
+}
+
+func writeStageFile(stateDir, stage string) {
+	if stateDir == "" {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(stateDir, "go_stage.txt"), []byte(stage+"\n"), 0o600)
+}
+
+func writePanicFile(stateDir, where string, r any) string {
+	msg := fmt.Sprintf("panic in %s: %v", where, r)
+	if stateDir != "" {
+		body := msg + "\n" + string(debug.Stack())
+		_ = os.WriteFile(filepath.Join(stateDir, "go_panic.txt"), []byte(body), 0o600)
+	}
+	return msg
+}
+
+func (n *Node) currentStateDir() string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.stateDir
+}
+
+func (n *Node) handleRecovered(where string, r any) string {
+	dir := n.currentStateDir()
+	msg := writePanicFile(dir, where, r)
+	n.setError(msg)
+	return msg
 }
 
 func NewNode() *Node {
@@ -76,17 +108,28 @@ func randomHexToken(numBytes int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func (n *Node) Start(stateDir, hostname, authKey, controlURL string) error {
+func (n *Node) Start(stateDir, hostname, authKey, controlURL string) (retErr error) {
+	cleanDir := strings.TrimSpace(stateDir)
+	defer func() {
+		if r := recover(); r != nil {
+			msg := writePanicFile(cleanDir, "Node.Start", r)
+			n.setError(msg)
+			retErr = errors.New(msg)
+		}
+	}()
 	if err := n.Stop(); err != nil {
 		return err
 	}
-	cleanDir := strings.TrimSpace(stateDir)
 	if cleanDir == "" {
 		return errors.New("stateDir is required")
 	}
+	writeStageFile(cleanDir, "go:mkdir")
 	if err := os.MkdirAll(cleanDir, 0o700); err != nil {
 		return fmt.Errorf("create stateDir: %w", err)
 	}
+	n.mu.Lock()
+	n.stateDir = cleanDir
+	n.mu.Unlock()
 	cleanHost := strings.TrimSpace(hostname)
 	if cleanHost == "" {
 		cleanHost = "shellsurge"
@@ -103,12 +146,14 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) error {
 		return fmt.Errorf("generate proxy password: %w", err)
 	}
 
+	writeStageFile(cleanDir, "go:tsnet_start")
 	srv := &tsnet.Server{
 		Dir:        cleanDir,
 		Hostname:   cleanHost,
 		AuthKey:    cleanAuthKey,
 		ControlURL: cleanControlURL,
 		Logf:       n.handleTsnetLog,
+		UserLogf:   n.handleTsnetLog,
 	}
 	if err := srv.Start(); err != nil {
 		_ = srv.Close()
@@ -116,6 +161,7 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) error {
 		return fmt.Errorf("start tsnet server: %w", err)
 	}
 
+	writeStageFile(cleanDir, "go:local_client")
 	lc, err := srv.LocalClient()
 	if err != nil {
 		_ = srv.Close()
@@ -123,6 +169,7 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) error {
 		return fmt.Errorf("get tsnet local client: %w", err)
 	}
 
+	writeStageFile(cleanDir, "go:socks5")
 	proxy, err := startSocks5Server(u, p, srv.Dial)
 	if err != nil {
 		_ = srv.Close()
@@ -150,6 +197,7 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) error {
 	n.loginStarted = false
 	n.mu.Unlock()
 
+	writeStageFile(cleanDir, "go:watch_bus")
 	go n.watchBus(ctx, lc, cleanAuthKey != "")
 	return nil
 }
@@ -183,6 +231,11 @@ func (n *Node) handleTsnetLog(format string, args ...any) {
 }
 
 func (n *Node) watchBus(ctx context.Context, lc *local.Client, hasAuthKey bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			n.handleRecovered("Node.watchBus", r)
+		}
+	}()
 	go n.pollAuthStatus(ctx, lc, hasAuthKey)
 
 	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialNetMap)
@@ -273,6 +326,11 @@ func (n *Node) watchBus(ctx context.Context, lc *local.Client, hasAuthKey bool) 
 }
 
 func (n *Node) pollAuthStatus(ctx context.Context, lc *local.Client, hasAuthKey bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			n.handleRecovered("Node.pollAuthStatus", r)
+		}
+	}()
 	ticker := time.NewTicker(1200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -292,6 +350,11 @@ func (n *Node) pollAuthStatus(ctx context.Context, lc *local.Client, hasAuthKey 
 }
 
 func (n *Node) syncStatusFromLocalClient(ctx context.Context, lc *local.Client, hasAuthKey bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			n.handleRecovered("Node.syncStatusFromLocalClient", r)
+		}
+	}()
 	sCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	st, err := lc.StatusWithoutPeers(sCtx)
@@ -362,7 +425,12 @@ func (n *Node) syncStatusFromLocalClient(ctx context.Context, lc *local.Client, 
 	}
 }
 
-func (n *Node) Stop() error {
+func (n *Node) Stop() (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = errors.New(n.handleRecovered("Node.Stop", r))
+		}
+	}()
 	n.mu.Lock()
 	cancel := n.cancel
 	proxy := n.proxy
@@ -399,7 +467,12 @@ func (n *Node) Stop() error {
 	return err
 }
 
-func (n *Node) Logout() error {
+func (n *Node) Logout() (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = errors.New(n.handleRecovered("Node.Logout", r))
+		}
+	}()
 	n.mu.Lock()
 	lc := n.lc
 	n.mu.Unlock()
@@ -413,11 +486,21 @@ func (n *Node) Logout() error {
 }
 
 func (n *Node) UpdateNetwork(defaultIface, gatewayIP, interfacesJSON string) {
+	defer func() {
+		if r := recover(); r != nil {
+			n.handleRecovered("Node.UpdateNetwork", r)
+		}
+	}()
 	UpdateAndroidNetwork(defaultIface, gatewayIP, interfacesJSON)
 	n.NotifyNetworkChanged()
 }
 
 func (n *Node) NotifyNetworkChanged() {
+	defer func() {
+		if r := recover(); r != nil {
+			n.handleRecovered("Node.NotifyNetworkChanged", r)
+		}
+	}()
 	n.mu.Lock()
 	lc := n.lc
 	n.mu.Unlock()
@@ -453,7 +536,12 @@ func (n *Node) ProxyPassword() string {
 	return n.proxyPass
 }
 
-func (n *Node) StatusJSON() string {
+func (n *Node) StatusJSON() (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = `{"state":"Error"}`
+		}
+	}()
 	n.mu.Lock()
 	snap := nodeStatusSnapshot{
 		State:          n.state,
@@ -478,7 +566,12 @@ func (n *Node) StatusJSON() string {
 	return string(raw)
 }
 
-func (n *Node) PeersJSON() string {
+func (n *Node) PeersJSON() (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = "[]"
+		}
+	}()
 	n.mu.Lock()
 	lc := n.lc
 	n.mu.Unlock()

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -298,5 +300,29 @@ func TestParseAndroidInterfacesJSONAndOverride(t *testing.T) {
 	androidNetMu.RUnlock()
 	if defIf != "wlan0" {
 		t.Fatalf("expected inferred default interface wlan0, got %q", defIf)
+	}
+}
+
+func TestWriteStageAndPanicFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeStageFile(dir, "go:tsnet_start")
+	stageBytes, err := os.ReadFile(filepath.Join(dir, "go_stage.txt"))
+	if err != nil {
+		t.Fatalf("read go_stage.txt: %v", err)
+	}
+	if strings.TrimSpace(string(stageBytes)) != "go:tsnet_start" {
+		t.Fatalf("unexpected go_stage.txt: %q", string(stageBytes))
+	}
+
+	msg := writePanicFile(dir, "TestCase", "boom")
+	if !strings.Contains(msg, "panic in TestCase: boom") {
+		t.Fatalf("unexpected panic msg: %q", msg)
+	}
+	panicBytes, err := os.ReadFile(filepath.Join(dir, "go_panic.txt"))
+	if err != nil {
+		t.Fatalf("read go_panic.txt: %v", err)
+	}
+	if !strings.Contains(string(panicBytes), "panic in TestCase: boom") {
+		t.Fatalf("unexpected go_panic.txt: %q", string(panicBytes))
 	}
 }

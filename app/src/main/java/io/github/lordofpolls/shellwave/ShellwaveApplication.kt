@@ -6,6 +6,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import dagger.hilt.android.HiltAndroidApp
 import io.github.lordofpolls.shellwave.core.net.HostReachabilityProbe
+import io.github.lordofpolls.shellwave.core.net.TailscaleCrashDiagnostics
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.Security
 import javax.inject.Inject
@@ -28,6 +29,11 @@ class ShellwaveApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            TailscaleCrashDiagnostics.recordUncaughtException(this, thread.name, throwable)
+            previousHandler?.uncaughtException(thread, throwable)
+        }
         Security.removeProvider("BC")
         Security.insertProviderAt(BouncyCastleProvider(), 1)
 

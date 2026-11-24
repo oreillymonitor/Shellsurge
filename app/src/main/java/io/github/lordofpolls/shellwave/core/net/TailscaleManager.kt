@@ -165,6 +165,32 @@ internal class GomobileTailscaleNodeClient private constructor(
     companion object {
         private const val BRIDGE_CLASS = "io.github.lordofpolls.shellwave.tailscale.tsbridge.Tsbridge"
 
+        fun tryCreate(context: Context): Result<TailscaleNodeClient> =
+            runCatching {
+                TailscaleCrashDiagnostics.recordStage(context, "1:load_library_gojni")
+                System.loadLibrary("gojni")
+
+                TailscaleCrashDiagnostics.recordStage(context, "2:seq_init")
+                val seqClass = Class.forName("go.Seq")
+
+                TailscaleCrashDiagnostics.recordStage(context, "3:seq_set_context")
+                runCatching {
+                    seqClass.getMethod("setContext", Context::class.java)
+                        .invoke(null, context.applicationContext)
+                }
+
+                TailscaleCrashDiagnostics.recordStage(context, "4:tsbridge_init")
+                val bridgeClass = Class.forName(BRIDGE_CLASS)
+
+                TailscaleCrashDiagnostics.recordStage(context, "5:new_node")
+                val newNode = bridgeClass.getMethod("newNode")
+                val node = newNode.invoke(null)
+                    ?: error("Tsbridge.newNode() returned null")
+                GomobileTailscaleNodeClient(node)
+            }.onFailure { e ->
+                Log.e(TAG, "Failed to initialize embedded Tailscale node", e)
+            }
+
         fun tryCreate(): TailscaleNodeClient? =
             try {
                 val bridgeClass = Class.forName(BRIDGE_CLASS)
@@ -239,7 +265,14 @@ constructor(
     private val mutex = Mutex()
 
     @VisibleForTesting
-    internal var nodeFactory: () -> TailscaleNodeClient? = { GomobileTailscaleNodeClient.tryCreate() }
+    internal var nodeFactory: () -> TailscaleNodeClient? = {
+        val result = GomobileTailscaleNodeClient.tryCreate(context)
+        lastNodeCreateError = result.exceptionOrNull()?.let { "${it::class.java.simpleName}: ${it.message}" }
+        result.getOrNull()
+    }
+
+    @Volatile
+    private var lastNodeCreateError: String? = null
 
     @Volatile
     private var activeNode: TailscaleNodeClient? = null
@@ -260,13 +293,15 @@ constructor(
                 return@withContext Result.success(Unit)
             }
             val node = activeNode ?: nodeFactory() ?: run {
+                val errMsg = lastNodeCreateError
+                    ?: "Embedded Tailscale library is not bundled in this build."
                 val unavailable = TailscaleStatus(
                     state = "Unavailable",
-                    lastError = "Embedded Tailscale library is not bundled in this build.",
-                    libraryAvailable = false,
+                    lastError = errMsg,
+                    libraryAvailable = lastNodeCreateError != null,
                 )
                 _status.value = unavailable
-                return@withContext Result.failure(IllegalStateException(unavailable.lastError))
+                return@withContext Result.failure(IllegalStateException(errMsg))
             }
 
             return@withContext runCatching {
@@ -277,15 +312,20 @@ constructor(
                     detail = null,
                     libraryAvailable = true,
                 )
+                TailscaleCrashDiagnostics.recordStage(context, "6:collect_and_update_network")
                 pushNetworkSnapshot(node)
                 val hostname = TailscalePreferences.getHostname(context)
                 val controlUrl = TailscalePreferences.getControlUrl(context)
+                TailscaleCrashDiagnostics.recordStage(context, "7:node_start")
                 node.start(stateDir().absolutePath, hostname, authKey.trim(), controlUrl)
                 activeNode = node
                 lastLoadedRunningPeers = false
+                TailscaleCrashDiagnostics.recordStage(context, "8:sync_snapshot")
                 syncSnapshot(node)
                 startPolling(node)
+                TailscaleCrashDiagnostics.recordStage(context, "9:polling_started")
             }.onFailure { err ->
+                TailscaleCrashDiagnostics.recordStage(context, "start_failed:${err::class.java.simpleName}")
                 _status.value = _status.value.copy(
                     state = "Stopped",
                     lastError = err.message ?: "Failed to start Tailscale node",

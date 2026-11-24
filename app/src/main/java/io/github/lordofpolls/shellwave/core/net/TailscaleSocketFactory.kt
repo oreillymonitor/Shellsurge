@@ -73,7 +73,7 @@ internal class TailscaleSocks5Socket(
     override fun connect(endpoint: SocketAddress, timeout: Int) {
         val target = endpoint as? InetSocketAddress
             ?: throw IOException("Unsupported SocketAddress for Tailscale SOCKS5: $endpoint")
-        val targetHost = target.hostString?.trim()?.takeIf { it.isNotEmpty() }
+        val targetHost = target.hostString?.trim()?.removeSuffix(".")?.takeIf { it.isNotEmpty() }
             ?: throw IOException("Missing target host for Tailscale connection")
         val targetPort = target.port
         val connectTimeout = if (timeout > 0) timeout else DEFAULT_CONNECT_TIMEOUT_MS
@@ -159,7 +159,12 @@ internal fun performSocks5Handshake(
     val replyHeader = readExactBytes(input, 4)
     val rep = replyHeader[1].toInt() and 0xFF
     if (rep != 0x00) {
-        throw IOException("Tailscale proxy connection failed (SOCKS5 code $rep)")
+        val reason = when (rep) {
+            0x04 -> "host unreachable or MagicDNS lookup failed for $targetHost"
+            0x05 -> "connection refused by $targetHost:$targetPort"
+            else -> "SOCKS5 code $rep"
+        }
+        throw IOException("Tailscale proxy connection failed ($reason)")
     }
     when (val atyp = replyHeader[3].toInt() and 0xFF) {
         SOCKS5_ATYP_IPV4 -> readExactBytes(input, 4 + 2)

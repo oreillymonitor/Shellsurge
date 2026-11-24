@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,8 +15,10 @@ import (
 	"sync"
 	"testing"
 
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/logpolicy"
 	"tailscale.com/net/netmon"
+	"tailscale.com/types/key"
 )
 
 func TestSocks5IPv4ConnectAndEcho(t *testing.T) {
@@ -345,5 +348,34 @@ func TestConfigureSandboxEnvPreventsLogsDirPanic(t *testing.T) {
 	want := filepath.Join(dir, "logs")
 	if got != want {
 		t.Fatalf("logpolicy.LogsDir = %q, want %q", got, want)
+	}
+}
+
+func TestResolvePeerIPFromStatus(t *testing.T) {
+	st := &ipnstate.Status{
+		Peer: map[key.NodePublic]*ipnstate.PeerStatus{
+			key.NewNode().Public(): {
+				HostName: "devbox",
+				DNSName:  "devbox.tail1234.ts.net.",
+				TailscaleIPs: []netip.Addr{
+					netip.MustParseAddr("fd7a:115c:a1e0::1"),
+					netip.MustParseAddr("100.64.0.9"),
+				},
+			},
+		},
+	}
+
+	for _, query := range []string{
+		"devbox",
+		"DEVBOX",
+		"devbox.tail1234.ts.net",
+		"devbox.tail1234.ts.net.",
+	} {
+		if ip := resolvePeerIPFromStatus(st, query); ip != "100.64.0.9" {
+			t.Fatalf("resolvePeerIPFromStatus(%q) = %q, want 100.64.0.9", query, ip)
+		}
+	}
+	if ip := resolvePeerIPFromStatus(st, "unrelated.example.com"); ip != "" {
+		t.Fatalf("expected empty IP for unrelated host, got %q", ip)
 	}
 }

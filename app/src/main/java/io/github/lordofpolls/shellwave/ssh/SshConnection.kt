@@ -180,7 +180,7 @@ open class SshConnection(
     private val onBellNotify: (() -> Unit)? = null,
 ) : TerminalOutput() {
 
-    private val ssh = SSHClient()
+    private val ssh: SSHClient = ShellwaveSshClient()
     private var session: Session? = null
     @Volatile
     private var shell: Session.Shell? = null

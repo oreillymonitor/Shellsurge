@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -17,6 +18,7 @@ import (
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
 )
 
@@ -198,7 +200,9 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) (retErr err
 	}
 
 	writeStageFile(cleanDir, "go:socks5")
-	proxy, err := startSocks5Server(u, p, srv.Dial)
+	proxy, err := startSocks5Server(u, p, func(dialCtx context.Context, network, addr string) (net.Conn, error) {
+		return dialTarget(dialCtx, srv, lc, network, addr)
+	})
 	if err != nil {
 		_ = srv.Close()
 		n.setError(err.Error())
@@ -646,4 +650,74 @@ func (n *Node) PeersJSON() (out string) {
 		return "[]"
 	}
 	return string(raw)
+}
+
+func dialTarget(ctx context.Context, srv *tsnet.Server, lc *local.Client, network, addr string) (net.Conn, error) {
+	conn, err := srv.Dial(ctx, network, addr)
+	if err == nil || lc == nil {
+		return conn, err
+	}
+
+	host, port, splitErr := net.SplitHostPort(addr)
+	if splitErr != nil {
+		return nil, err
+	}
+	cleanHost := strings.TrimSuffix(strings.TrimSpace(host), ".")
+	if cleanHost == "" || net.ParseIP(cleanHost) != nil {
+		return nil, err
+	}
+
+	stCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	st, stErr := lc.Status(stCtx)
+	cancel()
+	if stErr != nil || st == nil {
+		return nil, err
+	}
+
+	peerIP := resolvePeerIPFromStatus(st, cleanHost)
+	if peerIP == "" {
+		return nil, err
+	}
+	return srv.Dial(ctx, network, net.JoinHostPort(peerIP, port))
+}
+
+func resolvePeerIPFromStatus(st *ipnstate.Status, host string) string {
+	if st == nil {
+		return ""
+	}
+	target := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	if target == "" {
+		return ""
+	}
+	for _, p := range st.Peer {
+		if p == nil {
+			continue
+		}
+		if peerMatchesHost(p.HostName, p.DNSName, target) {
+			for _, ip := range p.TailscaleIPs {
+				if ip.Is4() {
+					return ip.String()
+				}
+			}
+			if len(p.TailscaleIPs) > 0 {
+				return p.TailscaleIPs[0].String()
+			}
+		}
+	}
+	return ""
+}
+
+func peerMatchesHost(hostName, dnsName, target string) bool {
+	if strings.ToLower(strings.TrimSpace(hostName)) == target {
+		return true
+	}
+	cleanDNS := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(dnsName), "."))
+	if cleanDNS == "" {
+		return false
+	}
+	if cleanDNS == target {
+		return true
+	}
+	shortDNS, _, _ := strings.Cut(cleanDNS, ".")
+	return shortDNS != "" && shortDNS == target
 }

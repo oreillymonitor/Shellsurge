@@ -74,7 +74,7 @@ internal fun connectChainAndAuthenticate(
     try {
         var previous: SSHClient? = null
         for (hop in hops) {
-            val client = SSHClient()
+            val client: SSHClient = ShellwaveSshClient()
             val prev = previous
             if (prev == null) {
                 connectAndAuthenticate(

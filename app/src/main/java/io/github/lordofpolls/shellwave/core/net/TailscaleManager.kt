@@ -397,6 +397,18 @@ constructor(
 
     open fun isRunning(): Boolean = _status.value.isRunning
 
+    open fun matchesKnownPeer(hostname: String): Boolean {
+        val clean = hostname.trim().lowercase().removeSuffix(".")
+        if (clean.isEmpty()) return false
+        return _peers.value.any { peer ->
+            val dns = peer.dnsName.trim().lowercase().removeSuffix(".")
+            val shortDns = dns.substringBefore('.')
+            peer.hostName.trim().lowercase() == clean ||
+                (dns.isNotEmpty() && dns == clean) ||
+                (shortDns.isNotEmpty() && shortDns == clean)
+        }
+    }
+
     open fun socketFactory(): SocketFactory? {
         val node = activeNode ?: return null
         val snap = _status.value

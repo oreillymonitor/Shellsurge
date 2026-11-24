@@ -135,6 +135,7 @@ class TailscaleManagerTest {
         val mgr = TailscaleManager(TestTailscaleContext(dir))
         val fakeNode = FakeTailscaleNodeClient(
             statusJsonValue = """{"state":"Running","selfIp":"100.64.0.5","proxyPort":44444}""",
+            peersJsonValue = """[{"id":"p1","hostName":"workstation","dnsName":"workstation.tail1234.ts.net.","ips":["100.64.0.9"],"os":"linux","online":true,"sshHostKeys":true}]""",
             portValue = 44444,
         )
         mgr.nodeFactory = { fakeNode }
@@ -142,6 +143,10 @@ class TailscaleManagerTest {
         val ok = mgr.ensureRunning(timeoutMs = 1_000L)
         assertTrue(ok.isSuccess)
         assertNotNull(ok.getOrNull())
+        mgr.refreshPeers()
+        assertTrue(mgr.matchesKnownPeer("workstation"))
+        assertTrue(mgr.matchesKnownPeer("WORKSTATION.tail1234.ts.net."))
+        assertFalse(mgr.matchesKnownPeer("unknown.example.com"))
         assertTrue(fakeNode.updateNetworkCount >= 1)
         mgr.notifyNetworkChanged()
         assertEquals(1, fakeNode.networkChangedCount)

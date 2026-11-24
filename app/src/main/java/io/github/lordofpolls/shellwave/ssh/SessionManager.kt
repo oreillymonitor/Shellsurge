@@ -18,6 +18,7 @@ import io.github.lordofpolls.shellwave.core.net.NetworkHandoffMonitor
 import io.github.lordofpolls.shellwave.core.net.TailscaleManager
 import io.github.lordofpolls.shellwave.core.prefs.AppearancePreferences
 import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
+import io.github.lordofpolls.shellwave.core.prefs.HostTailscaleConfig
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.core.prefs.SupportPreferences
@@ -201,11 +202,20 @@ constructor(
     @Volatile
     internal var onNetworkChangedListener: (() -> Unit)? = { tailscaleManager.notifyNetworkChanged() }
 
+    private fun shouldUseTailscaleFor(spec: ConnectionSpec, hostTs: HostTailscaleConfig?): Boolean {
+        if (spec.useTailscale || hostTs?.useTailscale == true) return true
+        if (tailscaleManager.isRunning()) {
+            return TailscalePreferences.looksLikeTailscaleHost(spec.hostname) ||
+                tailscaleManager.matchesKnownPeer(spec.hostname)
+        }
+        return TailscalePreferences.isEnabled(context) &&
+            TailscalePreferences.isAutoStartEnabled(context) &&
+            TailscalePreferences.looksLikeTailscaleHost(spec.hostname)
+    }
+
     private fun isTailscaleEntry(entry: Entry): Boolean {
         val hostTs = entry.spec.hostId?.let { TailscalePreferences.getHostConfig(context, it) }
-        return entry.spec.useTailscale ||
-            (hostTs?.useTailscale == true) ||
-            (tailscaleManager.isRunning() && TailscalePreferences.looksLikeTailscaleHost(entry.spec.hostname))
+        return shouldUseTailscaleFor(entry.spec, hostTs)
     }
 
     private val networkHandoffMonitor = NetworkHandoffMonitor(
@@ -732,9 +742,7 @@ constructor(
         applyColorSchemeAsDefault(scheme)
         val startup = entry.spec.hostId?.let { HostStartupPreferences.get(context, it) }
         val hostTs = entry.spec.hostId?.let { TailscalePreferences.getHostConfig(context, it) }
-        val shouldUseTailscale = entry.spec.useTailscale ||
-            (hostTs?.useTailscale == true) ||
-            (tailscaleManager.isRunning() && TailscalePreferences.looksLikeTailscaleHost(entry.spec.hostname))
+        val shouldUseTailscale = shouldUseTailscaleFor(entry.spec, hostTs)
         val effectiveAuth = if (entry.spec.useTailscaleSsh ||
             (hostTs?.useTailscale == true && hostTs.useTailscaleSsh)
         ) {

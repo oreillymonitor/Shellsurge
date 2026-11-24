@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,6 +31,8 @@ const (
 
 	repSuccess             = 0x00
 	repGeneralFailure      = 0x01
+	repHostUnreachable     = 0x04
+	repConnectionRefused   = 0x05
 	repCommandNotSupported = 0x07
 	repAtypNotSupported    = 0x08
 )
@@ -207,7 +210,7 @@ func (s *socks5Server) handleConn(client net.Conn) {
 		if _, err := io.ReadFull(client, domain); err != nil {
 			return
 		}
-		host = string(domain)
+		host = strings.TrimSuffix(strings.TrimSpace(string(domain)), ".")
 	case atypIPv6:
 		var ip [16]byte
 		if _, err := io.ReadFull(client, ip[:]); err != nil {
@@ -230,7 +233,17 @@ func (s *socks5Server) handleConn(client net.Conn) {
 	remote, err := s.dial(dialCtx, "tcp", target)
 	dialCancel()
 	if err != nil {
-		_, _ = client.Write([]byte{socks5Version, repGeneralFailure, 0x00, atypIPv4, 0, 0, 0, 0, 0, 0})
+		repCode := byte(repGeneralFailure)
+		errLower := strings.ToLower(err.Error())
+		switch {
+		case strings.Contains(errLower, "connection refused"):
+			repCode = repConnectionRefused
+		case strings.Contains(errLower, "no such host") ||
+			strings.Contains(errLower, "unreachable") ||
+			strings.Contains(errLower, "lookup"):
+			repCode = repHostUnreachable
+		}
+		_, _ = client.Write([]byte{socks5Version, repCode, 0x00, atypIPv4, 0, 0, 0, 0, 0, 0})
 		return
 	}
 	defer remote.Close()

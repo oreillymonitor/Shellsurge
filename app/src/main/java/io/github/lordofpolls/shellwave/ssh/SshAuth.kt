@@ -1,5 +1,6 @@
 package io.github.lordofpolls.shellwave.ssh
 
+import io.github.lordofpolls.shellwave.core.net.TailscaleSocketFactory
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.connection.channel.direct.DirectConnection
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
@@ -7,7 +8,22 @@ import net.schmizz.sshj.userauth.keyprovider.KeyProvider
 import net.schmizz.sshj.userauth.method.AuthKeyboardInteractive
 import net.schmizz.sshj.userauth.method.AuthNone
 import net.schmizz.sshj.userauth.password.PasswordUtils
+import java.net.InetSocketAddress
 import javax.net.SocketFactory
+
+/**
+ * [SSHClient] subclass that avoids eager local DNS resolution in `SocketClient.connect`
+ * whenever [TailscaleSocketFactory] is active, passing unresolved MagicDNS hostnames directly
+ * through to the embedded `tsnet` SOCKS5 proxy.
+ */
+internal class ShellwaveSshClient : SSHClient() {
+    public override fun makeInetSocketAddress(hostname: String, port: Int): InetSocketAddress =
+        if (socketFactory is TailscaleSocketFactory) {
+            InetSocketAddress.createUnresolved(hostname.trim().removeSuffix("."), port)
+        } else {
+            super.makeInetSocketAddress(hostname, port)
+        }
+}
 
 /**
  * `sshj`'s own keepalive (`keepalive@openssh.com` global requests). 5 missed replies (sshj's own

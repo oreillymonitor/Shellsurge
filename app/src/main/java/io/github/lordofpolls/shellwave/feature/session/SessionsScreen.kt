@@ -537,8 +537,7 @@ internal fun SessionTabBody(
     var activeDigest by remember { mutableStateOf<AgentDigestResult?>(null) }
     var isAnalyzingDigest by remember { mutableStateOf(false) }
     var streamingDigestText by remember(sessionId) { mutableStateOf<String?>(null) }
-    var activePromptSignature by remember(sessionId) { mutableStateOf<String?>(null) }
-    var dismissedPromptSignature by remember(sessionId) { mutableStateOf<String?>(null) }
+    var activeDigestEpoch by remember(sessionId) { mutableStateOf<Long?>(null) }
     var tabPromptComposerOpen by remember { mutableStateOf(false) }
     var tabComposerInitialText by remember { mutableStateOf("") }
     var tabGitDiffOpen by remember(sessionId) { mutableStateOf(false) }
@@ -564,14 +563,16 @@ internal fun SessionTabBody(
                     summary.connection.write(replyText)
                 }
                 summary.connection.write("\r")
-                dismissedPromptSignature = activePromptSignature
+                activeDigestEpoch?.let { sessionManager.dismissCachedDigest(sessionId, it) }
                 activeDigest = null
+                activeDigestEpoch = null
             },
             onFreeformSpeech = { recognizedText ->
                 tabComposerInitialText = recognizedText
                 tabPromptComposerOpen = true
-                dismissedPromptSignature = activePromptSignature
+                activeDigestEpoch?.let { sessionManager.dismissCachedDigest(sessionId, it) }
                 activeDigest = null
+                activeDigestEpoch = null
             },
         )
     }
@@ -599,7 +600,7 @@ internal fun SessionTabBody(
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         isAnalyzingDigest = true
         streamingDigestText = null
-        activePromptSignature = null
+        activeDigestEpoch = null
         activeDigest = null
         val tail = TerminalTextSanitizer.extractTurnForDigest(emulator, maxLines = 60)
         coroutineScope.launch {
@@ -733,48 +734,20 @@ internal fun SessionTabBody(
         }
     }
 
-    // Auto-digest when returning to a tab whose command/agent finished while away.
-    LaunchedEffect(sessionId, summary.turnState, autoDigestOnReturn, terminalEmulator) {
-        if (autoDigestOnReturn &&
-            summary.status == SessionStatus.CONNECTED &&
-            terminalEmulator != null &&
-            activeDigest == null &&
-            !isAnalyzingDigest &&
-            sessionManager.consumePendingAutoDigest(sessionId)
-        ) {
-            triggerDigest(speakImmediately = false)
+    // Show cached single-shot turn digest when a background turn finishes or requests approval.
+    LaunchedEffect(sessionId, summary.latestDigestEpoch, autoDigestOnReturn) {
+        if (summary.latestDigestEpoch == 0L) {
+            if (activeDigestEpoch != null) {
+                activeDigest = null
+                activeDigestEpoch = null
+            }
+            return@LaunchedEffect
         }
-    }
-
-    // Ambient AI question & numbered menu prompt detection (e.g. [y/N], (y/n), or 1./2./3. menus)
-    LaunchedEffect(summary.connection) {
-        summary.connection.outputTick.sample(1000).collect {
-            val emulator = terminalEmulator ?: return@collect
-            val screen = emulator.screen ?: return@collect
-            if (activeDigest != null) return@collect
-            val lastRow = emulator.mRows - 1
-            val startRow = (lastRow - 11).coerceAtLeast(0)
-            val recentText = runCatching {
-                screen.getSelectedText(0, startRow, emulator.mColumns, lastRow, true, true)
-            }.getOrNull() ?: ""
-            val numberedActions = AgentDigestModel.extractNumberedOptions(recentText)
-            val yesNoTail = recentText.lines().takeLast(3).joinToString("\n")
-            val yesNoRegex = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
-            val signature = when {
-                numberedActions.size >= 2 -> "menu:" + numberedActions.joinToString("|") { it.label }
-                yesNoRegex.containsMatchIn(yesNoTail) -> yesNoTail.trim()
-                else -> null
-            }
-            if (signature != null) {
-                if (signature != dismissedPromptSignature) {
-                    val tail = TerminalTextSanitizer.extractTurnForDigest(emulator, maxLines = 50)
-                    val result = AgentDigestModel.analyzeTerminalTail(tail, context = localContext)
-                    activePromptSignature = signature
-                    activeDigest = result
-                }
-            } else {
-                dismissedPromptSignature = null
-            }
+        val cached = sessionManager.getActiveCachedDigest(sessionId) ?: return@LaunchedEffect
+        val shouldShow = cached.isResponseNeeded || (autoDigestOnReturn && cached.wasAwayWhenCompleted)
+        if (shouldShow && !isAnalyzingDigest && activeDigestEpoch != cached.turnEpoch) {
+            activeDigest = cached.result
+            activeDigestEpoch = cached.turnEpoch
         }
     }
 
@@ -1328,13 +1301,15 @@ internal fun SessionTabBody(
                             summary.connection.write(actionText)
                         }
                         summary.connection.write("\r")
-                        dismissedPromptSignature = activePromptSignature
+                        activeDigestEpoch?.let { sessionManager.dismissCachedDigest(sessionId, it) }
                         activeDigest = null
+                        activeDigestEpoch = null
                         voiceEngine.stopListening()
                     },
                     onDismiss = {
-                        dismissedPromptSignature = activePromptSignature
+                        activeDigestEpoch?.let { sessionManager.dismissCachedDigest(sessionId, it) }
                         activeDigest = null
+                        activeDigestEpoch = null
                         voiceEngine.stopListening()
                     },
                     onFileClick = { filePath ->

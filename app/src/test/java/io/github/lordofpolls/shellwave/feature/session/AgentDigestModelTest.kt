@@ -166,4 +166,39 @@ class AgentDigestModelTest {
         assertTrue(diffFacts.touchedFiles.contains("AgentDigestCapsule.kt"))
         assertEquals("Updated 1 file", diffFacts.headlineFact)
     }
+
+    @Test
+    fun `extractNumberedOptions ignores markdown recommendation lists and trailing questions`() {
+        val brainstormOutput = """
+            ### Top 4 Highest-ROI Picks to Build First
+            If you want maximum daily impact with clean fit into your existing codebase:
+            1. Prompt Queue — plugs directly into TerminalOutputWatcher and PromptComposerDialog.
+            2. Risk-Scored Approval Cards — supercharges your existing approval capsule and pipeline.
+            3. Context Pills — eliminates mobile typing annoyance for paths and error snippets.
+            4. Dev Server Preview — turns ShellSurge into a full end-to-end mobile studio.
+
+            Want to dive deeper into any of these, or pick 1-2 to design and prototype?
+        """.trimIndent()
+        assertTrue(AgentDigestModel.extractNumberedOptions(brainstormOutput).isEmpty())
+
+        val bareMarkdownList = """
+            Steps completed:
+            1. Cleaned output sanitizer
+            2. Added regression tests
+        """.trimIndent()
+        assertTrue(AgentDigestModel.extractNumberedOptions(bareMarkdownList).isEmpty())
+
+        val approvalWithNavFooter = """
+            Allow bash tool?
+            ❯ 1. Allow once
+              2. Allow for session
+              3. Deny
+            Esc to cancel
+        """.trimIndent()
+        val actions = AgentDigestModel.extractNumberedOptions(approvalWithNavFooter)
+        assertEquals(3, actions.size)
+        assertEquals("1", actions[0].sendText)
+        assertEquals("2", actions[1].sendText)
+        assertEquals("3", actions[2].sendText)
+    }
 }

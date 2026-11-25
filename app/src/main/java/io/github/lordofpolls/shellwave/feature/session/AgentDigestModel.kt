@@ -107,6 +107,19 @@ internal object AgentDigestModel {
         }
 
     private val YES_NO_REGEX = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
+    private val YES_NO_CONFIRMATION_CUES = listOf(
+        "confirm",
+        "approve",
+        "allow",
+        "proceed",
+        "continue",
+        "would you like",
+        "do you want",
+        "should i",
+        "shall i",
+        "want me to",
+        "apply",
+    )
     private val PROMPT_LINE_REGEX = Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯➜%]\\s*$")
     private val DIFF_SUMMARY_REGEX = Regex("^Diff\\s+(.+?)\\s+\\(\\+\\d+/-\\d+\\)$")
     private val TOUCHED_VERB_REGEX = Regex(
@@ -281,9 +294,12 @@ internal object AgentDigestModel {
         if (!rawResponse.isNullOrBlank() && !isNanoRefusal(rawResponse)) {
             val structured = extractStructuredResult(rawResponse)
             if (structured.spokenSummary.isNotBlank() && !isNanoRefusal(structured.spokenSummary)) {
-                val hasQuestion = facts.pendingQuestion != null ||
-                    facts.quickActions.isNotEmpty() ||
-                    facts.isYesNoPrompt
+                val isYesNoConfirmation = facts.pendingQuestion?.let { q ->
+                    YES_NO_CONFIRMATION_CUES.any { cue -> q.contains(cue, ignoreCase = true) }
+                } == true
+                val hasQuestion = facts.quickActions.isNotEmpty() ||
+                    facts.isYesNoPrompt ||
+                    isYesNoConfirmation
                 val quickOptions = when {
                     facts.quickActions.isNotEmpty() -> facts.quickActions.map { it.label }
                     hasQuestion -> listOf("Yes", "No")
@@ -291,7 +307,7 @@ internal object AgentDigestModel {
                 }
                 return@withContext structured.copy(
                     hasQuestion = hasQuestion,
-                    question = facts.pendingQuestion,
+                    question = if (hasQuestion) facts.pendingQuestion else null,
                     quickOptions = quickOptions,
                     quickActions = facts.quickActions,
                     isError = facts.isError || structured.isError,
@@ -381,35 +397,91 @@ internal object AgentDigestModel {
             .takeLast(14)
         if (recent.size < 2) return emptyList()
 
-        val lineRegex = Regex("^\\s*(?:[❯›>*•-]\\s*)?(\\d)[.)\\]]\\s+(.+)$")
-        val bracketRegex = Regex("^\\s*\\[(\\d)]\\s+(.+)$")
+        val lineRegex = Regex("^\\s*([❯›>*•-])?\\s*(\\d)([.)\\]])\\s+(.+)$")
+        val bracketRegex = Regex("^\\s*([❯›>*•-])?\\s*\\[(\\d)]\\s+(.+)$")
+        val navFooterRegex = Regex("(?i)(esc|enter|↑|↓|arrow|cancel|select|choose|confirm)")
+        val headerCueRegex = Regex(
+            "(?i)(?:\\?\\s*$|\\b(?:allow|approve|permission|select|choose|pick|option|confirm|proceed|edit|delete|action)\\b|^(?:bash|edit|write)\\()"
+        )
 
-        val candidates = mutableListOf<Pair<Int, String>>()
-        for (line in recent) {
-            val match = lineRegex.matchEntire(line) ?: bracketRegex.matchEntire(line)
-            if (match == null) {
-                // Keep only the bottom-most menu block if prose separated an older list.
-                if (candidates.size >= 2) break
+        data class MenuCandidate(
+            val num: Int,
+            val desc: String,
+            val lineIdx: Int,
+            val hasCursor: Boolean,
+            val hasDotSyntax: Boolean,
+        )
+
+        val candidates = mutableListOf<MenuCandidate>()
+        var latestBlock = emptyList<MenuCandidate>()
+        for (idx in recent.indices) {
+            val line = recent[idx]
+            val lineMatch = lineRegex.matchEntire(line)
+            val bracketMatch = if (lineMatch == null) bracketRegex.matchEntire(line) else null
+            if (lineMatch == null && bracketMatch == null) {
+                if (candidates.size >= 2) {
+                    latestBlock = candidates.toList()
+                }
                 candidates.clear()
                 continue
             }
-            val num = match.groupValues[1].toIntOrNull() ?: continue
-            val desc = match.groupValues[2].trim()
+
+            val cursorToken = (lineMatch?.groupValues?.get(1) ?: bracketMatch?.groupValues?.get(1)).orEmpty()
+            val hasCursor = cursorToken in setOf("❯", "›", ">")
+            val numStr = if (lineMatch != null) lineMatch.groupValues[2] else bracketMatch!!.groupValues[2]
+            val hasDotSyntax = lineMatch != null && lineMatch.groupValues[3] == "."
+            val desc = (if (lineMatch != null) lineMatch.groupValues[4] else bracketMatch!!.groupValues[3]).trim()
+
+            val num = numStr.toIntOrNull() ?: continue
             if (desc.isEmpty()) continue
             if (candidates.isEmpty()) {
-                if (num == 1) candidates += num to desc
-            } else if (num == candidates.last().first + 1 && candidates.size < 4) {
-                candidates += num to desc
+                if (num == 1) candidates += MenuCandidate(num, desc, idx, hasCursor, hasDotSyntax)
+            } else if (num == candidates.last().num + 1 && candidates.size < 4) {
+                candidates += MenuCandidate(num, desc, idx, hasCursor, hasDotSyntax)
             } else if (num == 1) {
+                if (candidates.size >= 2) {
+                    latestBlock = candidates.toList()
+                }
                 candidates.clear()
-                candidates += num to desc
+                candidates += MenuCandidate(num, desc, idx, hasCursor, hasDotSyntax)
+            }
+        }
+        if (candidates.size >= 2) {
+            latestBlock = candidates.toList()
+        }
+
+        if (latestBlock.size < 2) return emptyList()
+
+        // Reject prose markdown lists whose items are long explanations or multi-sentence paragraphs.
+        if (latestBlock.any { c ->
+                c.desc.length > 80 || c.desc.contains(" — ") || c.desc.contains(". ")
+            }
+        ) {
+            return emptyList()
+        }
+
+        // Reject if conversational prose trails below the menu (allow at most 1 short navigation hint).
+        val trailingLines = recent.drop(latestBlock.last().lineIdx + 1)
+        if (trailingLines.size > 1 ||
+            trailingLines.any { line -> line.length > 50 || !navFooterRegex.containsMatchIn(line) }
+        ) {
+            return emptyList()
+        }
+
+        // Plain `1. / 2.` markdown lists without a selector cursor must sit beneath an interactive header.
+        val anyCursor = latestBlock.any { it.hasCursor }
+        val allPlainDot = latestBlock.all { it.hasDotSyntax }
+        if (allPlainDot && !anyCursor) {
+            val firstIdx = latestBlock.first().lineIdx
+            val headerWindow = recent.subList((firstIdx - 3).coerceAtLeast(0), firstIdx)
+            if (headerWindow.none { headerCueRegex.containsMatchIn(it) }) {
+                return emptyList()
             }
         }
 
-        if (candidates.size < 2) return emptyList()
-        return candidates.map { (num, desc) ->
-            val shortDesc = if (desc.length <= 22) desc else desc.take(21).trimEnd() + "…"
-            DigestQuickAction(label = "$num: $shortDesc", sendText = num.toString())
+        return latestBlock.map { c ->
+            val shortDesc = if (c.desc.length <= 22) c.desc else c.desc.take(21).trimEnd() + "…"
+            DigestQuickAction(label = "${c.num}: $shortDesc", sendText = c.num.toString())
         }
     }
 
@@ -449,9 +521,11 @@ internal object AgentDigestModel {
         val analysisPool = if (meaningfulLines.isNotEmpty()) meaningfulLines else allLines
         val lastFew = analysisPool.takeLast(12)
 
-        // 1. Detect pending prompt questions (e.g. [y/N], (y/n), or trailing question)
+        // 1. Detect pending yes/no or approval prompts (not arbitrary open-ended prose questions).
         val questionLine = lastFew.lastOrNull { line ->
-            YES_NO_REGEX.containsMatchIn(line) || line.endsWith("?") || line.contains("confirm", ignoreCase = true)
+            YES_NO_REGEX.containsMatchIn(line) ||
+                (line.endsWith("?") && YES_NO_CONFIRMATION_CUES.any { cue -> line.contains(cue, ignoreCase = true) }) ||
+                line.contains("confirm", ignoreCase = true)
         }
 
         if (questionLine != null) {

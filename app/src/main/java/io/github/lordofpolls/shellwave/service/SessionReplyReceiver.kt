@@ -20,24 +20,35 @@ class SessionReplyReceiver : BroadcastReceiver() {
     lateinit var sessionManager: SessionManager
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_NOTIFICATION_QUICK_REPLY) return
         val sessionId = intent.getLongExtra(EXTRA_SESSION_ID, -1L)
         if (sessionId < 0L) return
 
-        val remoteReply = RemoteInput.getResultsFromIntent(intent)
-            ?.getCharSequence(KEY_DIRECT_REPLY)
-            ?.toString()
-        val fixedReply = intent.getStringExtra(EXTRA_REPLY_TEXT)
-        val replyText = remoteReply ?: fixedReply ?: return
+        when (intent.action) {
+            ACTION_NOTIFICATION_QUICK_REPLY -> {
+                val remoteReply = RemoteInput.getResultsFromIntent(intent)
+                    ?.getCharSequence(KEY_DIRECT_REPLY)
+                    ?.toString()
+                val fixedReply = intent.getStringExtra(EXTRA_REPLY_TEXT)
+                val replyText = remoteReply ?: fixedReply ?: return
 
-        sessionManager.sendNotificationReply(sessionId, replyText)
+                sessionManager.sendNotificationReply(sessionId, replyText)
+            }
+
+            ACTION_NOTIFICATION_DISMISSED -> {
+                val turnEpoch = intent.getLongExtra(EXTRA_TURN_EPOCH, -1L)
+                sessionManager.acknowledgeSessionAlert(sessionId, turnEpoch)
+            }
+        }
     }
 
     companion object {
         const val ACTION_NOTIFICATION_QUICK_REPLY =
             "io.github.oreillymonitor.shellsurge.action.NOTIFICATION_QUICK_REPLY"
+        const val ACTION_NOTIFICATION_DISMISSED =
+            "io.github.oreillymonitor.shellsurge.action.NOTIFICATION_DISMISSED"
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_REPLY_TEXT = "reply_text"
+        const val EXTRA_TURN_EPOCH = "turn_epoch"
         const val KEY_DIRECT_REPLY = "key_direct_reply"
     }
 }

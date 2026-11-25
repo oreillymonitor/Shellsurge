@@ -86,6 +86,11 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
         )
     }
 
+    open fun isAppForeground(): Boolean =
+        runCatching {
+            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        }.getOrDefault(false)
+
     open fun commandOutput(
         sessionId: Long,
         title: String,
@@ -94,10 +99,10 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
         notifyOnActiveTab: Boolean,
         isResponseNeeded: Boolean = false,
         quickActions: List<NotificationQuickAction> = emptyList(),
+        turnEpoch: Long = 0L,
     ) {
         scope.launch {
-            val appForeground = ProcessLifecycleOwner.get().lifecycle.currentState
-                .isAtLeast(Lifecycle.State.STARTED)
+            val appForeground = isAppForeground()
             if (appForeground && isActiveTab && !notifyOnActiveTab) return@launch
             val manager =
                 context.getSystemService(NotificationManager::class.java) ?: return@launch
@@ -110,6 +115,7 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                     .setContentText(body)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setContentIntent(openSessions(id, sessionId))
+                    .setDeleteIntent(dismissPendingIntent(id * 5 + 4, sessionId, turnEpoch))
                     .setAutoCancel(true)
                     .setWhen(System.currentTimeMillis())
                     .setShowWhen(true)
@@ -130,7 +136,7 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                     NotificationCompat.Action.Builder(
                         0,
                         action.label,
-                        quickReplyPendingIntent(id * 4 + idx + 1, sessionId, action.sendText, mutable = false),
+                        quickReplyPendingIntent(id * 5 + idx + 1, sessionId, action.sendText, mutable = false),
                     ).build()
                 )
             }
@@ -142,7 +148,7 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                 NotificationCompat.Action.Builder(
                     0,
                     "Reply",
-                    quickReplyPendingIntent(id * 4 + 3, sessionId, null, mutable = true),
+                    quickReplyPendingIntent(id * 5 + 3, sessionId, null, mutable = true),
                 )
                     .addRemoteInput(remoteInput)
                     .setAllowGeneratedReplies(false)
@@ -255,6 +261,24 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
             requestCode,
             intent,
             mutability or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    private fun dismissPendingIntent(
+        requestCode: Int,
+        sessionId: Long,
+        turnEpoch: Long,
+    ): PendingIntent {
+        val intent = Intent(context, SessionReplyReceiver::class.java).apply {
+            action = SessionReplyReceiver.ACTION_NOTIFICATION_DISMISSED
+            putExtra(SessionReplyReceiver.EXTRA_SESSION_ID, sessionId)
+            putExtra(SessionReplyReceiver.EXTRA_TURN_EPOCH, turnEpoch)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
     }
 

@@ -22,6 +22,8 @@ import io.github.lordofpolls.shellwave.core.prefs.HostTailscaleConfig
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.core.prefs.SupportPreferences
+import io.github.lordofpolls.shellwave.feature.session.AgentDigestModel
+import io.github.lordofpolls.shellwave.feature.session.AgentDigestResult
 import io.github.lordofpolls.shellwave.service.SessionAlerts
 import io.github.lordofpolls.shellwave.service.SessionService
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_COLOR_SCHEME
@@ -41,6 +43,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -93,6 +96,15 @@ enum class TunnelState { RUNNING, FAILED, STOPPED }
 /** See `TunnelState`'s doc; [error] is non-null only for [TunnelState.FAILED]. */
 data class TunnelStatus(val forwardId: Long, val state: TunnelState, val error: String? = null)
 
+/** Single-shot cached turn digest shared between background notifications and the in-tab capsule. */
+data class CachedTurnDigest(
+    val turnEpoch: Long,
+    val isResponseNeeded: Boolean,
+    val result: AgentDigestResult,
+    val wasAwayWhenCompleted: Boolean,
+    val dismissed: Boolean = false,
+)
+
 /** Measured terminal geometry, kept alongside a session so a reconnect can allocate the same size PTY without waiting for a remeasure. */
 data class TerminalSize(val cols: Int, val rows: Int, val cellWidthPx: Int, val cellHeightPx: Int)
 
@@ -144,6 +156,8 @@ data class SessionSummary(
     val outputAlertsEnabled: Boolean = true,
     /** Live execution state for the chip rail indicator. */
     val turnState: AgentTurnState = AgentTurnState.IDLE,
+    /** Epoch of the latest non-dismissed cached digest for this session, or 0 if none. */
+    val latestDigestEpoch: Long = 0L,
 )
 
 /**
@@ -271,6 +285,8 @@ constructor(
         @Volatile var outputWatcher: TerminalOutputWatcher? = null,
         @Volatile var turnState: AgentTurnState = AgentTurnState.IDLE,
         val pendingAutoDigest: AtomicBoolean = AtomicBoolean(false),
+        @Volatile var cachedDigest: CachedTurnDigest? = null,
+        @Volatile var digestJob: Job? = null,
     )
 
     /**
@@ -365,6 +381,9 @@ constructor(
      */
     fun closeSession(id: Long) {
         val entry = entries.remove(id) ?: return
+        entry.digestJob?.cancel()
+        entry.digestJob = null
+        entry.cachedDigest = null
         entry.outputWatcher?.cancel()
         sessionAlerts.forget(id)
         if (foregroundSessionId == id) foregroundSessionId = null
@@ -386,6 +405,7 @@ constructor(
         foregroundSessionId = id
         sessionAlerts.clearOutputAlert(id)
         val entry = entries[id] ?: return
+        entry.outputWatcher?.acknowledgeCurrentOutput()
         if (entry.turnState == AgentTurnState.COMPLETED) {
             entry.turnState = AgentTurnState.IDLE
             publish()
@@ -399,12 +419,41 @@ constructor(
     fun consumePendingAutoDigest(id: Long): Boolean =
         entries[id]?.pendingAutoDigest?.getAndSet(false) ?: false
 
+    fun getActiveCachedDigest(sessionId: Long): CachedTurnDigest? =
+        entries[sessionId]?.cachedDigest?.takeIf { !it.dismissed }
+
+    fun dismissCachedDigest(sessionId: Long, turnEpoch: Long) {
+        val entry = entries[sessionId] ?: return
+        val cached = entry.cachedDigest
+        if (cached != null && cached.turnEpoch == turnEpoch && !cached.dismissed) {
+            entry.cachedDigest = cached.copy(dismissed = true)
+        }
+        entry.pendingAutoDigest.set(false)
+        sessionAlerts.clearOutputAlert(sessionId)
+        entry.outputWatcher?.acknowledgeCurrentOutput()
+        publish()
+    }
+
+    fun acknowledgeSessionAlert(sessionId: Long, turnEpoch: Long = -1L) {
+        val entry = entries[sessionId] ?: return
+        val cached = entry.cachedDigest
+        if (cached != null && !cached.dismissed && (turnEpoch < 0L || cached.turnEpoch == turnEpoch)) {
+            entry.cachedDigest = cached.copy(dismissed = true)
+        }
+        entry.pendingAutoDigest.set(false)
+        entry.outputWatcher?.acknowledgeCurrentOutput()
+        publish()
+    }
+
     fun sendNotificationReply(sessionId: Long, text: String): Boolean {
         val entry = entries[sessionId] ?: return false
         if (entry.status != SessionStatus.CONNECTED) {
             sessionAlerts.clearOutputAlert(sessionId)
             return false
         }
+        entry.digestJob?.cancel()
+        entry.digestJob = null
+        entry.cachedDigest = null
         val cleanText = text.replace("\r\n", "\r").replace("\n", "\r")
         if (cleanText.isNotEmpty()) {
             entry.connection.write(cleanText)
@@ -429,6 +478,9 @@ constructor(
         val entry = entries[id] ?: return
         entry.outputAlertsOverride = enabled
         if (!enabled) {
+            entry.digestJob?.cancel()
+            entry.digestJob = null
+            entry.cachedDigest = null
             entry.outputWatcher?.cancel()
             sessionAlerts.clearOutputAlert(id)
         }
@@ -545,23 +597,78 @@ constructor(
                             }
                         }
                         AgentTurnState.RUNNING, AgentTurnState.IDLE -> {
+                            entry.digestJob?.cancel()
+                            entry.digestJob = null
+                            entry.cachedDigest = null
                             entry.pendingAutoDigest.set(false)
                         }
                     }
                     publish()
                 }
             },
-            onRichAlert = { kind, title, body, actions ->
+            onRichAlert = { kind, title, fallbackBody, actions, turnEpoch, rawTail ->
                 if (entries[entry.id] === entry && isOutputAlertsEnabled(entry)) {
-                    sessionAlerts.commandOutput(
-                        sessionId = entry.id,
-                        title = title,
-                        body = body,
-                        isActiveTab = foregroundSessionId == entry.id,
-                        notifyOnActiveTab = NotificationPreferences.isNotifyOnActiveTab(context),
-                        isResponseNeeded = kind == OutputPromptKind.RESPONSE_NEEDED,
-                        quickActions = actions,
-                    )
+                    val isActiveTab = foregroundSessionId == entry.id
+                    val appForeground = sessionAlerts.isAppForeground()
+                    val notifyOnActiveTab = NotificationPreferences.isNotifyOnActiveTab(context)
+                    val autoDigestOnReturn = NotificationPreferences.isAutoDigestOnReturn(context)
+                    val willPostNotification = !appForeground || !isActiveTab || notifyOnActiveTab
+                    val wasAway = !isActiveTab || !appForeground
+                    val isResponseNeeded = kind == OutputPromptKind.RESPONSE_NEEDED
+                    val willShowCapsule = isResponseNeeded || (autoDigestOnReturn && wasAway)
+
+                    if (willPostNotification || willShowCapsule) {
+                        entry.digestJob?.cancel()
+                        entry.digestJob = managerScope.launch {
+                            val cleanedTurn = TerminalTextSanitizer.cleanForDigest(rawTail, maxLines = 60)
+                                .ifBlank { rawTail }
+                            val digest = withTimeoutOrNull(2_500L) {
+                                AgentDigestModel.analyzeTerminalTail(
+                                    sanitizedOutput = cleanedTurn,
+                                    context = context,
+                                )
+                            } ?: AgentDigestModel.fallbackAnalyze(cleanedTurn)
+
+                            if (entries[entry.id] !== entry ||
+                                entry.status != SessionStatus.CONNECTED ||
+                                entry.outputWatcher?.currentEpoch() != turnEpoch
+                            ) {
+                                return@launch
+                            }
+
+                            entry.cachedDigest = CachedTurnDigest(
+                                turnEpoch = turnEpoch,
+                                isResponseNeeded = isResponseNeeded,
+                                result = digest,
+                                wasAwayWhenCompleted = wasAway,
+                                dismissed = false,
+                            )
+                            publish()
+
+                            if (willPostNotification) {
+                                val nowActiveTab = foregroundSessionId == entry.id
+                                val nowForeground = sessionAlerts.isAppForeground()
+                                if (!nowForeground || !nowActiveTab || notifyOnActiveTab) {
+                                    val notifyBody = if (fallbackBody.isNotBlank() && rawTail.isNotBlank() && digest.spokenSummary.isNotBlank()) {
+                                        val summary = digest.spokenSummary.trim()
+                                        if (summary.length <= 320) summary else summary.take(319).trimEnd() + "…"
+                                    } else {
+                                        fallbackBody
+                                    }
+                                    sessionAlerts.commandOutput(
+                                        sessionId = entry.id,
+                                        title = title,
+                                        body = notifyBody,
+                                        isActiveTab = nowActiveTab,
+                                        notifyOnActiveTab = notifyOnActiveTab,
+                                        isResponseNeeded = isResponseNeeded,
+                                        quickActions = actions,
+                                        turnEpoch = turnEpoch,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             },
         )
@@ -836,6 +943,9 @@ constructor(
 
     private fun handleDisconnected(id: Long, clean: Boolean) {
         val entry = entries[id] ?: return
+        entry.digestJob?.cancel()
+        entry.digestJob = null
+        entry.cachedDigest = null
         entry.outputWatcher?.cancel()
         entry.generation.incrementAndGet() // invalidate any attemptConnect() still unwinding for this connection - see its comment
         // Release every bound local port the moment a drop is detected, rather than waiting for
@@ -879,6 +989,9 @@ constructor(
                 }
                 SessionStatus.CONNECTED -> {
                     if (!isTailscaleEntry(entry)) {
+                        entry.digestJob?.cancel()
+                        entry.digestJob = null
+                        entry.cachedDigest = null
                         entry.outputWatcher?.cancel()
                         entry.generation.incrementAndGet()
                         entry.connection.stopAllForwards()
@@ -958,6 +1071,7 @@ constructor(
                         it.status == SessionStatus.CONNECTED && it.agentKeys.isNotEmpty() && !it.agentRefused,
                         outputAlertsEnabled = isOutputAlertsEnabled(it),
                         turnState = it.turnState,
+                        latestDigestEpoch = it.cachedDigest?.takeIf { d -> !d.dismissed }?.turnEpoch ?: 0L,
                     )
                 }
     }

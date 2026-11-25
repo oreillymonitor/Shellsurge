@@ -299,7 +299,7 @@ class TerminalOutputWatcherTest {
 
     @Test
     fun `detects TUI conversational questions above box chrome and selects smart quick actions`() {
-        val tuiScreen = """
+        val tuiIdleScreen = """
             Would you like me to cut signed release 1.13.2 now with the upgraded digest pipeline?
             ╭────────────────────────────────────────────────────────╮
             │ > Type your message...                                 │
@@ -308,13 +308,19 @@ class TerminalOutputWatcherTest {
             [agy] 0:bash*                                      11:22
         """.trimIndent()
 
-        assertEquals(OutputPromptKind.RESPONSE_NEEDED, classifyPromptKind(tuiScreen))
-        val snippet = extractOutputSnippet(tuiScreen, maxChars = 320)
+        // An idle TUI chat input box means the turn finished cleanly rather than blocking on a modal.
+        assertEquals(OutputPromptKind.COMPLETED, classifyPromptKind(tuiIdleScreen))
+        assertTrue(extractNotificationQuickActions(tuiIdleScreen, OutputPromptKind.COMPLETED).isEmpty())
+
+        val snippet = extractOutputSnippet(tuiIdleScreen, maxChars = 320)
         assertTrue(snippet.contains("cut signed release 1.13.2"))
         assertFalse(snippet.contains("Type your message"))
         assertFalse(snippet.contains("? for shortcuts"))
 
-        val convActions = extractNotificationQuickActions(tuiScreen, OutputPromptKind.RESPONSE_NEEDED)
+        // Without an idle prompt box, explicit confirmation phrasing still triggers RESPONSE_NEEDED.
+        val convPrompt = "Would you like me to cut signed release 1.13.2 now?"
+        assertEquals(OutputPromptKind.RESPONSE_NEEDED, classifyPromptKind(convPrompt))
+        val convActions = extractNotificationQuickActions(convPrompt, OutputPromptKind.RESPONSE_NEEDED)
         assertEquals(
             listOf(
                 NotificationQuickAction("Yes", "yes"),
@@ -544,5 +550,132 @@ class TerminalOutputWatcherTest {
             OutputPromptKind.COMPLETED,
             classifyPromptKind(plainProse, settledAfterIdle = true),
         )
+    }
+
+    @Test
+    fun `numbered markdown list above idle TUI input box classifies as COMPLETED and never loops`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val alerts = mutableListOf<RecordedAlert>()
+            var clockStr = "21:57"
+            fun buildScreen(clock: String) = """
+                ### Top 4 Highest-ROI Picks to Build First
+                1. **Prompt Queue** — dispatches follow-ups once idle.
+                2. **Risk-Scored Approval Cards** — color-codes bash tools.
+
+                Want to dive deeper into any of these, or pick 1-2 to prototype?
+                ╭────────────────────────────────────────────────────────╮
+                │ > Type your message...                                 │
+                ╰────────────────────────────────────────────────────────╯
+                ? for shortcuts
+                devbox · $clock 24-Nov-26
+            """.trimIndent()
+
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "agent",
+                isEnabled = { true },
+                idleDelayMs = { 40L },
+                readTail = { buildScreen(clockStr) },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+            )
+
+            watcher.onUserWrite("brainstorm features\r".toByteArray())
+            watcher.onRawOutput(buildScreen(clockStr).toByteArray())
+            delay(120L)
+
+            assertEquals(1, alerts.size)
+            assertEquals(OutputPromptKind.COMPLETED, alerts[0].kind)
+            assertTrue(extractNotificationQuickActions(buildScreen(clockStr), alerts[0].kind).isEmpty())
+
+            // Subsequent passive clock/tmux redraws must not re-fire any alert.
+            listOf("21:58", "21:59", "22:00").forEach { nextClock ->
+                clockStr = nextClock
+                watcher.onRawOutput("\u001b[40;1Hdevbox · $nextClock 24-Nov-26\r\n".toByteArray())
+                delay(100L)
+            }
+            assertEquals(1, alerts.size)
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `response needed disarms watcher and ignores subsequent tmux clock redraws`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val alerts = mutableListOf<RecordedAlert>()
+            var clockStr = "21:57"
+            fun screenWithClock(clock: String) = """
+                Allow running command `./gradlew test`? [y/N]
+                devbox · $clock
+            """.trimIndent()
+
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "agent",
+                isEnabled = { true },
+                idleDelayMs = { 40L },
+                readTail = { screenWithClock(clockStr) },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+            )
+
+            watcher.onUserWrite("run tests\r".toByteArray())
+            watcher.onRawOutput(screenWithClock(clockStr).toByteArray())
+            delay(120L)
+
+            assertEquals(1, alerts.size)
+            assertEquals(OutputPromptKind.RESPONSE_NEEDED, alerts[0].kind)
+
+            // Repeated clock ticks (21:58, 21:59) change raw bytes but must not trigger another alert.
+            listOf("21:58", "21:59").forEach { nextClock ->
+                clockStr = nextClock
+                watcher.onRawOutput("\u001b[24;1Hdevbox · $nextClock          \r\n".toByteArray())
+                delay(100L)
+            }
+            assertEquals(1, alerts.size)
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `acknowledgeCurrentOutput suppresses passive re-notification for the same screen`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val alerts = mutableListOf<RecordedAlert>()
+            var tail = "Apply config patch? [y/N]"
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "agent",
+                isEnabled = { true },
+                idleDelayMs = { 40L },
+                readTail = { tail },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+            )
+
+            watcher.onRawOutput("Apply config patch? [y/N]".toByteArray())
+            delay(120L)
+            assertEquals(1, alerts.size)
+
+            watcher.acknowledgeCurrentOutput()
+            // Even a passive redraw with more than 12 bytes must stay silent once acknowledged.
+            watcher.onRawOutput("redraw padding Apply config patch? [y/N]".toByteArray())
+            delay(120L)
+            assertEquals(1, alerts.size)
+
+            // New user turn clears acknowledgement and notifies once for the next prompt.
+            watcher.onUserWrite("y".toByteArray())
+            tail = "Patch applied cleanly.\nuser@dev:~$"
+            watcher.onRawOutput("Patch applied cleanly.\r\nuser@dev:~$ ".toByteArray())
+            delay(120L)
+            assertEquals(2, alerts.size)
+            assertEquals(OutputPromptKind.COMPLETED, alerts[1].kind)
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
     }
 }

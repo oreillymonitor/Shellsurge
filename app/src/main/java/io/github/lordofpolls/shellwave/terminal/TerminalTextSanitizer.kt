@@ -10,7 +10,7 @@ object TerminalTextSanitizer {
     private val SPINNER_CHARS = setOf('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏', '◐', '◓', '◑', '◒')
     private val BOX_BORDER_ONLY = Regex("^[┌┐└┘├┤┬┴┼╭╮╰╯─━═│┃▀▄█░▒▓\\-_*~·•\\s]+$")
     private val BOX_EDGE_STRIP = Regex("^[│┃║]\\s*(.*?)\\s*[│┃║]$")
-    private val TMUX_STATUS_LINE = Regex("^\\[[^\\]]+]\\s+\\d+:.*|\\b\\d{1,2}:\\d{2}\\s*$")
+    private val TMUX_STATUS_LINE = Regex("^\\[[^\\]]+]\\s+\\d+:.*|\\b\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s+\\d{1,2}-[A-Za-z]{3}-\\d{2,4})?\\s*$")
     private val PROGRESS_BAR_LINE = Regex(".*\\[[=>#\\-█▓▒░\\s]{5,}]\\s*\\d{1,3}%.*")
     private val TUI_CHROME_SUBSTRINGS = listOf(
         "? for shortcuts",

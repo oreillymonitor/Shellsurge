@@ -21,8 +21,10 @@ import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -107,60 +109,6 @@ internal fun TerminalOverflowMenu(
                 }
             } else {
                 if (connection != null) {
-                    DropdownMenuItem(
-                        text = { Text("Download file") },
-                        leadingIcon = { Icon(Icons.Outlined.Download, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onDownload(connection)
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Upload file") },
-                        leadingIcon = { Icon(Icons.Outlined.Upload, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onUpload(connection)
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Browse files") },
-                        leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onBrowseFiles(connection)
-                        },
-                    )
-                    if (onRunScript != null) {
-                        DropdownMenuItem(
-                            text = { Text("Run script here") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.PlayArrow,
-                                    contentDescription = null
-                                )
-                            },
-                            onClick = {
-                                expanded = false
-                                onRunScript()
-                            },
-                        )
-                    }
-                    if (onAgentQuickResponse != null) {
-                        DropdownMenuItem(
-                            text = { Text("Agent quick response…") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.SmartToy,
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                expanded = false
-                                onAgentQuickResponse()
-                            },
-                        )
-                    }
                     if (onPromptComposer != null) {
                         DropdownMenuItem(
                             text = { Text("Compose prompt…") },
@@ -173,6 +121,21 @@ internal fun TerminalOverflowMenu(
                             onClick = {
                                 expanded = false
                                 onPromptComposer()
+                            },
+                        )
+                    }
+                    if (onAgentQuickResponse != null) {
+                        DropdownMenuItem(
+                            text = { Text("Quick response…") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.SmartToy,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onAgentQuickResponse()
                             },
                         )
                     }
@@ -191,44 +154,44 @@ internal fun TerminalOverflowMenu(
                             },
                         )
                     }
-                }
-                DropdownMenuItem(
-                    text = { Text(BellPreferences.label(bellMode)) },
-                    leadingIcon = { Icon(Icons.Outlined.Notifications, contentDescription = null) },
-                    trailingIcon = {
-                        Icon(
-                            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                            contentDescription = null
+                    if (onRunScript != null) {
+                        DropdownMenuItem(
+                            text = { Text("Run script here") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.PlayArrow,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onRunScript()
+                            },
                         )
-                    },
-                    onClick = { showingBell = true },
-                )
-                if (onToggleOutputAlerts != null) {
+                    }
+                    HorizontalDivider()
                     DropdownMenuItem(
-                        text = { Text(if (outputAlertsEnabled) "Output alerts: On" else "Output alerts: Muted") },
-                        leadingIcon = {
-                            Icon(
-                                if (outputAlertsEnabled) {
-                                    Icons.Outlined.NotificationsActive
-                                } else {
-                                    Icons.Outlined.NotificationsOff
-                                },
-                                contentDescription = null,
-                            )
-                        },
+                        text = { Text("Browse files") },
+                        leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
                         onClick = {
                             expanded = false
-                            onToggleOutputAlerts()
+                            onBrowseFiles(connection)
                         },
                     )
-                }
-                if (onClose != null) {
                     DropdownMenuItem(
-                        text = { Text("Close session") },
-                        leadingIcon = { Icon(Icons.Outlined.Close, contentDescription = null) },
+                        text = { Text("Upload file") },
+                        leadingIcon = { Icon(Icons.Outlined.Upload, contentDescription = null) },
                         onClick = {
                             expanded = false
-                            onClose()
+                            onUpload(connection)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Download file") },
+                        leadingIcon = { Icon(Icons.Outlined.Download, contentDescription = null) },
+                        onClick = {
+                            expanded = false
+                            onDownload(connection)
                         },
                     )
                 }
@@ -254,11 +217,64 @@ internal fun TerminalOverflowMenu(
                     )
                 } else if (connection != null) {
                     DropdownMenuItem(
-                        text = { Text("Log session to file…") },
+                        text = { Text("Log session…") },
                         leadingIcon = { Icon(Icons.Outlined.Save, contentDescription = null) },
                         onClick = {
                             expanded = false
                             onStartLogging(connection)
+                        },
+                    )
+                }
+                HorizontalDivider()
+                if (onToggleOutputAlerts != null) {
+                    DropdownMenuItem(
+                        text = { Text(if (outputAlertsEnabled) "Output alerts: On" else "Output alerts: Muted") },
+                        leadingIcon = {
+                            Icon(
+                                if (outputAlertsEnabled) {
+                                    Icons.Outlined.NotificationsActive
+                                } else {
+                                    Icons.Outlined.NotificationsOff
+                                },
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            expanded = false
+                            onToggleOutputAlerts()
+                        },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text(BellPreferences.label(bellMode)) },
+                    leadingIcon = { Icon(Icons.Outlined.Notifications, contentDescription = null) },
+                    trailingIcon = {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                            contentDescription = null
+                        )
+                    },
+                    onClick = { showingBell = true },
+                )
+                if (onClose != null) {
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "Close session",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            expanded = false
+                            onClose()
                         },
                     )
                 }

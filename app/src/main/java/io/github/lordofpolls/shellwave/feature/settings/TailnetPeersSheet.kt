@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -81,6 +79,15 @@ internal fun TailnetPeersSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = {
+            Surface(
+                modifier = Modifier
+                    .padding(top = 8.dp, bottom = 4.dp)
+                    .size(width = 36.dp, height = 4.dp),
+                shape = RoundedCornerShape(2.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            ) {}
+        },
         modifier = modifier,
     ) {
         Column(
@@ -143,9 +150,9 @@ internal fun TailnetPeersSheet(
                     ) {
                         Text(
                             text = if (status.needsLogin) {
-                                "Authorize this device with your tailnet to browse peers and connect over MagicDNS."
+                                "Authorize this device to browse peers and connect over MagicDNS."
                             } else {
-                                "Start ShellSurge's embedded Tailscale node to browse devices on your tailnet without touching Android's VPN slot."
+                                "Start embedded Tailscale to browse tailnet devices without using Android's VPN slot."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -332,23 +339,22 @@ private fun PeerConnectDialog(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        enabled = valid,
-                        onClick = { onSave(username.trim(), portInt!!, useTailscaleSsh, password) },
-                    ) {
-                        Text("Save host")
-                    }
-                }
             }
         },
         confirmButton = {
-            Button(
-                enabled = valid,
-                onClick = { onConnect(username.trim(), portInt!!, useTailscaleSsh, password) },
-            ) {
-                Text("Connect")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    enabled = valid,
+                    onClick = { onSave(username.trim(), portInt!!, useTailscaleSsh, password) },
+                ) {
+                    Text("Save")
+                }
+                Button(
+                    enabled = valid,
+                    onClick = { onConnect(username.trim(), portInt!!, useTailscaleSsh, password) },
+                ) {
+                    Text("Connect")
+                }
             }
         },
         dismissButton = {

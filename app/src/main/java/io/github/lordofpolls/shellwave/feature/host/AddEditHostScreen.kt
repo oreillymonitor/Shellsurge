@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.SettingsEthernet
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.VpnKey
@@ -1184,9 +1185,104 @@ fun AddEditHostScreen(
                     }
                 }
 
-                // 3. CONNECTION & RESILIENCE
-                SettingsGroupCard(title = "Connection & Resilience", icon = Icons.Outlined.Sync) {
-                    // QoL 4: Test Connection Probe
+                // 3. SESSION & STARTUP
+                SettingsGroupCard(title = "Session & Startup", icon = Icons.Outlined.Terminal) {
+                    SettingsSwitch(
+                        title = "Resilient session",
+                        description = "Reattaches to the same tmux session after reconnect. Falls back to a plain shell without tmux.",
+                        checked = resilientSession,
+                        onCheckedChange = { resilientSession = it },
+                    )
+
+                    SettingsCardDivider()
+
+                    HostStartupOptionsFields(
+                        startupDirectory = startupDirectory,
+                        onStartupDirectoryChange = { startupDirectory = it },
+                        autoLaunchPreset = autoLaunchPreset,
+                        onAutoLaunchPresetChange = { autoLaunchPreset = it },
+                        customAutoLaunchCommand = customAutoLaunchCommand,
+                        onCustomAutoLaunchCommandChange = { customAutoLaunchCommand = it },
+                    )
+                }
+
+                // 4. CONNECTION & ROUTING
+                SettingsGroupCard(title = "Connection & Routing", icon = Icons.Outlined.Sync) {
+                    HostTailscaleOptionsFields(
+                        useTailscale = useTailscale,
+                        onUseTailscaleChange = { useTailscale = it },
+                        useTailscaleSsh = useTailscaleSsh,
+                        onUseTailscaleSshChange = { useTailscaleSsh = it },
+                    )
+
+                    SettingsCardDivider()
+
+                    // Excludes this host itself - an immediate one-host cycle is the only case cheap to
+                    // rule out.
+                    val jumpHost = allHosts.firstOrNull { it.id == proxyJumpHostId }
+                    PickerRow(
+                        title = "Proxy jump (ProxyJump)",
+                        value = {
+                            if (jumpHost == null) DimText("Connect directly") else HostChoice(jumpHost)
+                        },
+                    ) { dismiss ->
+                        DropdownMenuItem(
+                            text = { Text("Connect directly") },
+                            onClick = { proxyJumpHostId = null; dismiss() },
+                        )
+                        allHosts.filter { it.id != existingId }.forEach { candidate ->
+                            DropdownMenuItem(
+                                text = { HostChoice(candidate) },
+                                onClick = { proxyJumpHostId = candidate.id; dismiss() },
+                            )
+                        }
+                    }
+                    Text(
+                        "Connect through another saved host as a bastion; jump settings chain.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    SettingsCardDivider()
+
+                    SettingsSwitch(
+                        title = "Agent forwarding",
+                        description = "Confirm each key on connect; forwarded keys remain usable until the tab closes.",
+                        checked = agentForwarding,
+                        onCheckedChange = { agentForwarding = it },
+                    )
+                    if (agentForwarding) {
+                        val privateKeys = storedKeys.filter { it.type == CredentialType.PRIVATE_KEY.name }
+                        Text("Keys to forward", style = MaterialTheme.typography.labelLarge)
+                        privateKeys.forEach { key ->
+                            val picked = key.id in agentKeyIds
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp)
+                                    .toggleable(
+                                        value = picked,
+                                        role = Role.Checkbox,
+                                        onValueChange = { agentKeyIds = if (it) agentKeyIds + key.id else agentKeyIds - key.id },
+                                    ),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(checked = picked, onCheckedChange = null)
+                                KeyChoice(key, forwarded = true)
+                            }
+                        }
+                        if (storedKeysOrNull != null) {
+                            if (privateKeys.isEmpty()) {
+                                DimText("No keys yet. Add one on the Keys tab to forward it.")
+                            } else if (privateKeys.none { it.id in agentKeyIds }) {
+                                DimText("No keys selected: nothing will be forwarded.")
+                            }
+                        }
+                    }
+
+                    SettingsCardDivider()
+
+                    // Test Connection Probe
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1198,7 +1294,7 @@ fun AddEditHostScreen(
                                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
                             )
                             Text(
-                                text = "Probe host reachability and inspect SSH handshake.",
+                                text = "Check host reachability and SSH handshake.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1225,7 +1321,7 @@ fun AddEditHostScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                                 Spacer(Modifier.width(6.dp))
-                                Text("Testing...")
+                                Text("Testing…")
                             } else {
                                 Icon(Icons.Outlined.NetworkCheck, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
@@ -1260,107 +1356,9 @@ fun AddEditHostScreen(
                             }
                         }
                     }
-
-                    SettingsCardDivider()
-
-                    SettingsSwitch(
-                        title = "Resilient session",
-                        description = "Reattach to the same tmux session after a reconnect. Falls back " +
-                                "to a plain shell without tmux.",
-                        checked = resilientSession,
-                        onCheckedChange = { resilientSession = it },
-                    )
-
-                    SettingsCardDivider()
-
-                    HostStartupOptionsFields(
-                        startupDirectory = startupDirectory,
-                        onStartupDirectoryChange = { startupDirectory = it },
-                        autoLaunchPreset = autoLaunchPreset,
-                        onAutoLaunchPresetChange = { autoLaunchPreset = it },
-                        customAutoLaunchCommand = customAutoLaunchCommand,
-                        onCustomAutoLaunchCommandChange = { customAutoLaunchCommand = it },
-                    )
-
-                    SettingsCardDivider()
-
-                    HostTailscaleOptionsFields(
-                        useTailscale = useTailscale,
-                        onUseTailscaleChange = { useTailscale = it },
-                        useTailscaleSsh = useTailscaleSsh,
-                        onUseTailscaleSshChange = { useTailscaleSsh = it },
-                    )
-
-                    SettingsCardDivider()
-
-                    // Excludes this host itself - an immediate one-host cycle is the only case cheap to
-                    // rule out.
-                    val jumpHost = allHosts.firstOrNull { it.id == proxyJumpHostId }
-                    PickerRow(
-                        title = "Proxy jump (ProxyJump)",
-                        value = {
-                            if (jumpHost == null) DimText("Connect directly") else HostChoice(jumpHost)
-                        },
-                    ) { dismiss ->
-                        DropdownMenuItem(
-                            text = { Text("Connect directly") },
-                            onClick = { proxyJumpHostId = null; dismiss() },
-                        )
-                        allHosts.filter { it.id != existingId }.forEach { candidate ->
-                            DropdownMenuItem(
-                                text = { HostChoice(candidate) },
-                                onClick = { proxyJumpHostId = candidate.id; dismiss() },
-                            )
-                        }
-                    }
-                    Text(
-                        "Connects through another saved host acting as a bastion. Jump settings chain, so " +
-                                "several hops can be reached this way.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    SettingsCardDivider()
-
-                    SettingsSwitch(
-                        title = "Agent forwarding",
-                        description = "You confirm each key when you press Connect, and they stay forwarded " +
-                                "until you close the tab. Anything on the host running as you, and root, can " +
-                                "use them while you're connected.",
-                        checked = agentForwarding,
-                        onCheckedChange = { agentForwarding = it },
-                    )
-                    if (agentForwarding) {
-                        val privateKeys = storedKeys.filter { it.type == CredentialType.PRIVATE_KEY.name }
-                        Text("Keys to forward", style = MaterialTheme.typography.labelLarge)
-                        privateKeys.forEach { key ->
-                            val picked = key.id in agentKeyIds
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 16.dp)
-                                    .toggleable(
-                                        value = picked,
-                                        role = Role.Checkbox,
-                                        onValueChange = { agentKeyIds = if (it) agentKeyIds + key.id else agentKeyIds - key.id },
-                                    ),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(checked = picked, onCheckedChange = null)
-                                KeyChoice(key, forwarded = true)
-                            }
-                        }
-                        if (storedKeysOrNull != null) {
-                            if (privateKeys.isEmpty()) {
-                                DimText("No keys yet. Add one on the Keys tab; until then nothing will be forwarded.")
-                            } else if (privateKeys.none { it.id in agentKeyIds }) {
-                                DimText("No keys selected: nothing will be forwarded.")
-                            }
-                        }
-                    }
                 }
 
-                // 4. APPEARANCE & TERMINAL
+                // 5. APPEARANCE & TERMINAL
                 SettingsGroupCard(title = "Appearance & Terminal", icon = Icons.Outlined.Palette) {
                     Text("Host accent colour", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium))
                     FlowRow(
@@ -1658,14 +1656,14 @@ private fun HostTailscaleOptionsFields(
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SettingsSwitch(
             title = "Connect via embedded Tailscale",
-            description = "Routes this connection through ShellSurge's in-app Tailscale node (MagicDNS & 100.x IPs) without using Android's VPN slot.",
+            description = "Routes through in-app Tailscale (MagicDNS & 100.x) without Android's VPN slot.",
             checked = useTailscale,
             onCheckedChange = onUseTailscaleChange,
         )
         if (useTailscale) {
             SettingsSwitch(
                 title = "Use Tailscale SSH (keyless)",
-                description = "Authenticate via tailnet identity (AuthNone) instead of an SSH password or key.",
+                description = "Authenticates via tailnet identity instead of a password or key.",
                 checked = useTailscaleSsh,
                 onCheckedChange = onUseTailscaleSshChange,
             )
@@ -1696,7 +1694,7 @@ private fun HostStartupOptionsFields(
                 keyboardType = KeyboardType.Uri,
             ),
             supportingText = {
-                Text("Runs cd to this directory automatically when connecting.")
+                Text("Runs cd automatically on connect.")
             },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -1718,10 +1716,7 @@ private fun HostStartupOptionsFields(
                 )
             }
         }
-        DimText(
-            "Launches automatically after connecting (or when starting a new tmux " +
-                "session; reattaching an existing tmux session won't re-run it).",
-        )
+        DimText("Runs on fresh connect (skipped when reattaching tmux).")
         if (autoLaunchPreset == HostAutoLaunchPreset.CUSTOM) {
             OutlinedTextField(
                 value = customAutoLaunchCommand,

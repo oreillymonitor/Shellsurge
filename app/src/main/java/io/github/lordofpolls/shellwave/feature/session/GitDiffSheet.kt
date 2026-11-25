@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -291,12 +292,22 @@ internal fun GitDiffSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        dragHandle = {
+            Surface(
+                modifier = Modifier
+                    .padding(top = 8.dp, bottom = 4.dp)
+                    .size(width = 36.dp, height = 4.dp),
+                shape = RoundedCornerShape(2.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            ) {}
+        },
         modifier = modifier,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
+                .imePadding()
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -462,7 +473,7 @@ internal fun GitDiffSheet(
                                                         onEditFile(fullPath)
                                                     }
                                                 },
-                                                modifier = Modifier.size(28.dp),
+                                                modifier = Modifier.size(32.dp),
                                             ) {
                                                 Icon(
                                                     Icons.Outlined.Edit,
@@ -479,7 +490,7 @@ internal fun GitDiffSheet(
                                                     onAskAgent("Review my uncommitted changes in ${file.path} and point out any bugs or improvements.")
                                                 }
                                             },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(32.dp),
                                         ) {
                                             Icon(
                                                 Icons.Outlined.AutoAwesome,
@@ -554,7 +565,7 @@ internal fun GitDiffSheet(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("Ask Agent to Review Changes")
+                        Text("Review changes with agent")
                     }
                 }
             }

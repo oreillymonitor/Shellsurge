@@ -7,9 +7,10 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
  * Compact, expandable inline capsule appearing above the KeyBar when an AI agent
  * or shell command completes a task, hits an error, or awaits confirmation.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AgentDigestCapsule(
     digest: AgentDigestResult,
@@ -175,7 +176,7 @@ internal fun AgentDigestCapsule(
                     // Dismiss button
                     IconButton(
                         onClick = onDismiss,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Close,
@@ -210,11 +211,10 @@ internal fun AgentDigestCapsule(
                 // Tappable touched-file chips (edit / ask agent / download / copy)
                 if (digest.touchedFiles.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         digest.touchedFiles.forEach { filePath ->
                             val shortName = filePath.substringAfterLast('/')
@@ -272,11 +272,10 @@ internal fun AgentDigestCapsule(
                 }
                 if (resolvedActions.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         resolvedActions.forEach { action ->
                             val isPrimary = action.sendText.equals("y", ignoreCase = true) ||
@@ -365,7 +364,7 @@ internal fun AgentDigestLoadingCapsule(
 
                 val hasStream = !streamingText.isNullOrBlank()
                 Text(
-                    text = if (hasStream) streamingText!! else "Gemini is summarizing terminal...",
+                    text = if (hasStream) streamingText!! else "Summarizing output…",
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Medium,
                         fontSize = 13.sp,
@@ -378,7 +377,7 @@ internal fun AgentDigestLoadingCapsule(
 
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(32.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Close,

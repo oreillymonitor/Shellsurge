@@ -127,6 +127,8 @@ import io.github.lordofpolls.shellwave.ui.design.MachineText
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+private const val UPSTREAM_SHELLWAVE_SPONSORS_URL = "https://github.com/sponsors/LordOfPolls"
+
 /**
  * The Settings destination, organized into structured Material 3 preference cards with segmented
  * controls, visual theme selectors, and clear category hierarchy.
@@ -252,10 +254,105 @@ fun SettingsScreen(
                 )
             }
 
-            // 2a. AI CODING AGENTS
-            SettingsGroupCard(title = "AI Coding Agents", icon = Icons.Outlined.SmartToy) {
+            // 3. NOTIFICATIONS
+            SettingsGroupCard(title = "Notifications", icon = Icons.Outlined.Notifications) {
+                if (!systemNotificationsEnabled) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "Notifications are blocked in Android system settings. Enable them to receive command and output alerts.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    runCatching {
+                                        val settingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        context.startActivity(settingsIntent)
+                                    }
+                                },
+                            ) {
+                                Text("Open notification settings")
+                            }
+                        }
+                    }
+                }
+
+                SettingsSwitch(
+                    title = "Command & output alerts",
+                    description = "Alert when a command finishes or needs input while you're away.",
+                    checked = commandNotifyEnabled,
+                    onCheckedChange = { NotificationPreferences.setCommandNotifyEnabled(context, it) },
+                )
+
+                AnimatedVisibility(visible = commandNotifyEnabled) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) {
+                        SettingsSegmentedGroup(
+                            label = "Idle settle delay",
+                            description = "Wait after output settles before alerting. 'OSC only' uses explicit shell/agent hooks.",
+                            options = OutputIdleDelay.entries,
+                            selected = outputIdleDelay,
+                            labelOf = { it.label },
+                            onSelect = { NotificationPreferences.setIdleDelay(context, it) },
+                        )
+
+                        SettingsSwitch(
+                            title = "Alert on active tab too",
+                            description = "Also notify while the session is visible on screen.",
+                            checked = notifyOnActiveTab,
+                            onCheckedChange = { NotificationPreferences.setNotifyOnActiveTab(context, it) },
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "Works automatically for commands and coding agents. Emit OSC 133;D;$? or OSC 9 / OSC 777 for instant hooks.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(10.dp),
+                            )
+                        }
+                    }
+                }
+
+                SettingsCardDivider()
+
+                SettingsSwitch(
+                    title = "Auto-summarize completed tabs",
+                    description = "Show a summary capsule automatically when returning to a finished tab.",
+                    checked = autoDigestOnReturn,
+                    onCheckedChange = { NotificationPreferences.setAutoDigestOnReturn(context, it) },
+                )
+
+                SettingsCardDivider()
+
+                SettingsSegmentedGroup(
+                    label = "Terminal bell",
+                    options = BellMode.entries,
+                    selected = bellMode,
+                    labelOf = BellPreferences::modeName,
+                    onSelect = { BellPreferences.set(context, it) },
+                )
+            }
+
+            // 4. CODING AGENTS
+            SettingsGroupCard(title = "Coding Agents", icon = Icons.Outlined.SmartToy) {
                 Text(
-                    "Toggle which AI coding agent CLIs appear in the Quick Response menu and Prompt Composer.",
+                    "Choose which CLI coding harnesses appear in Quick Response and Prompt Composer.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -272,7 +369,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 2a-bis. ON-DEVICE AI (GEMINI NANO)
+            // 5. ON-DEVICE AI (GEMINI NANO)
             SettingsGroupCard(title = "On-Device AI (Gemini Nano)", icon = Icons.Outlined.AutoAwesome) {
                 val diag = nanoDiag
                 val statusLabel = when (diag?.status) {
@@ -398,7 +495,7 @@ fun SettingsScreen(
 
                 SettingsSegmentedGroup(
                     label = "Model preference",
-                    description = "Full favors quality (larger Nano variant when available); Fast favors lower latency.",
+                    description = "Full favors quality; Fast lowers latency.",
                     options = NanoModelTier.entries,
                     selected = nanoTier,
                     labelOf = { it.label },
@@ -411,7 +508,7 @@ fun SettingsScreen(
 
                 SettingsSegmentedGroup(
                     label = "Release channel",
-                    description = "Preview selects experimental AICore builds when enabled in Android Developer Options → AICore Settings.",
+                    description = "Preview uses experimental AICore builds when enabled in Developer Options.",
                     options = NanoReleaseChannel.entries,
                     selected = nanoChannel,
                     labelOf = { it.label },
@@ -427,9 +524,9 @@ fun SettingsScreen(
                 SettingsSwitch(
                     title = "Thinking mode",
                     description = if (diag?.supportsThinkingMode == true) {
-                        "Allow Gemini Nano to reason before refining prompts or generating shell commands."
+                        "Allow Gemini Nano to reason before refining prompts or commands."
                     } else {
-                        "Enabled when supported by the active AICore model on your device."
+                        "Available when supported by your device's AICore model."
                     },
                     checked = nanoThinking,
                     onCheckedChange = { NanoModelPreferences.setThinkingModeEnabled(context, it) },
@@ -439,119 +536,24 @@ fun SettingsScreen(
 
                 SettingsSwitch(
                     title = "Pre-warm on session open",
-                    description = "Preload Gemini Nano into AICore memory when opening a session or Prompt Composer.",
+                    description = "Preload Gemini Nano when opening a session or composer.",
                     checked = nanoWarmup,
                     onCheckedChange = { NanoModelPreferences.setWarmupEnabled(context, it) },
                 )
             }
 
-            // 2b. NOTIFICATIONS
-            SettingsGroupCard(title = "Notifications", icon = Icons.Outlined.Notifications) {
-                if (!systemNotificationsEnabled) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                "Notifications are blocked in Android system settings. Enable them to receive command and output alerts.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            OutlinedButton(
-                                onClick = {
-                                    runCatching {
-                                        val settingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                        context.startActivity(settingsIntent)
-                                    }
-                                },
-                            ) {
-                                Text("Open notification settings")
-                            }
-                        }
-                    }
-                }
-
-                SettingsSwitch(
-                    title = "Command & output alerts",
-                    description = "Notify only when a command has Completed or when a Response is needed while you're away from the session.",
-                    checked = commandNotifyEnabled,
-                    onCheckedChange = { NotificationPreferences.setCommandNotifyEnabled(context, it) },
-                )
-
-                AnimatedVisibility(visible = commandNotifyEnabled) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(top = 4.dp),
-                    ) {
-                        SettingsSegmentedGroup(
-                            label = "Idle settle delay",
-                            description = "Wait this long after output stops before alerting. Choose 'OSC only' to notify only on explicit shell/agent signals.",
-                            options = OutputIdleDelay.entries,
-                            selected = outputIdleDelay,
-                            labelOf = { it.label },
-                            onSelect = { NotificationPreferences.setIdleDelay(context, it) },
-                        )
-
-                        SettingsSwitch(
-                            title = "Alert on active tab too",
-                            description = "Also notify while the session is visible on screen (useful when leaving your phone on your desk).",
-                            checked = notifyOnActiveTab,
-                            onCheckedChange = { NotificationPreferences.setNotifyOnActiveTab(context, it) },
-                        )
-
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                "Works automatically for any command or AI coding agent. For instant exit-code alerts, emit OSC 133;D;$? from your shell prompt or OSC 9 / OSC 777 from agent hooks.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(10.dp),
-                            )
-                        }
-                    }
-                }
-
-                SettingsCardDivider()
-
-                SettingsSwitch(
-                    title = "Auto-summarize completed tabs",
-                    description = "Show an on-device Gemini Nano digest capsule automatically when returning to a tab that finished while you were away.",
-                    checked = autoDigestOnReturn,
-                    onCheckedChange = { NotificationPreferences.setAutoDigestOnReturn(context, it) },
-                )
-
-                SettingsCardDivider()
-
-                SettingsSegmentedGroup(
-                    label = "Terminal bell",
-                    options = BellMode.entries,
-                    selected = bellMode,
-                    labelOf = BellPreferences::modeName,
-                    onSelect = { BellPreferences.set(context, it) },
-                )
-            }
-
-            // 2c. TAILSCALE (EMBEDDED)
+            // 6. TAILSCALE (EMBEDDED)
             TailscaleSettingsCard(
                 tailscaleManager = tailscaleManager,
                 onOpenTailnetPeers = onOpenTailnetPeers,
                 uriHandler = uriHandler,
             )
 
-            // 3. HOSTS & SECURITY
+            // 7. HOSTS & SECURITY
             SettingsGroupCard(title = "Hosts & Security", icon = Icons.Outlined.Dns) {
                 SettingsRow(
                     title = "Trusted host keys",
-                    description = "The host keys accepted so far, with a fingerprint to check and a way to forget one.",
+                    description = "Review fingerprints or remove accepted host keys.",
                     icon = Icons.Outlined.VpnKey,
                     chevron = true,
                     onClick = onOpenKnownHosts,
@@ -561,7 +563,7 @@ fun SettingsScreen(
 
                 SettingsSwitch(
                     title = "Show which hosts are reachable",
-                    description = "Probes each saved host's SSH port and marks it UP or DOWN. No credentials used. Stops when you leave the app.",
+                    description = "Probes saved hosts' SSH ports while the app is open. Uses no credentials.",
                     checked = reachabilityEnabled,
                     onCheckedChange = onReachabilityEnabledChange,
                 )
@@ -581,7 +583,7 @@ fun SettingsScreen(
 
                         SettingsSwitch(
                             title = "Allow on mobile data",
-                            description = "Off by default, so probing only happens on unmetered networks such as Wi-Fi.",
+                            description = "Off by default so probing only runs on Wi-Fi.",
                             checked = reachabilityMetered,
                             onCheckedChange = onReachabilityMeteredChange,
                         )
@@ -592,7 +594,7 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
-                                "Hosts behind a jump host aren't probed - a direct connection to them would fail - so they show \"—\".",
+                                "Hosts behind a jump host aren't probed — a direct connection to them would fail — so they show \"—\".",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(10.dp),
@@ -602,7 +604,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 4. AUTOMATION
+            // 8. AUTOMATION
             SettingsGroupCard(title = "Automation", icon = Icons.Outlined.Code) {
                 AutomationSettings(
                     enabled = automationEnabled,
@@ -612,23 +614,30 @@ fun SettingsScreen(
                 )
             }
 
-            // 5. BACKUP & RESTORE
+            // 9. BACKUP & RESTORE
             SettingsGroupCard(title = "Backup & Restore", icon = Icons.Outlined.FolderOpen) {
                 ConfigExportRow(onExport = onExportConfig)
                 SettingsCardDivider()
                 ConfigImportRow(onImport = onImportConfig)
             }
 
-            // 6. SUPPORT
+            // 10. SUPPORT
             SettingsGroupCard(title = "Support", icon = Icons.Outlined.FavoriteBorder) {
                 Text(
-                    text = "ShellSurge is a fork of Shellwave. If you find this app useful, please support the original developer of Shellwave.",
+                    text = "ShellSurge is a fork of Shellwave. If you find this app useful, please consider supporting the original Shellwave developer.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 SettingsCardDivider()
                 SettingsRow(
-                    title = "Support Shellwave",
+                    title = "Sponsor Shellwave on GitHub",
+                    description = UPSTREAM_SHELLWAVE_SPONSORS_URL,
+                    chevron = true,
+                    onClick = { runCatching { uriHandler.openUri(UPSTREAM_SHELLWAVE_SPONSORS_URL) } },
+                )
+                SettingsCardDivider()
+                SettingsRow(
+                    title = "Shellwave repository",
                     description = UPSTREAM_SHELLWAVE_URL,
                     chevron = true,
                     onClick = { runCatching { uriHandler.openUri(UPSTREAM_SHELLWAVE_URL) } },
@@ -1031,7 +1040,6 @@ private fun TailscaleSettingsCard(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val status by tailscaleManager.status.collectAsState()
-    val tsEnabled by rememberPrefState { TailscalePreferences.isEnabled(it) }
     val autoStart by rememberPrefState { TailscalePreferences.isAutoStartEnabled(it) }
     val savedHostname by rememberPrefState { TailscalePreferences.getHostname(it) }
     val savedControlUrl by rememberPrefState { TailscalePreferences.getControlUrl(it) }
@@ -1085,7 +1093,7 @@ private fun TailscaleSettingsCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Runs in-app via userspace tsnet without touching Android's VPN slot.",
+                        text = "Userspace tsnet — leaves Android's VPN slot free.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
@@ -1280,29 +1288,8 @@ private fun TailscaleSettingsCard(
         }
 
         SettingsSwitch(
-            title = "Enable embedded Tailscale",
-            description = "Connect inside ShellSurge while keeping any other Android VPN active.",
-            checked = tsEnabled || status.isActive,
-            onCheckedChange = { checked ->
-                TailscalePreferences.setEnabled(context, checked)
-                if (checked) {
-                    pendingBrowserSignIn = authKeyInput.isBlank()
-                    lastAutoOpenedUrl = null
-                    browserLaunchError = null
-                } else {
-                    pendingBrowserSignIn = false
-                    lastAutoOpenedUrl = null
-                    browserLaunchError = null
-                }
-                scope.launch {
-                    if (checked) tailscaleManager.start(authKeyInput) else tailscaleManager.stop()
-                }
-            },
-        )
-
-        SettingsSwitch(
             title = "Auto-start on Tailscale hosts",
-            description = "Automatically starts the embedded node when connecting to a Tailscale host or *.ts.net address.",
+            description = "Starts embedded Tailscale automatically for Tailscale hosts and *.ts.net addresses.",
             checked = autoStart,
             onCheckedChange = { TailscalePreferences.setAutoStartEnabled(context, it) },
         )
@@ -1314,6 +1301,7 @@ private fun TailscaleSettingsCard(
             if (!status.isActive) {
                 Button(
                     onClick = {
+                        TailscalePreferences.setEnabled(context, true)
                         pendingBrowserSignIn = authKeyInput.isBlank()
                         lastAutoOpenedUrl = null
                         browserLaunchError = null
@@ -1348,7 +1336,7 @@ private fun TailscaleSettingsCard(
             modifier = Modifier.fillMaxWidth(),
         ) {
             TextButton(onClick = { showAdvanced = !showAdvanced }) {
-                Text(if (showAdvanced) "Hide advanced" else "Hostname / Auth key / Headscale")
+                Text(if (showAdvanced) "Hide advanced" else "Advanced")
             }
             if (status.isActive) {
                 TextButton(

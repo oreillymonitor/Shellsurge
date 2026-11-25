@@ -171,6 +171,15 @@ internal fun AgentQuickResponseSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        dragHandle = {
+            Surface(
+                modifier = Modifier
+                    .padding(top = 8.dp, bottom = 4.dp)
+                    .size(width = 36.dp, height = 4.dp),
+                shape = RoundedCornerShape(2.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            ) {}
+        },
         modifier = modifier,
     ) {
         Column(
@@ -209,7 +218,7 @@ internal fun AgentQuickResponseSheet(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "1-tap replies & vibe directives",
+                            text = "Quick replies, commands & harnesses",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -306,13 +315,13 @@ internal fun AgentQuickResponseSheet(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isSummarizing) "Gemini is summarizing terminal..." else "Summarize Terminal & Listen",
+                                text = if (isSummarizing) "Summarizing output…" else "Summarize & Read Aloud",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isSummarizing) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
                             )
                             Text(
-                                text = if (isSummarizing) "Analyzing terminal output with Gemini..." else "On-device digest, read aloud & voice reply",
+                                text = if (isSummarizing) "Analyzing recent terminal output…" else "Short summary, audio playback & voice reply",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = (if (isSummarizing) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer).copy(alpha = 0.85f),
                             )
@@ -399,7 +408,7 @@ internal fun AgentQuickResponseSheet(
                                 onClick = { execute { onSendText("$num", true) } },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(30.dp),
+                                    .height(34.dp),
                                 contentPadding = PaddingValues(0.dp),
                             ) {
                                 Text("$num", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
@@ -409,7 +418,7 @@ internal fun AgentQuickResponseSheet(
                         // Stop (Ctrl+C)
                         Button(
                             onClick = { execute { onSendRaw("\u0003") } },
-                            modifier = Modifier.height(30.dp),
+                            modifier = Modifier.height(34.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.error,
                                 contentColor = MaterialTheme.colorScheme.onError,
@@ -424,7 +433,7 @@ internal fun AgentQuickResponseSheet(
                         // ESC
                         FilledTonalButton(
                             onClick = { execute { onSendRaw("\u001B") } },
-                            modifier = Modifier.height(30.dp),
+                            modifier = Modifier.height(34.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         ) {
                             Text("ESC", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
@@ -529,7 +538,7 @@ internal fun AgentQuickResponseSheet(
                         tint = MaterialTheme.colorScheme.primary,
                     )
                     Text(
-                        text = "VIBE DIRECTIVES",
+                        text = "QUICK PROMPTS",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary,

@@ -9,16 +9,19 @@ import kotlinx.coroutines.launch
 
 private const val MIN_QUICK_ECHO_MS = 1_500L
 private const val MIN_QUICK_ECHO_BYTES = 24
-private const val PASSIVE_ARM_BYTES = 48
-private const val PASSIVE_COMPLETED_BYTES = 64
+private const val PASSIVE_ARM_BYTES = 12
+private const val PASSIVE_COMPLETED_BYTES = 16
 private const val PASSIVE_WINDOW_RESET_MS = 15_000L
-private const val TMUX_CLOCK_TICK_BYTES = 20
-private const val SUBSTANTIAL_OUTPUT_BYTES = 80
+private const val MAX_SETTLE_POLLS = 120
 
-private val PROMPT_LINE_REGEX =
-    Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯➜%]\\s*$|^[>❯➜]\\s+.*$|^[\\w.-]+@[\\w.-]+:.*[$#%]\\s+.*$")
+private val PROMPT_LINE_REGEX = Regex(
+    "^(?:[\\w.-]+@[\\w.-]+:.*[$#%>❯➜]|(?:~|/[\\w./-]+)\\s+.*[$#%>❯➜]|[$#>❯➜%λ]|(?:\\[[^\\]]+]|\\([^)]+\\))\\s*[\\w.-]*[$#%>❯➜])\\s*$" +
+        "|^[>❯➜]\\s+.*$" +
+        "|^[\\w.-]+@[\\w.-]+:.*[$#%]\\s+.*$"
+)
 private val DIVIDER_LINE_REGEX = Regex("^[─━═\\-_*~·•]+$")
 private val QUESTION_REGEX = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
+private val SPINNER_ONLY_REGEX = Regex("^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◐◓◑◒\\s]+$")
 
 private val IN_PROGRESS_MARKERS = listOf(
     "thinking...",
@@ -31,10 +34,23 @@ private val IN_PROGRESS_MARKERS = listOf(
     "compiling...",
     "building...",
     "downloading...",
+    "running...",
     "esc to interrupt",
-    "esc to cancel",
-    "ctrl+c to cancel",
     "ctrl+c to interrupt",
+)
+
+private val IDLE_TUI_INPUT_MARKERS = listOf(
+    "type a message",
+    "type your message",
+    "ask a follow-up",
+    "type a follow-up",
+    "send a message",
+    "? for shortcuts",
+    "shift+tab",
+    "context left",
+    "ask anything",
+    "enter your message",
+    "try \"",
 )
 
 private val RESPONSE_NEEDED_MARKERS = listOf(
@@ -200,6 +216,24 @@ internal fun extractNotificationQuickActions(
     )
 }
 
+internal fun screenContentSignature(tail: String): String =
+    TerminalTextSanitizer.stripTuiChrome(tail)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
+        .takeLast(20)
+        .joinToString("\n")
+
+private fun isActivelyRunning(sanitizedTail: String): Boolean {
+    val rawLines = sanitizedTail.lines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
+    if (rawLines.isEmpty()) return false
+    return rawLines.takeLast(6).any { line ->
+        IN_PROGRESS_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) } ||
+            SPINNER_ONLY_REGEX.matches(line)
+    }
+}
+
 /**
  * Classifies terminal output into strictly two actionable notification types:
  * [OutputPromptKind.RESPONSE_NEEDED] or [OutputPromptKind.COMPLETED], or `null` when output is
@@ -208,6 +242,7 @@ internal fun extractNotificationQuickActions(
 internal fun classifyPromptKind(
     sanitizedTail: String,
     explicitSignal: TerminalSignal? = null,
+    settledAfterIdle: Boolean = false,
 ): OutputPromptKind? {
     when (explicitSignal) {
         is TerminalSignal.CommandFinished -> {
@@ -236,18 +271,20 @@ internal fun classifyPromptKind(
     if (rawLines.isEmpty()) return null
 
     // Check active in-progress indicators (including "esc to interrupt") BEFORE chrome stripping.
-    val rawBottomWindow = rawLines.takeLast(4)
-    val activelyRunning = rawBottomWindow.any { line ->
-        IN_PROGRESS_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) }
-    }
-    if (activelyRunning) return null
+    if (isActivelyRunning(sanitizedTail)) return null
 
     // 1. Check if a response / confirmation / numbered menu / agent question is waiting.
     if (isResponseNeededText(sanitizedTail)) {
         return OutputPromptKind.RESPONSE_NEEDED
     }
 
-    // 2. Check if the command/turn completed (returned to a prompt or printed a completion summary).
+    // Check idle TUI harness input box/footer BEFORE chrome stripping drops them.
+    val hasIdleTuiPrompt = rawLines.takeLast(6).any { line ->
+        IDLE_TUI_INPUT_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) }
+    }
+
+    // 2. Check if the command/turn completed (returned to a prompt, printed completion marker,
+    // shows an idle TUI input prompt, or produced meaningful output that settled after an idle wait).
     val lines = TerminalTextSanitizer.stripTuiChrome(sanitizedTail)
         .map { it.trim() }
         .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
@@ -262,11 +299,16 @@ internal fun classifyPromptKind(
         COMPLETED_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) }
     }
 
-    return if (returnedToPrompt || hasCompletionMarker) {
+    return if (returnedToPrompt || hasIdleTuiPrompt || hasCompletionMarker || settledAfterIdle) {
         OutputPromptKind.COMPLETED
     } else {
         null
     }
+}
+
+private enum class EvalOutcome {
+    DONE,
+    STILL_RUNNING,
 }
 
 /**
@@ -314,6 +356,7 @@ internal class TerminalOutputWatcher(
             passivePending = false
             unarmedPrintableBytes = 0
             notifiedResponseNeededInTurn = false
+            lastNotifiedSignature = null
             commandSubmittedAtMs = nowMs()
             lastOutputAtMs = 0L
             outputBytesSinceSubmit = 0
@@ -327,6 +370,7 @@ internal class TerminalOutputWatcher(
     fun onRawOutput(data: ByteArray, length: Int = data.size) {
         val explicitSignals = mutableListOf<TerminalSignal>()
         var notifyRunning = false
+        var schedulePassive: Boolean? = null
 
         synchronized(lock) {
             val scanResult = scanner.scan(data, length)
@@ -338,6 +382,7 @@ internal class TerminalOutputWatcher(
                         passivePending = false
                         unarmedPrintableBytes = 0
                         notifiedResponseNeededInTurn = false
+                        lastNotifiedSignature = null
                         if (commandSubmittedAtMs == null) {
                             commandSubmittedAtMs = nowMs()
                         }
@@ -381,30 +426,24 @@ internal class TerminalOutputWatcher(
                 if (turnArmed) {
                     lastOutputAtMs = now
                     outputBytesSinceSubmit += scanResult.printableBytes
-                    val isTinyClockTick = settleJob?.isActive == true &&
-                        outputBytesSinceSubmit >= SUBSTANTIAL_OUTPUT_BYTES &&
-                        scanResult.printableBytes < TMUX_CLOCK_TICK_BYTES &&
-                        !containsSubmitOrQuestionByte(data, length)
-                    if (!isTinyClockTick) {
-                        scheduleSettleLocked(passive = false)
-                    }
+                    schedulePassive = false
                 } else {
                     if (now - lastUnarmedByteAtMs > PASSIVE_WINDOW_RESET_MS) {
                         unarmedPrintableBytes = 0
                     }
                     lastUnarmedByteAtMs = now
                     unarmedPrintableBytes += scanResult.printableBytes
-                    if (unarmedPrintableBytes >= PASSIVE_ARM_BYTES) {
+                    val shouldArmPassive = unarmedPrintableBytes >= PASSIVE_ARM_BYTES ||
+                        (containsSubmitOrQuestionByte(data, length) && unarmedPrintableBytes >= 4)
+                    if (shouldArmPassive) {
                         passivePending = true
-                        val isTinyClockTick = settleJob?.isActive == true &&
-                            unarmedPrintableBytes >= SUBSTANTIAL_OUTPUT_BYTES &&
-                            scanResult.printableBytes < TMUX_CLOCK_TICK_BYTES &&
-                            !containsSubmitOrQuestionByte(data, length)
-                        if (!isTinyClockTick) {
-                            scheduleSettleLocked(passive = true)
-                        }
+                        schedulePassive = true
                     }
                 }
+            }
+
+            schedulePassive?.let { passive ->
+                ensureSettleRunningLocked(passive = passive)
             }
         }
 
@@ -415,41 +454,62 @@ internal class TerminalOutputWatcher(
         if (explicitSignals.isNotEmpty()) {
             scope.launch {
                 for (signal in explicitSignals) {
-                    evaluateAndNotify(explicitSignal = signal, passive = false)
+                    evaluateAndNotify(explicitSignal = signal, passive = false, settledAfterIdle = false)
                 }
             }
         }
     }
 
-    private fun scheduleSettleLocked(passive: Boolean) {
-        settleJob?.cancel()
-        settleJob = null
+    private fun ensureSettleRunningLocked(passive: Boolean) {
+        if (settleJob?.isActive == true) return
         if (!turnArmed && !passivePending) return
         val delayMs = idleDelayMs()
         if (delayMs <= 0L) return
 
         settleJob = scope.launch {
-            delay(delayMs)
-            val canEvaluate = synchronized(lock) {
-                if (passive) passivePending && !turnArmed else turnArmed
-            }
-            if (canEvaluate) {
-                evaluateAndNotify(explicitSignal = null, passive = passive)
+            var prevSig = screenContentSignature(readTail())
+            repeat(MAX_SETTLE_POLLS) {
+                delay(delayMs)
+                val stillArmed = synchronized(lock) {
+                    if (passive) passivePending && !turnArmed else turnArmed
+                }
+                if (!stillArmed) return@launch
+
+                val tail = readTail()
+                val curSig = screenContentSignature(tail)
+                if (curSig != prevSig) {
+                    prevSig = curSig
+                    return@repeat
+                }
+
+                val outcome = evaluateAndNotify(
+                    explicitSignal = null,
+                    passive = passive,
+                    settledAfterIdle = !passive,
+                    preReadTail = tail,
+                )
+                if (outcome != EvalOutcome.STILL_RUNNING) return@launch
             }
         }
     }
 
-    private suspend fun evaluateAndNotify(explicitSignal: TerminalSignal?, passive: Boolean) {
-        val tail = readTail()
-        val kind = classifyPromptKind(tail, explicitSignal)
+    private suspend fun evaluateAndNotify(
+        explicitSignal: TerminalSignal?,
+        passive: Boolean,
+        settledAfterIdle: Boolean,
+        preReadTail: String? = null,
+    ): EvalOutcome {
+        val tail = preReadTail ?: readTail()
+        val kind = classifyPromptKind(tail, explicitSignal, settledAfterIdle = settledAfterIdle)
         if (kind == null) {
-            if (passive) {
+            val running = explicitSignal == null && isActivelyRunning(tail)
+            if (!running && passive) {
                 synchronized(lock) {
                     passivePending = false
                     unarmedPrintableBytes = 0
                 }
             }
-            return
+            return if (running) EvalOutcome.STILL_RUNNING else EvalOutcome.DONE
         }
         val explicitBody = (explicitSignal as? TerminalSignal.OscNotification)?.body
         val body = explicitBody?.takeIf { it.isNotBlank() } ?: extractOutputSnippet(tail, maxChars = 320)
@@ -549,6 +609,7 @@ internal class TerminalOutputWatcher(
                 onAlert(kind, title, body)
             }
         }
+        return EvalOutcome.DONE
     }
 
     fun cancel() {
@@ -559,6 +620,7 @@ internal class TerminalOutputWatcher(
             passivePending = false
             unarmedPrintableBytes = 0
             notifiedResponseNeededInTurn = false
+            lastNotifiedSignature = null
             commandSubmittedAtMs = null
             outputBytesSinceSubmit = 0
             updateStateLocked(AgentTurnState.IDLE)

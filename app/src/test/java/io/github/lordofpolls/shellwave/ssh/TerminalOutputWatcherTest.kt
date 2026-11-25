@@ -415,4 +415,134 @@ class TerminalOutputWatcherTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun `detects plain agent prose above TUI input box without question or completion keyword`() {
+        val agentTui = """
+            I updated the retry logic in NetworkMonitor.kt to handle DNS timeouts cleanly.
+            ╭────────────────────────────────────────────────────────╮
+            │ ❯ Try "run unit tests"                                 │
+            ╰────────────────────────────────────────────────────────╯
+            ? for shortcuts · shift+tab to accept edits
+            [claude] 0:bash*                                   19:42
+        """.trimIndent()
+
+        assertEquals(OutputPromptKind.COMPLETED, classifyPromptKind(agentTui))
+        val snippet = extractOutputSnippet(agentTui)
+        assertTrue(snippet.contains("NetworkMonitor.kt"))
+    }
+
+    @Test
+    fun `full 70-byte tmux status bar redraws do not starve idle settle notification`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val alerts = mutableListOf<RecordedAlert>()
+            var clock = 1_000L
+            val currentTail = """
+                Updated PromptRefiner.kt and added three regression tests.
+                [0] 0:zsh*  "workstation" 19:42 24-Nov-26 · CPU 12% · MEM 4.2G
+            """.trimIndent()
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "dev",
+                isEnabled = { true },
+                idleDelayMs = { 80L },
+                readTail = { currentTail },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+                nowMs = { clock },
+            )
+
+            watcher.onUserWrite("please fix the bug\r".toByteArray())
+            clock += 2_000L
+            watcher.onRawOutput("Updated PromptRefiner.kt and added three regression tests.\r\n".toByteArray())
+
+            // Full 68-byte tmux status bar redraws every 30ms would reset a naive byte/timer check.
+            repeat(4) { tick ->
+                delay(30L)
+                watcher.onRawOutput(
+                    "\u001b[40;1H[0] 0:zsh*  \"workstation\" 19:42:0$tick 24-Nov-26 · CPU 12% · MEM 4.2G".toByteArray(),
+                )
+            }
+            delay(80L)
+
+            assertEquals(1, alerts.size)
+            assertEquals(OutputPromptKind.COMPLETED, alerts[0].kind)
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `notifies again on consecutive turns ending with identical output`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val alerts = mutableListOf<RecordedAlert>()
+            var clock = 1_000L
+            val currentTail = "BUILD SUCCESSFUL in 4s\nuser@dev:~$"
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "dev",
+                isEnabled = { true },
+                idleDelayMs = { 40L },
+                readTail = { currentTail },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+                nowMs = { clock },
+            )
+
+            watcher.onUserWrite("./gradlew test\r".toByteArray())
+            clock += 2_000L
+            watcher.onRawOutput("BUILD SUCCESSFUL in 4s\r\nuser@dev:~$ ".toByteArray())
+            delay(100L)
+            assertEquals(1, alerts.size)
+
+            // User submits another command whose final screen looks identical.
+            watcher.onUserWrite("./gradlew test\r".toByteArray())
+            clock += 2_000L
+            watcher.onRawOutput("BUILD SUCCESSFUL in 4s\r\nuser@dev:~$ ".toByteArray())
+            delay(100L)
+            assertEquals(2, alerts.size)
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `short passive approval prompt triggers notification without fresh Enter press`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val alerts = mutableListOf<RecordedAlert>()
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "agent",
+                isEnabled = { true },
+                idleDelayMs = { 40L },
+                readTail = { "Allow bash? [y/N]" },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+            )
+
+            watcher.onRawOutput("Allow bash? [y/N]".toByteArray())
+            delay(100L)
+
+            assertEquals(1, alerts.size)
+            assertEquals(OutputPromptKind.RESPONSE_NEEDED, alerts[0].kind)
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `settled plain prose output and custom starship prompt both classify as COMPLETED`() {
+        val starship = "Deployed service to staging.\n~/projects/app main ❯"
+        assertEquals(OutputPromptKind.COMPLETED, classifyPromptKind(starship))
+
+        val plainProse = "All migrations applied and schemas verified."
+        assertNull(classifyPromptKind(plainProse, settledAfterIdle = false))
+        assertEquals(
+            OutputPromptKind.COMPLETED,
+            classifyPromptKind(plainProse, settledAfterIdle = true),
+        )
+    }
 }

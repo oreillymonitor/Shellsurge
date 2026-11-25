@@ -111,6 +111,10 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setContentIntent(openSessions(id, sessionId))
                     .setAutoCancel(true)
+                    .setWhen(System.currentTimeMillis())
+                    .setShowWhen(true)
+                    .setOnlyAlertOnce(false)
+                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
 
             val actionsToAttach = when {

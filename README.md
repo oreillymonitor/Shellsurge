@@ -3,7 +3,7 @@
 <p align="center">
   <b>An Android SSH and terminal client built on <a href="https://github.com/LordOfPolls/Shellwave">Shellwave</a> for remote development and agentic coding workflows.</b>
   <br>
-  Adds first-class CLI coding harness support, interactive approval/completion notifications, embedded Tailscale (<code>tsnet</code>), mobile Git diff &amp; SFTP tools, unified <code>tmux</code> scroll navigation, and optional on-device Gemini Nano utilities.
+  Adds full Android keyboard input (swipe typing, autocorrect, and voice-to-text), first-class CLI coding harness support, interactive approval/completion notifications, embedded Tailscale (<code>tsnet</code>), mobile Git diff &amp; SFTP tools, unified <code>tmux</code> scroll navigation, and optional on-device Gemini Nano utilities.
   <br><br>
   Requires Android 12 (API 31) or later. GPLv3.
 </p>
@@ -52,8 +52,13 @@ ShellSurge is an independent fork of **[Shellwave](https://github.com/LordOfPoll
 
 Many of ShellSurge's additions are purpose-built for supervising and driving terminal-based **agentic coding workflows** from a phone without fighting small-screen input, dropped connections, or interactive TUI prompts.
 
+### Full Android Keyboard Support (Swipe, Autocorrect & Voice-to-Text)
+The original motivation for this fork: most Android terminal emulators lock the soft keyboard into password/no-suggestions mode, which breaks modern phone typing when writing long prompts or natural-language instructions.
+- **Native IME Typing in the Terminal:** Full Android keyboard support enabled by default directly inside the terminal—including **swipe/glide typing**, **autocorrect**, **predictive text suggestions**, and **native keyboard voice-to-text** (e.g., Gboard voice typing).
+- **Instant Toggle Back to Raw Mode:** Toggle **Settings → Terminal configuration → Keyboard suggestions & voice typing** off at any time if you prefer classic password-mode terminal input without IME suggestions.
+
 ### Agentic Coding Harness Support
-Enable only the CLI harnesses you actually use in **Settings → AI Coding Agents** to populate launch/resume buttons, tailored slash commands, and voice macros in both the **Quick Response** sheet and the **Prompt Composer**:
+Enable only the CLI harnesses you actually use in **Settings → Coding Agents** to populate launch/resume buttons, tailored slash commands, and voice macros in both the **Quick Response** sheet and the **Prompt Composer**:
 - **Claude Code:** Launch or resume (`claude`, `claude -c`), plus slash shortcuts including `/compact`, `/model`, `/cost`, `/plan`, `/review`, `/resume`, `/mcp`, and `/clear`.
 - **OpenCode:** Launch (`opencode`), plus slash shortcuts including `/models`, `/compact`, `/sessions`, `/new`, `/undo`, `/redo`, `/mcps`, and `/review`.
 - **Codex CLI:** Launch (`codex`), plus slash shortcuts including `/model`, `/approvals`, `/diff`, `/review`, `/compact`, `/new`, and `/mcp`.

@@ -11,10 +11,7 @@ import android.speech.SpeechRecognizer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -30,7 +27,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -39,7 +35,6 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.EditNote
@@ -49,12 +44,10 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -75,12 +68,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -336,15 +325,7 @@ internal fun PromptComposerDialog(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        dragHandle = {
-            Surface(
-                modifier = Modifier
-                    .padding(top = 8.dp, bottom = 4.dp)
-                    .size(width = 36.dp, height = 4.dp),
-                shape = RoundedCornerShape(2.dp),
-                color = MaterialTheme.colorScheme.outlineVariant,
-            ) {}
-        },
+        dragHandle = { AgentSheetDragHandle() },
         modifier = modifier,
     ) {
         Column(
@@ -353,7 +334,9 @@ internal fun PromptComposerDialog(
                 .imePadding()
                 .navigationBarsPadding(),
         ) {
-            ComposerHeader(
+            AgentSheetHeader(
+                icon = Icons.Outlined.EditNote,
+                title = "Prompt Composer",
                 enabledAgents = enabledAgents,
                 activeAgent = activeAgent,
                 onSelectAgent = ::selectAgent,
@@ -365,14 +348,15 @@ internal fun PromptComposerDialog(
                     .weight(1f, fill = false)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
                     label = { Text("Agent prompt / instruction") },
                     placeholder = { Text("Speak or type your prompt…") },
+                    shape = AGENT_CARD_SHAPE,
                     minLines = 3,
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(
@@ -474,82 +458,30 @@ internal fun PromptComposerDialog(
                 )
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-            ComposerFooter(
-                sendEnter = sendEnter,
-                canSend = text.isNotBlank(),
-                onToggleSendEnter = { sendEnter = it },
-                onSend = {
-                    onSend(text, sendEnter)
-                    onDismiss()
+            AgentSheetFooter(
+                checkboxLabel = "Send Enter",
+                checked = sendEnter,
+                onCheckedChange = { sendEnter = it },
+                actionContent = {
+                    Button(
+                        onClick = {
+                            onSend(text, sendEnter)
+                            onDismiss()
+                        },
+                        enabled = text.isNotBlank(),
+                        shape = AGENT_BUTTON_SHAPE,
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
+                        modifier = Modifier.height(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.Send,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Send")
+                    }
                 },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ComposerHeader(
-    enabledAgents: List<AgentCli>,
-    activeAgent: AgentCli?,
-    onSelectAgent: (AgentCli) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 8.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.EditNote,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = "Prompt Composer",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (enabledAgents.size > 1 && activeAgent != null) {
-            AgentCliTogglePill(
-                options = enabledAgents,
-                selected = activeAgent,
-                onSelect = onSelectAgent,
-            )
-        } else if (activeAgent != null) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                border = BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                ),
-            ) {
-                Text(
-                    text = activeAgent.shortName,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
-        }
-        IconButton(
-            onClick = onDismiss,
-            modifier = Modifier.size(32.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Close,
-                contentDescription = "Close",
-                modifier = Modifier.size(18.dp),
             )
         }
     }
@@ -583,6 +515,7 @@ private fun ComposerActionBar(
         ) {
             FilledTonalIconButton(
                 onClick = onToggleVoice,
+                shape = AGENT_BUTTON_SHAPE,
                 modifier = Modifier.size(36.dp),
                 colors = if (isListening) {
                     IconButtonDefaults.filledTonalIconButtonColors(
@@ -603,6 +536,7 @@ private fun ComposerActionBar(
             FilledTonalButton(
                 onClick = onPolish,
                 enabled = aiEnabled,
+                shape = AGENT_BUTTON_SHAPE,
                 modifier = Modifier
                     .weight(1f)
                     .height(36.dp),
@@ -632,6 +566,7 @@ private fun ComposerActionBar(
             OutlinedButton(
                 onClick = onGenerateShellCmd,
                 enabled = aiEnabled,
+                shape = AGENT_BUTTON_SHAPE,
                 modifier = Modifier
                     .weight(1f)
                     .height(36.dp),
@@ -667,7 +602,7 @@ private fun ComposerActionBar(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (hasClipboardText) {
-                    CompactActionPill(
+                    AgentUtilityPill(
                         label = "Paste",
                         onClick = onPaste,
                         leadingIcon = {
@@ -681,7 +616,7 @@ private fun ComposerActionBar(
                 }
 
                 if (hasImageUpload) {
-                    CompactActionPill(
+                    AgentUtilityPill(
                         label = if (isUploadingImage) "Uploading…" else "Image",
                         enabled = !isUploadingImage,
                         onClick = onPickImage,
@@ -703,7 +638,7 @@ private fun ComposerActionBar(
                 }
 
                 if (preTransformText != null) {
-                    CompactActionPill(
+                    AgentUtilityPill(
                         label = "Undo",
                         highlighted = true,
                         onClick = onUndo,
@@ -718,7 +653,7 @@ private fun ComposerActionBar(
                 }
 
                 if (text.isNotEmpty()) {
-                    CompactActionPill(
+                    AgentUtilityPill(
                         label = "Clear",
                         onClick = onClear,
                         leadingIcon = {
@@ -753,14 +688,14 @@ private fun ComposerQuickInsertPanel(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            ComposerTabPill(
+            AgentTabPill(
                 label = "Templates",
                 selected = selectedTab == ComposerInsertTab.TEMPLATES,
                 onClick = { onSelectTab(ComposerInsertTab.TEMPLATES) },
             )
             if (aiShortcuts.isNotEmpty()) {
                 val cmdLabel = activeAgent?.shortName?.let { "/ $it" } ?: "/ Commands"
-                ComposerTabPill(
+                AgentTabPill(
                     label = cmdLabel,
                     selected = selectedTab == ComposerInsertTab.COMMANDS,
                     onClick = { onSelectTab(ComposerInsertTab.COMMANDS) },
@@ -789,7 +724,7 @@ private fun ComposerQuickInsertPanel(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         COMPOSER_TEMPLATES.forEach { (label, templateText) ->
-                            CompactComposerChip(
+                            AgentChip(
                                 label = label,
                                 onClick = { onInsertTemplate(templateText) },
                             )
@@ -804,7 +739,7 @@ private fun ComposerQuickInsertPanel(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         aiShortcuts.forEach { shortcut ->
-                            CompactComposerChip(
+                            AgentChip(
                                 label = shortcut,
                                 isMonospace = true,
                                 highlighted = shortcut in highlighted,
@@ -814,202 +749,6 @@ private fun ComposerQuickInsertPanel(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ComposerFooter(
-    sendEnter: Boolean,
-    canSend: Boolean,
-    onToggleSendEnter: (Boolean) -> Unit,
-    onSend: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .toggleable(
-                    value = sendEnter,
-                    role = Role.Checkbox,
-                    onValueChange = onToggleSendEnter,
-                )
-                .padding(end = 8.dp, top = 4.dp, bottom = 4.dp),
-        ) {
-            Checkbox(
-                checked = sendEnter,
-                onCheckedChange = null,
-                modifier = Modifier.size(20.dp),
-            )
-            Text(
-                text = "Send Enter",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-
-        Button(
-            onClick = onSend,
-            enabled = canSend,
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.Send,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text("Send")
-        }
-    }
-}
-
-@Composable
-private fun ComposerTabPill(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    isMonospace: Boolean = false,
-) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        border = BorderStroke(
-            1.dp,
-            if (selected) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-            } else {
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-            },
-        ),
-        modifier = Modifier
-            .height(28.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 10.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = if (isMonospace) FontFamily.Monospace else null,
-                fontWeight = FontWeight.SemiBold,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CompactActionPill(
-    label: String,
-    onClick: () -> Unit,
-    leadingIcon: @Composable () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    highlighted: Boolean = false,
-) {
-    val containerColor = when {
-        !enabled -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f)
-        highlighted -> MaterialTheme.colorScheme.tertiaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerHigh
-    }
-    val contentColor = when {
-        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-        highlighted -> MaterialTheme.colorScheme.onTertiaryContainer
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = containerColor,
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (enabled) 0.5f else 0.25f),
-        ),
-        modifier = modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(enabled = enabled, onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            leadingIcon()
-            Spacer(Modifier.width(5.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = if (highlighted) FontWeight.SemiBold else FontWeight.Medium,
-                color = contentColor,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CompactComposerChip(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    isMonospace: Boolean = false,
-    highlighted: Boolean = false,
-) {
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = if (highlighted) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        border = BorderStroke(
-            1.dp,
-            if (highlighted) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-            } else {
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-            },
-        ),
-        modifier = modifier
-            .height(28.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick),
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 9.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = if (isMonospace) FontFamily.Monospace else null,
-                fontWeight = if (isMonospace || highlighted) FontWeight.SemiBold else FontWeight.Medium,
-                color = if (highlighted) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 1,
-            )
         }
     }
 }

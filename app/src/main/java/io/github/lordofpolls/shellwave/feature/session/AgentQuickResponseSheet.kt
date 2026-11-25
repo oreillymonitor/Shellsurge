@@ -1,10 +1,7 @@
 package io.github.lordofpolls.shellwave.feature.session
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -18,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
@@ -26,7 +22,6 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -35,15 +30,13 @@ import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -55,7 +48,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -70,66 +62,8 @@ import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import kotlinx.coroutines.launch
 
 /**
- * Compact segmented pill for switching slash command presets between enabled AI coding agent CLIs.
- */
-@Composable
-internal fun AgentCliTogglePill(
-    options: List<AgentCli>,
-    selected: AgentCli,
-    onSelect: (AgentCli) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        modifier = modifier.height(24.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(2.dp),
-        ) {
-            options.forEach { agent ->
-                val isSelected = agent == selected
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    },
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onSelect(agent) },
-                ) {
-                    Box(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = agent.shortName,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            maxLines = 1,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
  * Compact bottom sheet menu providing immediate 1-tap responses, switchable slash commands
- * for enabled AI CLI agents, tight vibe directives, and quick controls.
+ * for enabled AI CLI agents, quick prompts, and launch controls.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -171,93 +105,392 @@ internal fun AgentQuickResponseSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        dragHandle = {
-            Surface(
-                modifier = Modifier
-                    .padding(top = 8.dp, bottom = 4.dp)
-                    .size(width = 36.dp, height = 4.dp),
-                shape = RoundedCornerShape(2.dp),
-                color = MaterialTheme.colorScheme.outlineVariant,
-            ) {}
-        },
+        dragHandle = { AgentSheetDragHandle() },
         modifier = modifier,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            AgentSheetHeader(
+                icon = Icons.Outlined.SmartToy,
+                title = "Quick Response",
+                enabledAgents = enabledAgents,
+                activeAgent = activeAgent,
+                onSelectAgent = ::selectAgent,
+                onDismiss = onDismiss,
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Outlined.SmartToy,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Column {
-                        Text(
-                            text = "Agent Quick Response",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = "Quick replies, commands & harnesses",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                // Top Action Bar matching Composer's 36dp control strip
+                if (onSummarize != null || onToggleQuickBar != null || onOpenGitDiff != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (onSummarize != null) {
+                            FilledTonalButton(
+                                onClick = { execute { onSummarize() } },
+                                shape = AGENT_BUTTON_SHAPE,
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = if (isSummarizing) {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    },
+                                    contentColor = if (isSummarizing) {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    },
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp),
+                            ) {
+                                if (isSummarizing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (isSummarizing) "Summarizing…" else "Summarize",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+
+                        if (onToggleQuickBar != null) {
+                            OutlinedButton(
+                                onClick = { execute { onToggleQuickBar() } },
+                                shape = AGENT_BUTTON_SHAPE,
+                                colors = if (isQuickBarActive) {
+                                    ButtonDefaults.outlinedButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                } else {
+                                    ButtonDefaults.outlinedButtonColors()
+                                },
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isQuickBarActive) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    },
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                modifier = Modifier.height(36.dp),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.SwapHoriz,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = "Quick Bar",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+
+                        if (onOpenGitDiff != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        sheetState.hide()
+                                        onDismiss()
+                                        onOpenGitDiff()
+                                    }
+                                },
+                                shape = AGENT_BUTTON_SHAPE,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                modifier = Modifier.height(36.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Code,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = "Diff",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                // Immediate Decisions & Controls
+                Surface(
+                    shape = AGENT_CARD_SHAPE,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.65f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    if (onToggleQuickBar != null) {
-                        FilledTonalButton(
-                            onClick = { execute { onToggleQuickBar() } },
-                            colors = if (isQuickBarActive) {
-                                ButtonDefaults.filledTonalButtonColors(
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(
+                                onClick = { execute { onSendText("y", true) } },
+                                shape = AGENT_BUTTON_SHAPE,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp),
+                                colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                            ) {
+                                Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Yes (y)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                            }
+
+                            Button(
+                                onClick = { execute { onSendText("n", true) } },
+                                shape = AGENT_BUTTON_SHAPE,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                            ) {
+                                Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("No (n)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                            }
+
+                            FilledTonalButton(
+                                onClick = { execute { onSendText("", true) } },
+                                shape = AGENT_BUTTON_SHAPE,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Outlined.KeyboardReturn,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
                                 )
-                            } else {
-                                ButtonDefaults.filledTonalButtonColors()
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            modifier = Modifier.height(32.dp),
+                                Spacer(Modifier.width(4.dp))
+                                Text("Enter", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Outlined.SwapHoriz,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                            )
-                            Spacer(Modifier.width(3.dp))
-                            Text(
-                                text = "Quick Bar",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            (1..4).forEach { num ->
+                                FilledTonalButton(
+                                    onClick = { execute { onSendText("$num", true) } },
+                                    shape = AGENT_BUTTON_SHAPE,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                ) {
+                                    Text("$num", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+                                }
+                            }
+
+                            Button(
+                                onClick = { execute { onSendRaw("\u0003") } },
+                                shape = AGENT_BUTTON_SHAPE,
+                                modifier = Modifier.height(34.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            ) {
+                                Icon(Icons.Outlined.Stop, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(3.dp))
+                                Text("Stop", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+
+                            FilledTonalButton(
+                                onClick = { execute { onSendRaw("\u001B") } },
+                                shape = AGENT_BUTTON_SHAPE,
+                                modifier = Modifier.height(34.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            ) {
+                                Text("ESC", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // Slash Commands
+                activeAgent?.let { agent ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AgentSectionHeader(
+                            title = "Slash commands",
+                            icon = Icons.Outlined.Code,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            agent.slashCommands.forEach { slash ->
+                                AgentChip(
+                                    label = slash,
+                                    isMonospace = true,
+                                    highlighted = slash in agent.highlightedCommands,
+                                    onClick = { execute { onSendText(slash, true) } },
+                                    onEdit = {
+                                        scope.launch {
+                                            sheetState.hide()
+                                            onDismiss()
+                                            onOpenComposerWithText(slash)
+                                        }
+                                    },
+                                    editContentDescription = "Edit $slash in composer",
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Quick Prompts
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AgentSectionHeader(
+                        title = "Quick prompts",
+                        icon = Icons.Outlined.AutoAwesome,
+                    )
+
+                    val directives = listOf(
+                        "Proceed" to "proceed",
+                        "Looks good" to "looks good, proceed",
+                        "Explain" to "explain what you did and why",
+                        "Run tests" to "run tests",
+                        "Git diff" to "git diff",
+                        "Git status" to "git status",
+                        "Undo change" to "undo last change and try an alternate approach",
+                        "Continue" to "continue",
+                        "Fix error" to "fix this error and explain the solution",
+                        "Add comments" to "add clear comments explaining this logic",
+                    )
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        directives.forEach { (label, command) ->
+                            AgentChip(
+                                label = label,
+                                onClick = { execute { onSendText(command, true) } },
+                                onEdit = {
+                                    scope.launch {
+                                        sheetState.hide()
+                                        onDismiss()
+                                        onOpenComposerWithText(command)
+                                    }
+                                },
+                                editContentDescription = "Edit $label in composer",
                             )
                         }
                     }
+                }
 
+                // Launch Coding Agent CLI
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AgentSectionHeader(
+                        title = "Launch",
+                        icon = Icons.Outlined.PlayArrow,
+                    )
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        enabledAgents.forEach { agent ->
+                            agent.launchCommands.forEach { launchCmd ->
+                                AgentUtilityPill(
+                                    label = launchCmd.label,
+                                    isMonospace = true,
+                                    onClick = {
+                                        selectAgent(agent)
+                                        execute { onSendText(launchCmd.command, true) }
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (launchCmd.isResume) {
+                                                Icons.Outlined.History
+                                            } else {
+                                                Icons.Outlined.PlayArrow
+                                            },
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                )
+                            }
+                        }
+
+                        AgentUtilityPill(
+                            label = "clear",
+                            isMonospace = true,
+                            onClick = { execute { onSendText("clear", true) } },
+                        )
+                    }
+
+                    if (enabledAgents.isEmpty()) {
+                        Text(
+                            text = "Enable CLI agents in Settings → Coding Agents to show slash commands and launch shortcuts.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            AgentSheetFooter(
+                checkboxLabel = "Dismiss after send",
+                checked = autoDismiss,
+                onCheckedChange = { autoDismiss = it },
+                actionContent = {
                     FilledTonalButton(
                         onClick = {
                             scope.launch {
@@ -266,498 +499,24 @@ internal fun AgentQuickResponseSheet(
                                 onOpenComposerWithText("")
                             }
                         },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(32.dp),
+                        shape = AGENT_BUTTON_SHAPE,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                        modifier = Modifier.height(36.dp),
                     ) {
                         Icon(
-                            Icons.Outlined.EditNote,
+                            imageVector = Icons.Outlined.EditNote,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             text = "Composer",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
-                }
-            }
-
-            // Summarize & Listen Card
-            if (onSummarize != null) {
-                Card(
-                    onClick = { execute { onSummarize() } },
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSummarizing) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        if (isSummarizing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Outlined.AutoAwesome,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = if (isSummarizing) "Summarizing output…" else "Summarize & Read Aloud",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSummarizing) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                            Text(
-                                text = if (isSummarizing) "Analyzing recent terminal output…" else "Short summary, audio playback & voice reply",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = (if (isSummarizing) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer).copy(alpha = 0.85f),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Section 1: Immediate Decisions & Controls (Tightened)
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(
-                    modifier = Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        // Yes / Confirm
-                        Button(
-                            onClick = { execute { onSendText("y", true) } },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            ),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        ) {
-                            Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Yes (y)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                        }
-
-                        // No / Reject
-                        Button(
-                            onClick = { execute { onSendText("n", true) } },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            ),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        ) {
-                            Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("No (n)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                        }
-
-                        // Enter / Continue
-                        FilledTonalButton(
-                            onClick = { execute { onSendText("", true) } },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Outlined.KeyboardReturn,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text("Enter", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-
-                    // Numbered choice row + Stop & Esc
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        (1..4).forEach { num ->
-                            FilledTonalButton(
-                                onClick = { execute { onSendText("$num", true) } },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(34.dp),
-                                contentPadding = PaddingValues(0.dp),
-                            ) {
-                                Text("$num", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
-                            }
-                        }
-
-                        // Stop (Ctrl+C)
-                        Button(
-                            onClick = { execute { onSendRaw("\u0003") } },
-                            modifier = Modifier.height(34.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError,
-                            ),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        ) {
-                            Icon(Icons.Outlined.Stop, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(3.dp))
-                            Text("Stop", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        }
-
-                        // ESC
-                        FilledTonalButton(
-                            onClick = { execute { onSendRaw("\u001B") } },
-                            modifier = Modifier.height(34.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        ) {
-                            Text("ESC", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            // Section 2: Slash Commands (for enabled agents)
-            activeAgent?.let { agent ->
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Icons.Outlined.Code,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(
-                                text = "SLASH COMMANDS",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-
-                        if (enabledAgents.size > 1) {
-                            AgentCliTogglePill(
-                                options = enabledAgents,
-                                selected = agent,
-                                onSelect = { selectAgent(it) },
-                            )
-                        } else {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                border = BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                ),
-                            ) {
-                                Text(
-                                    text = agent.shortName,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                )
-                            }
-                        }
-                    }
-
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        agent.slashCommands.forEach { slash ->
-                            CompactDirectiveChip(
-                                label = slash,
-                                command = slash,
-                                onSend = { cmd -> execute { onSendText(cmd, true) } },
-                                onEdit = { cmd ->
-                                    scope.launch {
-                                        sheetState.hide()
-                                        onDismiss()
-                                        onOpenComposerWithText(cmd)
-                                    }
-                                },
-                                isMonospace = true,
-                                highlight = slash in agent.highlightedCommands,
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Section 3: Vibe Directives (Tighter, Compact Unified Pills)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        Icons.Outlined.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        text = "QUICK PROMPTS",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-
-                val directives = listOf(
-                    "Proceed" to "proceed",
-                    "Looks good" to "looks good, proceed",
-                    "Explain" to "explain what you did and why",
-                    "Run tests" to "run tests",
-                    "Git diff" to "git diff",
-                    "Git status" to "git status",
-                    "Undo change" to "undo last change and try an alternate approach",
-                    "Continue" to "continue",
-                    "Fix error" to "fix this error and explain the solution",
-                    "Add comments" to "add clear comments explaining this logic",
-                )
-
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    directives.forEach { (label, command) ->
-                        CompactDirectiveChip(
-                            label = label,
-                            command = command,
-                            onSend = { cmd -> execute { onSendText(cmd, true) } },
-                            onEdit = { cmd ->
-                                scope.launch {
-                                    sheetState.hide()
-                                    onDismiss()
-                                    onOpenComposerWithText(cmd)
-                                }
-                            },
-                            isMonospace = false,
-                        )
-                    }
-                }
-            }
-
-            // Section 4: Launch Coding Agent CLI
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    itemVerticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Launch:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Medium,
-                    )
-
-                    enabledAgents.forEach { agent ->
-                        agent.launchCommands.forEach { launchCmd ->
-                            FilledTonalButton(
-                                onClick = {
-                                    selectAgent(agent)
-                                    execute { onSendText(launchCmd.command, true) }
-                                },
-                                modifier = Modifier.height(30.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (launchCmd.isResume) Icons.Outlined.History else Icons.Outlined.PlayArrow,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(13.dp),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = launchCmd.label,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                        }
-                    }
-
-                    FilledTonalButton(
-                        onClick = { execute { onSendText("clear", true) } },
-                        modifier = Modifier.height(30.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    ) {
-                        Text("clear", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                    }
-
-                    if (onOpenGitDiff != null) {
-                        FilledTonalButton(
-                            onClick = {
-                                scope.launch {
-                                    sheetState.hide()
-                                    onDismiss()
-                                    onOpenGitDiff()
-                                }
-                            },
-                            modifier = Modifier.height(30.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Code,
-                                contentDescription = null,
-                                modifier = Modifier.size(13.dp),
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text("Git Diff", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-
-                if (enabledAgents.isEmpty()) {
-                    Text(
-                        text = "Enable CLI agents in Settings → AI Coding Agents to show slash commands and launch shortcuts.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            // Options: Auto-dismiss toggle
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(
-                    checked = autoDismiss,
-                    onCheckedChange = { autoDismiss = it },
-                    modifier = Modifier.size(32.dp),
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    text = "Dismiss menu after sending command",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(Modifier.height(4.dp))
-        }
-    }
-}
-
-/**
- * A tight, space-efficient unified pill for directives and slash commands.
- * Tapping the label executes the command immediately; tapping the subtle pencil icon
- * opens it in the Prompt Composer for tweaking before sending.
- */
-@Composable
-private fun CompactDirectiveChip(
-    label: String,
-    command: String,
-    onSend: (String) -> Unit,
-    onEdit: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    isMonospace: Boolean = false,
-    highlight: Boolean = false,
-) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = if (highlight) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        border = BorderStroke(
-            1.dp,
-            if (highlight) {
-                MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)
-            } else {
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-            },
-        ),
-        modifier = modifier,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.height(30.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .clickable { onSend(command) }
-                    .padding(start = 9.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontFamily = if (isMonospace) FontFamily.Monospace else null,
-                    fontWeight = if (highlight || isMonospace) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (highlight) {
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .clickable { onEdit(command) }
-                    .padding(start = 2.dp, end = 7.dp, top = 4.dp, bottom = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Edit,
-                    contentDescription = "Edit $label in composer",
-                    modifier = Modifier.size(11.dp),
-                    tint = if (highlight) {
-                        MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.65f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    },
-                )
-            }
+                },
+            )
         }
     }
 }

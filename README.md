@@ -1,9 +1,9 @@
 # ShellSurge
 
 <p align="center">
-  <b>An Android SSH and terminal client built on <a href="https://github.com/LordOfPolls/Shellwave">Shellwave</a>.</b>
+  <b>An Android SSH and terminal client built on <a href="https://github.com/LordOfPolls/Shellwave">Shellwave</a> for remote development and agentic coding workflows.</b>
   <br>
-  Adds embedded Tailscale (<code>tsnet</code>), mobile Git diff &amp; SFTP workflows, unified <code>tmux</code> scroll navigation, background command notifications, and optional on-device Gemini Nano text utilities.
+  Adds first-class CLI coding harness support, interactive approval/completion notifications, embedded Tailscale (<code>tsnet</code>), mobile Git diff &amp; SFTP tools, unified <code>tmux</code> scroll navigation, and optional on-device Gemini Nano utilities.
   <br><br>
   Requires Android 12 (API 31) or later. GPLv3.
 </p>
@@ -38,6 +38,24 @@ ShellSurge is an independent fork of **[Shellwave](https://github.com/LordOfPoll
 
 ## Notable Enhancements in ShellSurge
 
+Many of ShellSurge's additions are purpose-built for supervising and driving terminal-based **agentic coding workflows** from a phone without fighting small-screen input, dropped connections, or interactive TUI prompts.
+
+### Agentic Coding Harness Support
+Enable only the CLI harnesses you actually use in **Settings → AI Coding Agents** to populate launch/resume buttons, tailored slash commands, and voice macros in both the **Quick Response** sheet and the **Prompt Composer**:
+- **Claude Code:** Launch or resume (`claude`, `claude -c`), plus slash shortcuts including `/compact`, `/model`, `/cost`, `/plan`, `/review`, `/resume`, `/mcp`, and `/clear`.
+- **OpenCode:** Launch (`opencode`), plus slash shortcuts including `/models`, `/compact`, `/sessions`, `/new`, `/undo`, `/redo`, `/mcps`, and `/review`.
+- **Codex CLI:** Launch (`codex`), plus slash shortcuts including `/model`, `/approvals`, `/diff`, `/review`, `/compact`, `/new`, and `/mcp`.
+- **Aider:** Launch (`aider`), plus slash shortcuts including `/add`, `/drop`, `/diff`, `/undo`, `/architect`, `/ask`, `/code`, `/test`, and `/model`.
+- **Antigravity CLI:** Launch or resume (`agy`, `agy -c`), plus slash shortcuts including `/model`, `/usage`, `/plan`, `/goal`, `/grill-me`, `/boost`, `/teamwork`, `/browser`, `/learn`, and `/btw`.
+- **Per-Host Directory & Auto-Launch:** Configure a startup working directory (`cd`) and an optional launch/resume harness command (or custom command) per host while safely preserving resilient `tmux` session reattach.
+- **Quick Response Sheet & Inline Capsule:** Send 1-tap `y`, `n`, `1`–`4`, `Enter`, `Ctrl+C`, `Esc`, harness slash commands, or quick follow-up directives (`Proceed`, `Run tests`, `Git diff`, `Explain`), plus an automatic inline capsule above the KeyBar when `[y/N]` or numbered approval menus are detected.
+
+### Command & Agent Notifications
+- **Background Completion & Approval Alerts:** Get notified when a long-running build, command, or agent turn finishes or stalls waiting for input—driven by configurable idle settle delays and terminal escape hooks (`OSC 133`, `OSC 9`, `OSC 777`).
+- **TUI-Aware Prompt Detection:** Strips box borders, input boxes, shortcut footers, and `tmux` status bars (and ignores `tmux` status clock ticks so the idle timer isn't starved) to accurately catch `[y/N]` confirmations, conversational questions, and numbered tool-approval menus (`1. Allow once`, `2. Allow for session`, etc.).
+- **Interactive Notification Actions:** Answer directly from the Android notification shade using inline **Yes / No** or numbered option buttons plus direct **Reply** (`RemoteInput`) with raw-mode TUI Enter timing.
+- **Tab Status Badges & Auto-Digest:** Track background sessions with live `RUNNING`, `COMPLETED`, and `RESPONSE_NEEDED` tab indicators, plus optional automatic digest summaries when returning to a finished tab.
+
 ### Embedded Tailscale (`tsnet`) & Network Mobility
 - **No VPN Slot Required:** Runs a userspace Tailscale node (`tailscale-bridge/`) inside the app via a local SOCKS5 tunnel, leaving Android's system VPN slot free.
 - **Flexible Sign-In:** Supports interactive browser OAuth login, optional pre-auth keys, and custom Headscale control URLs.
@@ -52,17 +70,12 @@ ShellSurge is an independent fork of **[Shellwave](https://github.com/LordOfPoll
 
 ### Prompt Composer, Voice Dictation & Optional Gemini Nano Utilities
 - **Full-Width Prompt Composer Sheet:** Pinned Send/Enter footer above the soft keyboard, larger multi-line editor, clipboard paste, image attach, Undo transform restore, and wrapping `Templates` / CLI slash-command tabs without horizontal scrolling.
-- **Voice Input & Spoken Macros:** Android speech dictation with macros that expand spoken phrases like `"slash plan"`, `"slash diff"`, `"new line"`, and `"bullet point"`.
+- **Voice Input & Spoken Macros:** Android speech dictation with agent-aware macros that expand spoken phrases like `"slash plan"`, `"slash model"` (`/model` or `/models`), `"new line"`, and `"bullet point"`.
 - **Optional On-Device Text Tools:** Uses Gemini Nano locally via Android AICore on supported devices (such as Pixel 9+) with deterministic offline rule-based fallbacks everywhere else:
   - **Nano Polish:** Cleans up grammar, awkward phrasing, filler words, and multi-step bullet lists while keeping file paths, flags, and commands intact.
   - **Shell cmd:** Converts plain-English requests into a single-line POSIX shell command.
-  - **Terminal Digest:** Condenses recent terminal scrollback into a short summary with error/file extraction, `[y/N]` and numbered option chips, and optional offline Android TTS read-aloud.
+  - **Terminal Digest:** Condenses recent terminal scrollback into a concise summary with error/file extraction, `[y/N]` and numbered option chips, and optional offline Android TTS read-aloud.
 - **On-Device AI Settings:** Inspect active AICore model status, token window, and capabilities; trigger **Download / Warm up / Refresh**; and toggle **Full vs Fast**, **Stable vs Preview**, **Thinking mode**, and session pre-warming.
-
-### Per-Host Startup, CLI Presets & Background Notifications
-- **Per-Host Directory & Auto-Launch:** Configure an initial working directory (`cd`) and optional startup command or CLI preset (`claude`, `claude -c`, `opencode`, `codex`, `aider`, `agy`, `agy -c`, or custom) per host without breaking `tmux` session reattach.
-- **Quick Response Sheet & CLI Presets:** 1-tap `y`, `n`, `1`–`4`, `Enter`, `Ctrl+C`, `Esc`, and configurable per-CLI slash commands (`Claude Code`, `OpenCode`, `Codex CLI`, `Aider`, `Antigravity CLI`).
-- **Command & Prompt Alerts:** Background notifications (via idle timer plus `OSC 133`, `OSC 9`, and `OSC 777` hooks) with inline **Yes / No / Option** actions, direct **Reply**, live tab status badges, and optional auto-summary when returning to a finished tab.
 
 ### Tmux Scroll Navigation & Terminal Ergonomics
 - **Unified Scroll Engine:** Drag the scrollbar or use `[ ▲10 ]` / `[ ▼10 ]` steppers smoothly across both local scrollback and `tmux` mouse-tracking copy-mode / pagers (`less`, `vim`).

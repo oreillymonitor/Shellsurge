@@ -1,6 +1,6 @@
 # Privacy Policy for ShellSurge
 
-**Last updated:** 23 November 2026
+**Last updated:** 24 November 2026
 
 ShellSurge ("the app", forked from Shellwave) is an SSH client for Android.
 This policy explains what data the app handles and, just as importantly, what it
@@ -27,8 +27,12 @@ database, `SharedPreferences`, and the Android Keystore:
   authentication.
 - **Scripts and automation triggers** you create for running commands on
   your hosts.
-- **App preferences**, such as key bar layouts, enabled AI CLI toggles,
+- **App preferences**, such as key bar layouts, enabled CLI presets,
   notification settings, and terminal bell preferences.
+- **Embedded Tailscale state (optional):** If you connect Embedded Tailscale,
+  `tsnet` node keys/state are stored locally under the app's private storage
+  (`filesDir/tsnet`), alongside any optional pre-auth key or custom Headscale
+  control URL you enter.
 
 ## Data the app transmits
 
@@ -36,6 +40,11 @@ database, `SharedPreferences`, and the Android Keystore:
   configure. That network traffic goes directly from your device to the server
   you specified — it never passes through the developer or any intermediary
   service. ShellSurge has no backend server of its own.
+- **Embedded Tailscale (optional):** When you enable Embedded Tailscale, the
+  app communicates with Tailscale's coordination/DERP servers (or your own
+  configured Headscale server) and WireGuard peers on your tailnet as needed to
+  establish your tailnet connection. If you never enable Embedded Tailscale, no
+  tailnet node is started.
 - **Local network discovery/access:** The app requests local network access
   solely so it can reach SSH servers on your local network (e.g. a home server
   or Raspberry Pi).

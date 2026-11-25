@@ -185,8 +185,8 @@ internal fun AgentSheetHeader(
 @Composable
 internal fun AgentSectionHeader(
     title: String,
-    icon: ImageVector? = null,
     modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(

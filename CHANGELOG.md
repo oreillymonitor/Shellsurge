@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.15.2 - 2026-11-24
+
+### Improved
+- **Unified Prompt Composer and Quick Response bottom sheets**: extract shared design tokens and composables (`AgentSheetComponents.kt`) so both sheets share a pinned header with top-right CLI agent switcher and close button, matching `36dp`/`10dp` top action strips, uniform `8dp`/`30dp` slash-command chips and launch pills, and a consistent pinned footer
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.15.1...1.15.2)
+
 ## 1.15.1 - 2026-11-24
 
 ### Improved

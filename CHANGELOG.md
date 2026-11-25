@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.14.8 - 2026-11-24
+
+### Improved
+- **Consistent command & agent notifications**: replace packet-cancelling idle timers in `TerminalOutputWatcher` with a content-stability loop (`screenContentSignature`) so full `tmux` status bar redraws never starve alerts; detect plain agent prose above idle TUI input boxes and custom Starship/Oh-My-Zsh prompts; reset notification deduplication on each new user turn so repeated builds/approvals alert every time; lower passive prompt thresholds (`12`/`16` bytes); and ensure fresh heads-up/sound re-alerting in `SessionAlerts`
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.7...1.14.8)
+
 ## 1.14.7 - 2026-11-24
 
 ### Fixed

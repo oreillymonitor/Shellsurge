@@ -1,6 +1,17 @@
 # Changelog
 
 
+## 1.15.0 - 2026-11-24
+
+### Improved
+- **UI, copy, and ergonomics polish**:
+  - **Settings**: reorder cards cleanly (`Appearance`, `Terminal & Input`, `Notifications`, `Coding Agents`, `On-Device AI`, `Tailscale`, `Hosts & Security`, …), remove the duplicate Tailscale enable switch so **Connect / Disconnect** works directly, add a **Sponsor Shellwave on GitHub** row, and tighten card descriptions
+  - **Terminal menu**: group actions into labeled sections with dividers and place **Close session** at the bottom in error tint
+  - **Quick Response & Digest Capsule**: replace `"vibe directives"` / `"Gemini is summarizing…"` copy with clear neutral labels, replace horizontal scrolling in `AgentDigestCapsule` with wrapping `FlowRow` chips/actions, use compact sheet drag handles, and enlarge touch targets to `32dp`–`34dp`
+  - **Host & Tailnet screens**: split **Session & Startup** out of **Connection & Routing** in Host Settings, add `.imePadding()` and larger icons to Git Diff, and pair **Save** + **Connect** actions in the Tailnet device dialog
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.9...1.15.0)
+
 ## 1.14.9 - 2026-11-24
 
 ### Fixed

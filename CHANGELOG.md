@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.14.9 - 2026-11-24
+
+### Fixed
+- **Custom home-tilde shell prompts in notifications**: match `~/...` path prefixes in `PROMPT_LINE_REGEX` for Starship/Oh-My-Zsh/Fish prompt detection
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.8...1.14.9)
+
 ## 1.14.8 - 2026-11-24
 
 ### Improved

@@ -21,6 +21,15 @@
   </a>
 </p>
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/terminal.png" width="205" alt="Terminal session with tmux scroll controls, Quick Bar, and circular KeyBar">
+  <img src="assets/screenshots/prompt-composer.png" width="205" alt="Full-width Prompt Composer bottom sheet with Nano Polish, Shell cmd, voice input, and quick-insert tabs">
+  <img src="assets/screenshots/quick-response.png" width="205" alt="Agent Quick Response sheet with 1-tap replies, slash commands, and CLI harness launchers">
+  <img src="assets/screenshots/settings-nano.png" width="205" alt="On-Device AI (Gemini Nano) settings card">
+</p>
+
 ---
 
 ## Built on Shellwave

@@ -1,6 +1,17 @@
 # Changelog
 
 
+## 1.15.1 - 2026-11-24
+
+### Improved
+- **Unified single-shot Gemini Nano notification & digest pipeline**: compute one timeout-bounded digest per settled turn (`CachedTurnDigest`) to populate both background notifications and the in-tab digest capsule, skipping background Nano passes while actively watching a normal foreground turn complete
+
+### Fixed
+- **Notification & Nano re-alert loops**: remove the duplicate ambient `outputTick` Nano polling loop in `SessionsScreen`, disarm `TerminalOutputWatcher` after both `COMPLETED` and `RESPONSE_NEEDED` alerts, normalize `HH:MM(:SS)` clocks and `tmux` date/clock status bars in `screenContentSignature`, and acknowledge alerts cleanly on notification swipe-dismiss or tab focus (`ACTION_NOTIFICATION_DISMISSED` / `acknowledgeCurrentOutput`)
+- **Blocking prompt classification**: prioritize `[y/N]`, `password:`, and real interactive approval selectors over idle TUI input boxes and shell prompts so numbered markdown lists and conversational sign-off questions classify as `COMPLETED` without false `Yes / No` notification buttons
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.15.0...1.15.1)
+
 ## 1.15.0 - 2026-11-24
 
 ### Improved

@@ -49,6 +49,7 @@ fun TerminalCanvas(
     topRow: Int = 0,
     selection: TerminalSelection? = null,
     selectionColor: Int = 0x662196F3,
+    visibleLinks: List<TerminalLink> = emptyList(),
 ) {
     val density = LocalDensity.current
     val renderer =
@@ -79,7 +80,7 @@ fun TerminalCanvas(
                 .clipToBounds()
                 .onSizeChanged { size -> boxSize = size },
     ) {
-        drawTerminal(emulator, renderer, frame, topRow, selection, selectionColor)
+        drawTerminal(emulator, renderer, frame, topRow, selection, selectionColor, visibleLinks)
     }
 }
 
@@ -90,6 +91,7 @@ private fun DrawScope.drawTerminal(
     topRow: Int,
     selection: TerminalSelection?,
     selectionColor: Int,
+    visibleLinks: List<TerminalLink>,
 ) {
     @Suppress("UNUSED_EXPRESSION")
     frame.intValue
@@ -104,6 +106,9 @@ private fun DrawScope.drawTerminal(
     nativeCanvas.drawColor(backgroundColor)
     if (emulator != null) {
         renderer.render(emulator, nativeCanvas, topRow)
+        if (visibleLinks.isNotEmpty()) {
+            drawLinkUnderlines(emulator, renderer, topRow, visibleLinks)
+        }
         if (selection != null) drawSelectionHighlight(
             emulator,
             renderer,
@@ -111,6 +116,38 @@ private fun DrawScope.drawTerminal(
             selection.normalized(),
             selectionColor
         )
+    }
+}
+
+private fun DrawScope.drawLinkUnderlines(
+    emulator: TerminalEmulator,
+    renderer: TerminalRenderer,
+    topRow: Int,
+    links: List<TerminalLink>,
+) {
+    val cellWidth = renderer.fontWidth
+    val cellHeight = renderer.fontLineSpacing.toFloat()
+    val fg = emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_FOREGROUND]
+    val underlineColor = Color(fg).copy(alpha = 0.45f)
+    val strokeWidth = max(1f, cellHeight * 0.06f)
+
+    for (link in links) {
+        if (link.type != LinkType.URL) continue
+        for (span in link.spans) {
+            val screenRow = span.row - topRow
+            if (screenRow < 0 || screenRow >= emulator.mRows) continue
+            val y = (screenRow + 1) * cellHeight - strokeWidth
+            val startX = span.startCol * cellWidth
+            val endX = (span.endCol + 1) * cellWidth
+            if (endX > startX) {
+                drawLine(
+                    color = underlineColor,
+                    start = Offset(startX, y),
+                    end = Offset(endX, y),
+                    strokeWidth = strokeWidth,
+                )
+            }
+        }
     }
 }
 

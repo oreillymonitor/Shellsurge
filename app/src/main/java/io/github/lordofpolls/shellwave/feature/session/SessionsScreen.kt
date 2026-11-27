@@ -1,19 +1,24 @@
 package io.github.lordofpolls.shellwave.feature.session
 
 import android.Manifest
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,15 +26,22 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -95,6 +107,7 @@ import io.github.lordofpolls.shellwave.terminal.DEFAULT_TERMINAL_TEXT_SIZE_SP
 import io.github.lordofpolls.shellwave.terminal.FONT_SIZE_SP_RANGE
 import io.github.lordofpolls.shellwave.terminal.KeyBar
 import io.github.lordofpolls.shellwave.terminal.LinkType
+import io.github.lordofpolls.shellwave.terminal.LocalhostCallbackInfo
 import io.github.lordofpolls.shellwave.terminal.TerminalCanvas
 import io.github.lordofpolls.shellwave.terminal.TerminalFontFamily
 import io.github.lordofpolls.shellwave.terminal.TerminalInputCapture
@@ -104,8 +117,11 @@ import io.github.lordofpolls.shellwave.terminal.TerminalSelectionOverlay
 import io.github.lordofpolls.shellwave.terminal.collectTerminalRows
 import io.github.lordofpolls.shellwave.terminal.ctrlCode
 import io.github.lordofpolls.shellwave.terminal.decodeKeyBarKeys
+import io.github.lordofpolls.shellwave.terminal.detectLocalhostCallback
 import io.github.lordofpolls.shellwave.terminal.externalRowAt
+import io.github.lordofpolls.shellwave.terminal.findAllUrlsInBuffer
 import io.github.lordofpolls.shellwave.terminal.findMatches
+import io.github.lordofpolls.shellwave.terminal.findVisibleUrlLinks
 import io.github.lordofpolls.shellwave.terminal.KeyboardKey
 import io.github.lordofpolls.shellwave.terminal.hardwareKeyCode
 import io.github.lordofpolls.shellwave.terminal.shouldHideKeyBar
@@ -113,6 +129,7 @@ import io.github.lordofpolls.shellwave.terminal.linkAt
 import io.github.lordofpolls.shellwave.terminal.rememberTerminalSelectionState
 import io.github.lordofpolls.shellwave.terminal.resolveTerminalTypeface
 import io.github.lordofpolls.shellwave.terminal.selectionHighlightColor
+import io.github.lordofpolls.shellwave.terminal.urlDisplayHost
 import io.github.lordofpolls.shellwave.terminal.dragRows
 import io.github.lordofpolls.shellwave.terminal.TerminalScrollbar
 import io.github.lordofpolls.shellwave.terminal.TerminalTextSanitizer
@@ -252,6 +269,7 @@ fun SessionsScreen(
         var composerInitialText by remember(current?.id) { mutableStateOf("") }
         var quickResponseOpen by remember(current?.id) { mutableStateOf(false) }
         var gitDiffOpen by remember(current?.id) { mutableStateOf(false) }
+        var linksSheetOpen by remember(current?.id) { mutableStateOf(false) }
 
         // A capture script pinned to another host is left out: "run it here" and "run it on that
         // other machine" are opposite instructions, and honouring the script's own target would run
@@ -320,6 +338,9 @@ fun SessionsScreen(
                     onStopLogging = { current?.connection?.stopLogging() },
                     onOpenGitDiff = if (current?.status == SessionStatus.CONNECTED) ({
                         gitDiffOpen = true
+                    }) else null,
+                    onOpenLinks = if (current?.connection?.emulatorOrNull != null) ({
+                        linksSheetOpen = true
                     }) else null,
                 )
             },
@@ -403,6 +424,56 @@ fun SessionsScreen(
                         editCb(current.id, remotePath)
                     }
                 },
+            )
+        }
+
+        if (linksSheetOpen && current != null) {
+            val linkContext = LocalContext.current
+            val activeEphemeralPorts by current.connection.activeEphemeralPorts.collectAsState()
+            val sessionLinks = remember(current.id, linksSheetOpen) {
+                current.connection.emulatorOrNull?.let { emulator ->
+                    findAllUrlsInBuffer(
+                        emulator = emulator,
+                        osc8Links = current.connection.recentOsc8Links(),
+                    )
+                }.orEmpty()
+            }
+            SessionLinksSheet(
+                links = sessionLinks,
+                activeEphemeralPorts = activeEphemeralPorts,
+                canTunnel = current.status == SessionStatus.CONNECTED,
+                onOpen = { link ->
+                    linksSheetOpen = false
+                    openUrlInBrowser(linkContext, link.text)
+                },
+                onTunnelAndOpen = { link, port ->
+                    linksSheetOpen = false
+                    scope.launch {
+                        val result = current.connection.startEphemeralLocalForward(port)
+                        result.onSuccess {
+                            Toast.makeText(
+                                linkContext,
+                                "Tunneling localhost:$port over SSH",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            openUrlInBrowser(linkContext, link.text)
+                        }.onFailure { err ->
+                            Toast.makeText(
+                                linkContext,
+                                "Could not forward localhost:$port: ${err.message ?: "bind failed"}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                },
+                onStopTunnel = { port ->
+                    scope.launch { current.connection.stopEphemeralLocalForward(port) }
+                },
+                onCopy = { link ->
+                    current.connection.onCopyTextToClipboard(link.text)
+                    linksSheetOpen = false
+                },
+                onDismiss = { linksSheetOpen = false },
             )
         }
 
@@ -680,6 +751,8 @@ internal fun SessionTabBody(
     val selectionState = rememberTerminalSelectionState()
 
     var detectedLink by remember { mutableStateOf<TerminalLink?>(null) }
+    var visibleLinks by remember(sessionId) { mutableStateOf<List<TerminalLink>>(emptyList()) }
+    val activeEphemeralPorts by summary.connection.activeEphemeralPorts.collectAsState()
 
     val redrawRequests = remember { Channel<Unit>(Channel.CONFLATED) }
     val frame = remember { mutableIntStateOf(0) }
@@ -748,6 +821,23 @@ internal fun SessionTabBody(
         if (shouldShow && !isAnalyzingDigest && activeDigestEpoch != cached.turnEpoch) {
             activeDigest = cached.result
             activeDigestEpoch = cached.turnEpoch
+        }
+    }
+
+    // Refresh visible URL underline spans immediately on emulator/scroll changes and sampled at
+    // 150ms during streaming output so 60fps output never re-runs regexes on every frame.
+    LaunchedEffect(terminalEmulator, topRow) {
+        val emulator = terminalEmulator
+        visibleLinks = if (emulator != null) {
+            findVisibleUrlLinks(emulator, topRow, summary.connection.recentOsc8Links())
+        } else {
+            emptyList()
+        }
+    }
+    LaunchedEffect(summary.connection) {
+        summary.connection.outputTick.sample(150).collect {
+            val emulator = terminalEmulator ?: return@collect
+            visibleLinks = findVisibleUrlLinks(emulator, topRow, summary.connection.recentOsc8Links())
         }
     }
 
@@ -943,9 +1033,32 @@ internal fun SessionTabBody(
     // is a path on the SSH host, which is why LinkActionDialog never offers "Open" for
     // LinkType.PATH.
     fun openLink(link: TerminalLink) {
-        val uri =
-            if (link.type == LinkType.IP) Uri.parse("http://${link.text}") else Uri.parse(link.text)
-        runCatching { localContext.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+        val targetUrl = if (link.type == LinkType.IP) "http://${link.text}" else link.text
+        openUrlInBrowser(localContext, targetUrl)
+            .onFailure {
+                Toast.makeText(localContext, "No app found to open link", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    fun tunnelAndOpenLink(link: TerminalLink, port: Int) {
+        coroutineScope.launch {
+            summary.connection.startEphemeralLocalForward(port)
+                .onSuccess {
+                    Toast.makeText(
+                        localContext,
+                        "Tunneling localhost:$port over SSH",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    openLink(link)
+                }
+                .onFailure { err ->
+                    Toast.makeText(
+                        localContext,
+                        "Could not forward localhost:$port: ${err.message ?: "bind failed"}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+        }
     }
 
     val toggleKeyboard: () -> Unit = {
@@ -1036,7 +1149,12 @@ internal fun SessionTabBody(
                                             .coerceIn(0, emulator.mColumns - 1)
                                         val screenRow = (offset.y / size.cellHeightPx).toInt()
                                             .coerceIn(0, emulator.mRows - 1)
-                                        linkAt(emulator, screenRow + topRow, col)
+                                        linkAt(
+                                            emulator = emulator,
+                                            row = screenRow + topRow,
+                                            col = col,
+                                            osc8Links = summary.connection.recentOsc8Links(),
+                                        )
                                     } else {
                                         null
                                     }
@@ -1064,7 +1182,30 @@ internal fun SessionTabBody(
                         isMouseReportingActive = {
                             terminalEmulator?.isMouseTrackingActive() ?: false
                         },
-                        onMouseClick = ::sendMouseClick,
+                        onMouseClick = { offset ->
+                            val emulator = terminalEmulator
+                            val size = measuredSize
+                            val urlLink =
+                                if (emulator != null && size != null) {
+                                    val col = (offset.x / size.cellWidthPx).toInt()
+                                        .coerceIn(0, emulator.mColumns - 1)
+                                    val screenRow = (offset.y / size.cellHeightPx).toInt()
+                                        .coerceIn(0, emulator.mRows - 1)
+                                    linkAt(
+                                        emulator = emulator,
+                                        row = screenRow + topRow,
+                                        col = col,
+                                        osc8Links = summary.connection.recentOsc8Links(),
+                                    )?.takeIf { it.type == LinkType.URL }
+                                } else {
+                                    null
+                                }
+                            if (urlLink != null) {
+                                detectedLink = urlLink
+                            } else {
+                                sendMouseClick(offset)
+                            }
+                        },
                         onMouseWheel = ::sendMouseWheel,
                         excludeRightEdgePx = with(LocalDensity.current) { 48.dp.toPx() },
                     ),
@@ -1082,6 +1223,7 @@ internal fun SessionTabBody(
                     topRow = topRow,
                     selection = selectionState.selection,
                     selectionColor = selectionColor,
+                    visibleLinks = visibleLinks,
                 )
                 TerminalInputCapture(
                     focusRequester = focusRequester,
@@ -1111,6 +1253,15 @@ internal fun SessionTabBody(
                     onCopy = { text -> summary.connection.onCopyTextToClipboard(text) },
                     onPaste = { summary.connection.onPasteTextFromClipboard() },
                     onShare = ::shareSelection,
+                    onOpenUrl = { url ->
+                        detectedLink = TerminalLink(
+                            type = LinkType.URL,
+                            text = url,
+                            startCol = 0,
+                            endCol = 0,
+                            row = 0,
+                        )
+                    },
                 )
                 detectedLink?.let { link ->
                     val resolvePathForLink: suspend () -> String = {
@@ -1124,6 +1275,12 @@ internal fun SessionTabBody(
                             if (base.isBlank() || base == ".") link.text else "$base/${link.text}"
                         }
                     }
+                    val callbackInfo = if (link.type == LinkType.URL) {
+                        detectLocalhostCallback(link.text)
+                    } else {
+                        null
+                    }
+                    val isPortTunneled = callbackInfo != null && callbackInfo.port in activeEphemeralPorts
                     LinkActionDialog(
                         link = link,
                         onOpen = { openLink(link); detectedLink = null },
@@ -1153,6 +1310,12 @@ internal fun SessionTabBody(
                             tabComposerInitialText = "Look at $location and fix this issue:$contextLine"
                             detectedLink = null
                             tabPromptComposerOpen = true
+                        }) else null,
+                        callbackInfo = callbackInfo,
+                        isPortAlreadyTunneled = isPortTunneled,
+                        onTunnelAndOpen = if (callbackInfo != null && summary.status == SessionStatus.CONNECTED) ({
+                            detectedLink = null
+                            tunnelAndOpenLink(link, callbackInfo.port)
                         }) else null,
                     )
                 }
@@ -1253,6 +1416,46 @@ internal fun SessionTabBody(
                         .align(Alignment.BottomEnd)
                         .padding(end = 56.dp, bottom = 12.dp),
                 )
+            }
+            if (activeEphemeralPorts.isNotEmpty()) {
+                val sortedPorts = activeEphemeralPorts.sorted()
+                Surface(
+                    onClick = {
+                        coroutineScope.launch {
+                            sortedPorts.forEach { port ->
+                                summary.connection.stopEphemeralLocalForward(port)
+                            }
+                        }
+                    },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.VpnKey,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            text = "Tunnel ${sortedPorts.joinToString(", ") { ":$it" }} · Stop",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Stop temporary OAuth tunnel",
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
             }
             if (showLayoutToggle) {
                 LayoutToggleButton(
@@ -1553,9 +1756,30 @@ private fun ScrollbackJumpPill(
 }
 
 /**
+ * Launches [url] in the system browser via `CATEGORY_BROWSABLE` + `ACTION_VIEW` so OAuth flows
+ * always run in a real browser rather than an embedded WebView.
+ */
+private fun openUrlInBrowser(context: Context, url: String): Result<Unit> = runCatching {
+    val parsed = url.toUri()
+    val browsable = Intent(Intent.ACTION_VIEW, parsed).apply {
+        addCategory(Intent.CATEGORY_BROWSABLE)
+        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(browsable)
+    } catch (_: ActivityNotFoundException) {
+        val plain = Intent(Intent.ACTION_VIEW, parsed).apply {
+            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(plain)
+    }
+}
+
+/**
  * "Open" is omitted for [LinkType.PATH], which names a path on the remote host rather than anything
  * `Intent.ACTION_VIEW` could open here; "Download" is offered only for it.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LinkActionDialog(
     link: TerminalLink,
@@ -1566,53 +1790,100 @@ private fun LinkActionDialog(
     modifier: Modifier = Modifier,
     onEdit: (() -> Unit)? = null,
     onAskAgent: (() -> Unit)? = null,
+    callbackInfo: LocalhostCallbackInfo? = null,
+    isPortAlreadyTunneled: Boolean = false,
+    onTunnelAndOpen: (() -> Unit)? = null,
 ) {
-    val displayTitle = if (link.type == LinkType.PATH && link.lineNumber != null) {
-        "${link.text}:${link.lineNumber}"
-    } else {
-        link.text
+    val displayTitle = when (link.type) {
+        LinkType.PATH -> if (link.lineNumber != null) "${link.text}:${link.lineNumber}" else link.text
+        LinkType.URL -> link.displayLabel ?: urlDisplayHost(link.text)
+        LinkType.IP -> link.text
     }
     AlertDialog(
         modifier = modifier,
         onDismissRequest = onDismiss,
         title = { Text(displayTitle) },
         text = {
-            if (link.type == LinkType.PATH) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = link.sourceLine?.takeIf { it.isNotBlank() } ?: "Remote path",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 3,
-                    )
-                    if (onAskAgent != null || onEdit != null) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (onAskAgent != null) {
-                                Button(
-                                    onClick = onAskAgent,
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(34.dp),
-                                ) {
-                                    Text("Ask Agent", style = MaterialTheme.typography.labelMedium)
+            when (link.type) {
+                LinkType.PATH -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = link.sourceLine?.takeIf { it.isNotBlank() } ?: "Remote path",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 3,
+                        )
+                        if (onAskAgent != null || onEdit != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (onAskAgent != null) {
+                                    Button(
+                                        onClick = onAskAgent,
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(34.dp),
+                                    ) {
+                                        Text("Ask Agent", style = MaterialTheme.typography.labelMedium)
+                                    }
                                 }
-                            }
-                            if (onEdit != null) {
-                                TextButton(onClick = onEdit) { Text("Edit") }
+                                if (onEdit != null) {
+                                    TextButton(onClick = onEdit) { Text("Edit") }
+                                }
                             }
                         }
                     }
                 }
-            } else {
-                Text("Open in browser or copy?")
+
+                LinkType.URL -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 140.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            Text(
+                                text = link.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                        if (callbackInfo != null && onTunnelAndOpen != null) {
+                            Text(
+                                text = if (isPortAlreadyTunneled) {
+                                    "Port ${callbackInfo.port} is already tunneled over SSH."
+                                } else {
+                                    "Redirects to localhost:${callbackInfo.port}. Tunneling over SSH lets the login finish automatically on this device."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Button(
+                                onClick = onTunnelAndOpen,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    if (isPortAlreadyTunneled) {
+                                        "Open (:${callbackInfo.port} tunneled)"
+                                    } else {
+                                        "Tunnel :${callbackInfo.port} & Open"
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                LinkType.IP -> Text("Open in browser or copy?")
             }
         },
-        confirmButton = { TextButton(onClick = onCopy) { Text("Copy") } },
-        dismissButton = {
-            Row {
+        confirmButton = {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (link.type == LinkType.PATH) TextButton(onClick = onDownload) { Text("Download") }
                 if (link.type != LinkType.PATH) TextButton(onClick = onOpen) { Text("Open") }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onCopy) { Text("Copy") }
             }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
 }

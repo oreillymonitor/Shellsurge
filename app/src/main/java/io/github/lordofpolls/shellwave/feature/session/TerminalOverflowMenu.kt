@@ -9,6 +9,7 @@ import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -70,6 +71,7 @@ internal fun TerminalOverflowMenu(
     outputAlertsEnabled: Boolean = true,
     onToggleOutputAlerts: (() -> Unit)? = null,
     onOpenGitDiff: (() -> Unit)? = null,
+    onOpenLinks: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showingBell by remember { mutableStateOf(false) }
@@ -192,6 +194,16 @@ internal fun TerminalOverflowMenu(
                         onClick = {
                             expanded = false
                             onDownload(connection)
+                        },
+                    )
+                }
+                if (onOpenLinks != null) {
+                    DropdownMenuItem(
+                        text = { Text("Links…") },
+                        leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) },
+                        onClick = {
+                            expanded = false
+                            onOpenLinks()
                         },
                     )
                 }

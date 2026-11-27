@@ -17,10 +17,13 @@ import io.github.lordofpolls.shellwave.R
 import io.github.lordofpolls.shellwave.core.prefs.BellMode
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.core.util.posixQuote
+import io.github.lordofpolls.shellwave.terminal.Osc8Hyperlink
+import io.github.lordofpolls.shellwave.terminal.Osc8LinkTracker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -209,6 +212,15 @@ open class SshConnection(
     // straight-line code.
     private val dynamicForwarders = ConcurrentHashMap<Long, Socks5Forwarder>()
 
+    // Ephemeral local port forwards created for in-session OAuth localhost callbacks. Kept separate
+    // from DB-backed `localForwarders` so `SessionManager.entry.tunnels` is never polluted.
+    private val ephemeralLocalForwarders = ConcurrentHashMap<Int, LocalPortForwarder>()
+    private val ephemeralTimeoutJobs = ConcurrentHashMap<Int, Job>()
+    private val _activeEphemeralPorts = MutableStateFlow<Set<Int>>(emptySet())
+    val activeEphemeralPorts: StateFlow<Set<Int>> = _activeEphemeralPorts
+
+    private val osc8Tracker = Osc8LinkTracker()
+
     // The SFTP client, or nothing on the SCP fallback path - SCPFileTransfer opens and closes its
     // own Session per call and exposes no handle to interrupt early, so cancelActiveTransfer is
     // best-effort there. Closing this from another thread aborts a blocked SFTP read/write, which
@@ -377,6 +389,7 @@ open class SshConnection(
                 // until this returns, so construction alone wouldn't race; keeping it here leaves no
                 // exception to remember.
                 withContext(Dispatchers.Main) {
+                    osc8Tracker.clear()
                     emulator = TerminalEmulator(
                         this@SshConnection,
                         cols,
@@ -410,6 +423,7 @@ open class SshConnection(
                             // `buffer` next iteration is safe.
                             withContext(Dispatchers.Main) { emulator.append(buffer, read) }
                             logSink?.write(buffer, 0, read)
+                            osc8Tracker.scan(buffer, read)
                             onRawOutput(buffer, read)
                             _outputTick.value++
                         }
@@ -770,6 +784,66 @@ open class SshConnection(
             }
         }
 
+    /** Recent OSC 8 hyperlinks captured from the remote byte stream, most recent first. */
+    open fun recentOsc8Links(): List<Osc8Hyperlink> = osc8Tracker.snapshot()
+
+    /**
+     * Starts a temporary `127.0.0.1:[port] -> 127.0.0.1:[port]` local forward for browser OAuth
+     * callbacks back into a CLI running on the remote host. Automatically closes after
+     * [autoStopAfterMs] or when the connection tears down.
+     */
+    suspend fun startEphemeralLocalForward(
+        port: Int,
+        autoStopAfterMs: Long = 10 * 60 * 1000L,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (port !in 1024..65535) {
+            return@withContext Result.failure(IllegalArgumentException("Port $port must be in 1024..65535"))
+        }
+        if (ephemeralLocalForwarders.containsKey(port)) {
+            return@withContext Result.success(Unit)
+        }
+        try {
+            val serverSocket = ServerSocket()
+            serverSocket.reuseAddress = true
+            serverSocket.bind(InetSocketAddress("127.0.0.1", port))
+            val forwarder = ssh.newLocalPortForwarder(
+                Parameters("127.0.0.1", port, "127.0.0.1", port),
+                serverSocket,
+            )
+            ephemeralLocalForwarders[port] = forwarder
+            _activeEphemeralPorts.value = ephemeralLocalForwarders.keys.toSet()
+
+            ephemeralTimeoutJobs.remove(port)?.cancel()
+            ephemeralTimeoutJobs[port] = scope.launch(Dispatchers.IO) {
+                delay(autoStopAfterMs)
+                stopEphemeralLocalForward(port)
+            }
+
+            scope.launch(Dispatchers.IO) {
+                try {
+                    forwarder.listen()
+                } catch (e: IOException) {
+                    Log.w(LOG_TAG, "ephemeral forward $port stopped: ${e.message}")
+                } finally {
+                    ephemeralLocalForwarders.remove(port)
+                    ephemeralTimeoutJobs.remove(port)?.cancel()
+                    _activeEphemeralPorts.value = ephemeralLocalForwarders.keys.toSet()
+                }
+            }
+            Result.success(Unit)
+        } catch (e: IOException) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun stopEphemeralLocalForward(port: Int) {
+        ephemeralTimeoutJobs.remove(port)?.cancel()
+        withContext(Dispatchers.IO) {
+            ephemeralLocalForwarders.remove(port)?.let { runCatching { it.close() } }
+            _activeEphemeralPorts.value = ephemeralLocalForwarders.keys.toSet()
+        }
+    }
+
     /** A no-op if [forwardId] isn't currently active. */
     suspend fun stopForward(forwardId: Long) {
         withContext(Dispatchers.IO) {
@@ -799,6 +873,11 @@ open class SshConnection(
         }
         dynamicForwarders.keys.toList()
             .forEach { id -> dynamicForwarders.remove(id)?.let { runCatching { it.close() } } }
+        ephemeralTimeoutJobs.keys.toList()
+            .forEach { port -> ephemeralTimeoutJobs.remove(port)?.cancel() }
+        ephemeralLocalForwarders.keys.toList()
+            .forEach { port -> ephemeralLocalForwarders.remove(port)?.let { runCatching { it.close() } } }
+        _activeEphemeralPorts.value = emptySet()
     }
 
     /**

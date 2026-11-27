@@ -65,21 +65,35 @@ fun Modifier.terminalGestures(
             val downTimeMillis = System.currentTimeMillis()
 
             // Once the remote app turns on mouse tracking, touch means mouse for the rest of this
-            // gesture: no long-press-select race, no timeout, no pinch ambiguity. Checked once at
-            // the down, which is why it is a self-contained loop and not a state in the machine
-            // below. A drag is the wheel, not a button drag: tmux, less and vim all scroll on
-            // wheel events, while a left-button drag starts a selection in them, which on a phone
-            // nobody wants from the one gesture that means "scroll" everywhere else.
+            // gesture: no pinch ambiguity. A stationary long-press still raises selection so users
+            // can copy/open links inside tmux or mouse-mode TUIs, while a drag wheels and a quick
+            // tap sends a mouse click.
             if (isMouseReportingActive()) {
                 var wheeling = false
+                var longPressed = false
                 while (true) {
-                    val event = awaitPointerEvent()
+                    val event = if (!wheeling && !longPressed) {
+                        val remaining =
+                            LONG_PRESS_TIMEOUT_MS - (System.currentTimeMillis() - downTimeMillis)
+                        if (remaining <= 0) {
+                            longPressed = true
+                            onLongPress(down.position)
+                            continue
+                        }
+                        withTimeoutOrNull(remaining) { awaitPointerEvent() } ?: continue
+                    } else {
+                        awaitPointerEvent()
+                    }
                     val change1 =
                         event.changes.firstOrNull { it.id == pointer1 } ?: return@awaitEachGesture
                     if (!change1.pressed) {
                         change1.consume()
-                        if (!wheeling) onMouseClick(change1.position)
+                        if (!wheeling && !longPressed) onMouseClick(change1.position)
                         return@awaitEachGesture
+                    }
+                    if (longPressed) {
+                        change1.consume()
+                        continue
                     }
                     val delta = change1.positionChange()
                     if (delta != Offset.Zero) {

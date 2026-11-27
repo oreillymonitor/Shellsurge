@@ -44,6 +44,7 @@ private const val ACTION_COPY = 1
 private const val ACTION_SELECT_ALL = 2
 private const val ACTION_PASTE = 3
 private const val ACTION_SHARE = 4
+private const val ACTION_OPEN = 5
 
 private const val LEFT_HANDLE_HOTSPOT_FRACTION = 0.75f
 private const val RIGHT_HANDLE_HOTSPOT_FRACTION = 0.25f
@@ -69,6 +70,7 @@ fun TerminalSelectionOverlay(
     onPaste: () -> Unit,
     onShare: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenUrl: ((String) -> Unit)? = null,
 ) {
     val sel = state.selection?.normalized()
     var boxOffsetInRoot by remember { mutableStateOf(Offset.Zero) }
@@ -98,6 +100,7 @@ fun TerminalSelectionOverlay(
             onCopy = onCopy,
             onPaste = onPaste,
             onShare = onShare,
+            onOpenUrl = onOpenUrl,
         )
 
         if (sel != null && emulator != null && cellWidthPx > 0 && cellHeightPx > 0) {
@@ -226,6 +229,7 @@ private class SelectionMenuContext(
     val onCopy: (String) -> Unit,
     val onPaste: () -> Unit,
     val onShare: (String) -> Unit,
+    val onOpenUrl: ((String) -> Unit)?,
 )
 
 /**
@@ -246,6 +250,7 @@ private fun TerminalSelectionActionMode(
     onCopy: (String) -> Unit,
     onPaste: () -> Unit,
     onShare: (String) -> Unit,
+    onOpenUrl: ((String) -> Unit)?,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -261,7 +266,8 @@ private fun TerminalSelectionActionMode(
             state,
             onCopy,
             onPaste,
-            onShare
+            onShare,
+            onOpenUrl,
         ),
     )
     var actionMode by remember { mutableStateOf<ActionMode?>(null) }
@@ -271,10 +277,21 @@ private fun TerminalSelectionActionMode(
             if (active) {
                 view.startActionMode(
                     object : ActionMode.Callback2() {
+                        private fun selectedUrlOrNull(): String? {
+                            val ctx = current
+                            if (ctx.onOpenUrl == null) return null
+                            val activeEmulator = ctx.emulator ?: return null
+                            val text = ctx.state.selectedText(activeEmulator) ?: return null
+                            return extractUrlFromSelection(text)
+                        }
+
                         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
                             val show =
                                 MenuItem.SHOW_AS_ACTION_IF_ROOM or MenuItem.SHOW_AS_ACTION_WITH_TEXT
                             val clipboard = context.getSystemService(ClipboardManager::class.java)
+                            menu.add(Menu.NONE, ACTION_OPEN, Menu.NONE, "Open")
+                                .setVisible(selectedUrlOrNull() != null)
+                                .setShowAsAction(show)
                             menu.add(Menu.NONE, ACTION_COPY, Menu.NONE, "Copy")
                                 .setShowAsAction(show)
                             menu.add(Menu.NONE, ACTION_SELECT_ALL, Menu.NONE, "Select All")
@@ -287,8 +304,15 @@ private fun TerminalSelectionActionMode(
                             return true
                         }
 
-                        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean =
-                            false
+                        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+                            val openItem = menu.findItem(ACTION_OPEN) ?: return false
+                            val shouldShow = selectedUrlOrNull() != null
+                            if (openItem.isVisible != shouldShow) {
+                                openItem.isVisible = shouldShow
+                                return true
+                            }
+                            return false
+                        }
 
                         override fun onActionItemClicked(
                             mode: ActionMode,
@@ -297,6 +321,12 @@ private fun TerminalSelectionActionMode(
                             val ctx = current
                             val activeEmulator = ctx.emulator
                             when (item.itemId) {
+                                ACTION_OPEN -> {
+                                    selectedUrlOrNull()?.let { url -> ctx.onOpenUrl?.invoke(url) }
+                                    ctx.state.clear()
+                                    mode.finish()
+                                }
+
                                 ACTION_COPY -> {
                                     if (activeEmulator != null) ctx.state.selectedText(
                                         activeEmulator
@@ -307,6 +337,7 @@ private fun TerminalSelectionActionMode(
 
                                 ACTION_SELECT_ALL -> {
                                     if (activeEmulator != null) ctx.state.selectAll(activeEmulator)
+                                    mode.invalidate()
                                     mode.invalidateContentRect()
                                 }
 
@@ -355,9 +386,11 @@ private fun TerminalSelectionActionMode(
         onDispose { actionMode?.finish() }
     }
 
-    // The mode object survives the whole selection; only its position and, after Select All, its
-    // content change. Nudge it to re-query onGetContentRect instead of recreating it per frame.
+    // The mode object survives the whole selection; only its position and, after handle drag or
+    // Select All, its content change. Nudge it to re-query onPrepareActionMode and onGetContentRect
+    // instead of recreating it per frame.
     LaunchedEffect(selection, cellWidthPx, cellHeightPx, topRow, boxOffsetInRoot) {
+        actionMode?.invalidate()
         actionMode?.invalidateContentRect()
     }
 }

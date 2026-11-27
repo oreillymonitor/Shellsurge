@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.16.2 - 2026-11-27
+
+### New
+- Add automatic rate-limited GitHub update banner on Hosts with a Settings toggle and per-version dismiss
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.1...1.16.2)
+
 ## 1.16.1 - 2026-11-27
 
 ### New

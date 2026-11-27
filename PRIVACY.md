@@ -1,6 +1,6 @@
 # Privacy Policy for ShellSurge
 
-**Last updated:** 24 November 2026
+**Last updated:** 27 November 2026
 
 ShellSurge ("the app", forked from Shellwave) is an SSH client for Android.
 This policy explains what data the app handles and, just as importantly, what it
@@ -48,11 +48,14 @@ database, `SharedPreferences`, and the Android Keystore:
 - **Local network discovery/access:** The app requests local network access
   solely so it can reach SSH servers on your local network (e.g. a home server
   or Raspberry Pi).
-- **Update checks (user-initiated):** When you tap **Check for updates** in
-  Settings, ShellSurge makes a direct HTTPS request to the public GitHub
-  Releases API (`https://api.github.com/repos/oreillymonitor/Shellsurge/releases/latest`)
-  to compare the latest published tag against the installed app version. No
-  device identifiers or user data are included.
+- **Update checks (GitHub Releases):** When **Check for updates automatically**
+  is enabled in Settings → About (at most once every 12 hours), or when you
+  manually tap **Check for updates**, ShellSurge makes a direct HTTPS request to
+  the public GitHub Releases API
+  (`https://api.github.com/repos/oreillymonitor/Shellsurge/releases/latest`) to
+  compare the latest published tag against the installed app version. No device
+  identifiers or user data are included, and automatic checks can be disabled
+  anytime in Settings → About.
 
 ## Voice input & on-device AI features
 

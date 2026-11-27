@@ -12,6 +12,7 @@ private const val LATEST_RELEASE_API_URL =
     "https://api.github.com/repos/oreillymonitor/Shellsurge/releases/latest"
 private const val GITHUB_API_VERSION = "2022-11-28"
 private const val HTTP_TIMEOUT_MS = 8_000
+internal const val AUTO_UPDATE_CHECK_INTERVAL_MS: Long = 12L * 60L * 60L * 1000L
 
 /** Parsed metadata for the latest GitHub Release of this repository. */
 data class AppReleaseInfo(
@@ -52,6 +53,32 @@ internal fun compareVersions(a: String, b: String): Int {
 
 internal fun isNewerVersion(remoteVersion: String, currentVersion: String): Boolean =
     compareVersions(remoteVersion, currentVersion) > 0
+
+internal fun shouldAutoCheckForUpdates(
+    autoCheckEnabled: Boolean,
+    lastCheckedAtMs: Long,
+    nowMs: Long,
+    intervalMs: Long = AUTO_UPDATE_CHECK_INTERVAL_MS,
+): Boolean {
+    if (!autoCheckEnabled) return false
+    if (lastCheckedAtMs <= 0L) return true
+    return (nowMs - lastCheckedAtMs) >= intervalMs
+}
+
+internal fun shouldShowUpdateBanner(
+    release: AppReleaseInfo?,
+    currentVersion: String,
+    dismissedVersion: String?,
+): Boolean {
+    if (release == null) return false
+    if (!isNewerVersion(release.versionName, currentVersion)) return false
+    if (!dismissedVersion.isNullOrBlank() &&
+        normalizeVersion(dismissedVersion) == normalizeVersion(release.versionName)
+    ) {
+        return false
+    }
+    return true
+}
 
 internal fun parseLatestReleaseJson(jsonBody: String): AppReleaseInfo? =
     runCatching {

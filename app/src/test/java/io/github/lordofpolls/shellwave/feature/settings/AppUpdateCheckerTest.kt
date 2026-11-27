@@ -82,4 +82,44 @@ class AppUpdateCheckerTest {
         assertNull(parseLatestReleaseJson("not json at all"))
         assertNull(parseLatestReleaseJson("{}"))
     }
+
+    @Test
+    fun `shouldAutoCheckForUpdates respects enabled flag and 12h interval`() {
+        val now = 1_700_000_000_000L
+        assertFalse(shouldAutoCheckForUpdates(autoCheckEnabled = false, lastCheckedAtMs = 0L, nowMs = now))
+        assertTrue(shouldAutoCheckForUpdates(autoCheckEnabled = true, lastCheckedAtMs = 0L, nowMs = now))
+        assertFalse(
+            shouldAutoCheckForUpdates(
+                autoCheckEnabled = true,
+                lastCheckedAtMs = now - AUTO_UPDATE_CHECK_INTERVAL_MS + 1_000L,
+                nowMs = now,
+            )
+        )
+        assertTrue(
+            shouldAutoCheckForUpdates(
+                autoCheckEnabled = true,
+                lastCheckedAtMs = now - AUTO_UPDATE_CHECK_INTERVAL_MS,
+                nowMs = now,
+            )
+        )
+    }
+
+    @Test
+    fun `shouldShowUpdateBanner checks version and dismissal`() {
+        val release = AppReleaseInfo(
+            tagName = "1.16.2",
+            versionName = "1.16.2",
+            releaseName = "ShellSurge 1.16.2",
+            htmlUrl = "https://github.com/oreillymonitor/Shellsurge/releases/tag/1.16.2",
+            apkDownloadUrl = "https://github.com/oreillymonitor/Shellsurge/releases/download/1.16.2/shellsurge-1.16.2.apk",
+            notesPreview = "New release",
+        )
+        assertFalse(shouldShowUpdateBanner(null, "1.16.1", null))
+        assertFalse(shouldShowUpdateBanner(release, "1.16.2", null))
+        assertFalse(shouldShowUpdateBanner(release, "1.17.0", null))
+        assertTrue(shouldShowUpdateBanner(release, "1.16.1", null))
+        assertFalse(shouldShowUpdateBanner(release, "1.16.1", "1.16.2"))
+        assertFalse(shouldShowUpdateBanner(release, "1.16.1", "v1.16.2"))
+        assertTrue(shouldShowUpdateBanner(release, "1.16.1", "1.16.1"))
+    }
 }

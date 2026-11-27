@@ -115,6 +115,7 @@ import io.github.lordofpolls.shellwave.core.prefs.OutputIdleDelay
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityInterval
 import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.core.prefs.ThemeMode
+import io.github.lordofpolls.shellwave.core.prefs.UpdatePreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.feature.session.NanoClientManager
 import io.github.lordofpolls.shellwave.feature.session.NanoDiagnostics
@@ -690,7 +691,9 @@ private fun AppUpdateSection(
     uriHandler: UriHandler,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val autoCheckEnabled by rememberPrefState { UpdatePreferences.isAutoCheckEnabled(it) }
     var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
 
     val rowTitle = when (updateState) {
@@ -716,6 +719,13 @@ private fun AppUpdateSection(
     }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SettingsSwitch(
+            title = "Check for updates automatically",
+            description = "Check GitHub Releases at most every 12 hours and show a banner on Hosts when a newer APK is available.",
+            checked = autoCheckEnabled,
+            onCheckedChange = { UpdatePreferences.setAutoCheckEnabled(context, it) },
+        )
+        SettingsCardDivider()
         SettingsRow(
             title = rowTitle,
             description = rowDescription,
@@ -725,7 +735,19 @@ private fun AppUpdateSection(
                 if (updateState != UpdateCheckState.Checking) {
                     updateState = UpdateCheckState.Checking
                     scope.launch {
-                        updateState = checkForUpdate(BuildConfig.VERSION_NAME)
+                        val result = checkForUpdate(BuildConfig.VERSION_NAME)
+                        UpdatePreferences.setLastCheckAtMs(context, System.currentTimeMillis())
+                        when (result) {
+                            is UpdateCheckState.UpdateAvailable -> {
+                                UpdatePreferences.saveCachedRelease(context, result.release)
+                                UpdatePreferences.setDismissedVersion(context, null)
+                            }
+                            is UpdateCheckState.UpToDate -> {
+                                UpdatePreferences.clearCachedRelease(context)
+                            }
+                            else -> {}
+                        }
+                        updateState = result
                     }
                 }
             },

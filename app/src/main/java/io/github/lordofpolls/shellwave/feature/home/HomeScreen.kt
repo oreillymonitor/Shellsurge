@@ -1,5 +1,6 @@
 package io.github.lordofpolls.shellwave.feature.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,13 +17,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.MoreVert
@@ -29,6 +35,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -37,12 +44,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,19 +59,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.lordofpolls.shellwave.BuildConfig
 import io.github.lordofpolls.shellwave.core.db.entities.GroupEntity
 import io.github.lordofpolls.shellwave.core.db.entities.HostEntity
 import io.github.lordofpolls.shellwave.core.db.entities.ScriptEntity
 import io.github.lordofpolls.shellwave.core.net.Reachability
 import io.github.lordofpolls.shellwave.core.prefs.HostListPreferences
 import io.github.lordofpolls.shellwave.core.prefs.HostSort
+import io.github.lordofpolls.shellwave.core.prefs.UpdatePreferences
 import io.github.lordofpolls.shellwave.core.prefs.WidgetPreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.feature.host.hostDeleteBlockReason
@@ -73,6 +88,11 @@ import io.github.lordofpolls.shellwave.feature.session.AgentTabPill
 import io.github.lordofpolls.shellwave.feature.session.SessionDrawerActionRow
 import io.github.lordofpolls.shellwave.feature.session.SessionSheetCard
 import io.github.lordofpolls.shellwave.feature.session.SessionSheetHeader
+import io.github.lordofpolls.shellwave.feature.settings.AppReleaseInfo
+import io.github.lordofpolls.shellwave.feature.settings.UpdateCheckState
+import io.github.lordofpolls.shellwave.feature.settings.checkForUpdate
+import io.github.lordofpolls.shellwave.feature.settings.shouldAutoCheckForUpdates
+import io.github.lordofpolls.shellwave.feature.settings.shouldShowUpdateBanner
 import io.github.lordofpolls.shellwave.ssh.SessionStatus
 import io.github.lordofpolls.shellwave.ssh.SessionSummary
 import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
@@ -159,10 +179,32 @@ fun HomeScreen(
     var groupBeingEdited by remember { mutableStateOf<GroupEntity?>(null) }
     var groupPendingDelete by remember { mutableStateOf<GroupEntity?>(null) }
     val sort by rememberPrefState { HostListPreferences.sort(it) }
+    val autoCheckUpdates by rememberPrefState { UpdatePreferences.isAutoCheckEnabled(it) }
+    val cachedUpdate by rememberPrefState { UpdatePreferences.getCachedRelease(it) }
+    val dismissedUpdateVersion by rememberPrefState { UpdatePreferences.getDismissedVersion(it) }
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     // Bumped on every WOL tile change so the `remember` below re-reads WidgetPreferences.
     var wolTileChanges by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(autoCheckUpdates) {
+        val now = System.currentTimeMillis()
+        if (!shouldAutoCheckForUpdates(autoCheckUpdates, UpdatePreferences.getLastCheckAtMs(context), now)) {
+            return@LaunchedEffect
+        }
+        val result = checkForUpdate(BuildConfig.VERSION_NAME)
+        UpdatePreferences.setLastCheckAtMs(context, System.currentTimeMillis())
+        when (result) {
+            is UpdateCheckState.UpdateAvailable -> UpdatePreferences.saveCachedRelease(context, result.release)
+            is UpdateCheckState.UpToDate -> UpdatePreferences.clearCachedRelease(context)
+            else -> {}
+        }
+    }
+
+    val bannerRelease = cachedUpdate?.takeIf {
+        autoCheckUpdates && shouldShowUpdateBanner(it, BuildConfig.VERSION_NAME, dismissedUpdateVersion)
+    }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val searchVisible = hosts.size >= SEARCH_FIELD_HOST_THRESHOLD
@@ -239,6 +281,22 @@ fun HomeScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (bannerRelease != null) {
+                item(key = "updateBanner") {
+                    HomeUpdateBanner(
+                        release = bannerRelease,
+                        onDownload = {
+                            val target = bannerRelease.apkDownloadUrl ?: bannerRelease.htmlUrl
+                            runCatching { uriHandler.openUri(target) }
+                        },
+                        onNotes = { runCatching { uriHandler.openUri(bannerRelease.htmlUrl) } },
+                        onDismiss = {
+                            UpdatePreferences.setDismissedVersion(context, bannerRelease.versionName)
+                        },
+                    )
+                }
+            }
+
             item(key = "liveStrip") {
                 LiveSessionStrip(
                     sessions = liveSessions,
@@ -626,6 +684,83 @@ private fun HostsOverflow(
                             },
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeUpdateBanner(
+    release: AppReleaseInfo,
+    onDownload: () -> Unit,
+    onNotes: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "Update available · v${release.versionName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Dismiss update",
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+            release.notesPreview?.takeIf { it.isNotBlank() }?.let { preview ->
+                Text(
+                    text = preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onDownload,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Download APK")
+                }
+                TextButton(onClick = onNotes) {
+                    Text("Release notes")
                 }
             }
         }

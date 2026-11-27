@@ -1,6 +1,16 @@
 # Changelog
 
 
+## 1.16.0 - 2026-11-27
+
+### New
+- **Wrapped URLs, OSC 8 links, Links sheet, and OAuth localhost tunneling**: join soft-wrapped and TUI-boxed multi-line URLs across rows, capture OSC 8 hyperlinks, add subtle link underlines and selection **Open** support (including in mouse-tracking mode), list session URLs in a **Links…** bottom sheet, and offer one-tap SSH local port forwarding (`Tunnel :<port> & Open`) for OAuth `localhost` callbacks
+
+### Documentation
+- Highlight full Android keyboard support in README
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.15.2...1.16.0)
+
 ## 1.15.2 - 2026-11-24
 
 ### Improved

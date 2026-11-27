@@ -1,6 +1,16 @@
 # Changelog
 
 
+## 1.16.1 - 2026-11-27
+
+### New
+- Add Readable Output sheet and unify session/hosts menus into drawers
+
+### Internal
+- Guard releases with tests/lint, add debug applicationIdSuffix, ignore AGENTS.md
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.0...1.16.1)
+
 ## 1.16.0 - 2026-11-27
 
 ### New

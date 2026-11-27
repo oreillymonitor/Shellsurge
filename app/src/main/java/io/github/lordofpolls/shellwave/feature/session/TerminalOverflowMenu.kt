@@ -1,9 +1,19 @@
 package io.github.lordofpolls.shellwave.feature.session
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Download
@@ -19,39 +29,32 @@ import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.StopCircle
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Upload
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Text
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import io.github.lordofpolls.shellwave.core.prefs.BellMode
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.ssh.SshConnection
 
 /**
- * The terminal's overflow, pinned at the chip rail's right edge, and the only thing in that strip
- * besides the chips. It replaced four rows of chrome for actions touched once a session or less.
+ * The terminal's options drawer, triggered from the chip rail's overflow button and styled to
+ * match [PromptComposerDialog] and [AgentQuickResponseSheet].
  *
- * Reconnect stayed on the Sessions overview, where a session that is not connected is managed:
- * offering it inside the terminal of a session with no terminal to show would be an action on a
- * surface that cannot display its own result.
- *
- * [connection] is non-null only while the selected session is `CONNECTED`, gating the three actions
- * that need a live channel. [onClose] is not gated - closing a session stuck mid-connect is exactly
- * when it is needed.
- *
- * Bell is a nested single-choice group carrying its value in the parent item's label, so the mode
- * reads without opening the submenu, which is the one thing the permanent toggle did well.
+ * [connection] is non-null only while the selected session is `CONNECTED`, gating actions that
+ * require a live SSH channel. [onClose] stays available even while connecting/failed.
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun TerminalOverflowMenu(
     connection: SshConnection?,
@@ -61,234 +64,265 @@ internal fun TerminalOverflowMenu(
     onUpload: (SshConnection) -> Unit,
     onBrowseFiles: (SshConnection) -> Unit,
     onRunScript: (() -> Unit)?,
-    onPromptComposer: (() -> Unit)? = null,
-    onAgentQuickResponse: (() -> Unit)? = null,
     onClose: (() -> Unit)?,
     onSearch: () -> Unit,
     isLogging: Boolean,
     onStartLogging: (SshConnection) -> Unit,
     onStopLogging: () -> Unit,
+    modifier: Modifier = Modifier,
+    onPromptComposer: (() -> Unit)? = null,
+    onAgentQuickResponse: (() -> Unit)? = null,
     outputAlertsEnabled: Boolean = true,
     onToggleOutputAlerts: (() -> Unit)? = null,
     onOpenGitDiff: (() -> Unit)? = null,
     onOpenLinks: (() -> Unit)? = null,
+    onOpenReadableOutput: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    var showingBell by remember { mutableStateOf(false) }
 
-    Box {
-        IconButton(
-            onClick = {
-                showingBell = false
-                expanded = true
-            },
-        ) {
+    Box(modifier = modifier) {
+        IconButton(onClick = { expanded = true }) {
             Icon(Icons.Outlined.MoreVert, contentDescription = "Session options")
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (showingBell) {
-                DropdownMenuItem(
-                    text = { Text("Back") },
-                    leadingIcon = {
-                        Icon(
-                            Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = null
-                        )
-                    },
-                    onClick = { showingBell = false },
+    }
+
+    if (expanded) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { expanded = false },
+            sheetState = sheetState,
+            dragHandle = { AgentSheetDragHandle() },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+            ) {
+                SessionSheetHeader(
+                    icon = Icons.Outlined.Tune,
+                    title = "Session options",
+                    onDismiss = { expanded = false },
                 )
-                BellMode.entries.forEach { mode ->
-                    DropdownMenuItem(
-                        text = { Text(BellPreferences.modeName(mode)) },
-                        // RadioButton carries the selected state to TalkBack as state; colour alone
-                        // would not.
-                        leadingIcon = { RadioButton(selected = mode == bellMode, onClick = null) },
-                        onClick = {
-                            onBellMode(mode)
-                            showingBell = false
-                        },
-                    )
-                }
-            } else {
-                if (connection != null) {
-                    if (onPromptComposer != null) {
-                        DropdownMenuItem(
-                            text = { Text("Compose prompt…") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.EditNote,
-                                    contentDescription = null,
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 520.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SessionSheetCard {
+                        AgentSectionHeader(title = "Agent & View")
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (connection != null && onPromptComposer != null) {
+                                AgentUtilityPill(
+                                    label = "Compose",
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.EditNote,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        expanded = false
+                                        onPromptComposer()
+                                    },
                                 )
-                            },
-                            onClick = {
-                                expanded = false
-                                onPromptComposer()
-                            },
-                        )
-                    }
-                    if (onAgentQuickResponse != null) {
-                        DropdownMenuItem(
-                            text = { Text("Quick response…") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.SmartToy,
-                                    contentDescription = null,
+                            }
+                            if (connection != null && onAgentQuickResponse != null) {
+                                AgentUtilityPill(
+                                    label = "Quick response",
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.SmartToy,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        expanded = false
+                                        onAgentQuickResponse()
+                                    },
                                 )
-                            },
-                            onClick = {
-                                expanded = false
-                                onAgentQuickResponse()
-                            },
-                        )
-                    }
-                    if (onOpenGitDiff != null) {
-                        DropdownMenuItem(
-                            text = { Text("Git diff & status…") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Code,
-                                    contentDescription = null,
+                            }
+                            if (onOpenReadableOutput != null) {
+                                AgentUtilityPill(
+                                    label = "Readable output",
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.AutoMirrored.Outlined.Article,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        expanded = false
+                                        onOpenReadableOutput()
+                                    },
                                 )
-                            },
-                            onClick = {
-                                expanded = false
-                                onOpenGitDiff()
-                            },
-                        )
-                    }
-                    if (onRunScript != null) {
-                        DropdownMenuItem(
-                            text = { Text("Run script here") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.PlayArrow,
-                                    contentDescription = null,
+                            }
+                            if (connection != null && onOpenGitDiff != null) {
+                                AgentUtilityPill(
+                                    label = "Git diff",
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Code,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        expanded = false
+                                        onOpenGitDiff()
+                                    },
                                 )
-                            },
-                            onClick = {
-                                expanded = false
-                                onRunScript()
-                            },
-                        )
+                            }
+                            if (onOpenLinks != null) {
+                                AgentUtilityPill(
+                                    label = "Links",
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Link,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        expanded = false
+                                        onOpenLinks()
+                                    },
+                                )
+                            }
+                            AgentUtilityPill(
+                                label = "Search",
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Outlined.Search,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                },
+                                onClick = {
+                                    expanded = false
+                                    onSearch()
+                                },
+                            )
+                        }
                     }
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Browse files") },
-                        leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onBrowseFiles(connection)
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Upload file") },
-                        leadingIcon = { Icon(Icons.Outlined.Upload, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onUpload(connection)
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Download file") },
-                        leadingIcon = { Icon(Icons.Outlined.Download, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onDownload(connection)
-                        },
-                    )
-                }
-                if (onOpenLinks != null) {
-                    DropdownMenuItem(
-                        text = { Text("Links…") },
-                        leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onOpenLinks()
-                        },
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text("Search") },
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    onClick = {
-                        expanded = false
-                        onSearch()
-                    },
-                )
-                // Stop logging is reachable independent of `connection`, which is only non-null
-                // while CONNECTED: a session already logging must stay stoppable through, say, a
-                // reconnect, not just while the channel that started it is still up.
-                if (isLogging) {
-                    DropdownMenuItem(
-                        text = { Text("Stop logging") },
-                        leadingIcon = { Icon(Icons.Outlined.StopCircle, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onStopLogging()
-                        },
-                    )
-                } else if (connection != null) {
-                    DropdownMenuItem(
-                        text = { Text("Log session…") },
-                        leadingIcon = { Icon(Icons.Outlined.Save, contentDescription = null) },
-                        onClick = {
-                            expanded = false
-                            onStartLogging(connection)
-                        },
-                    )
-                }
-                HorizontalDivider()
-                if (onToggleOutputAlerts != null) {
-                    DropdownMenuItem(
-                        text = { Text(if (outputAlertsEnabled) "Output alerts: On" else "Output alerts: Muted") },
-                        leadingIcon = {
-                            Icon(
-                                if (outputAlertsEnabled) {
+
+                    if (connection != null || isLogging) {
+                        SessionSheetCard {
+                            AgentSectionHeader(title = "Files & Tools")
+                            if (connection != null) {
+                                SessionDrawerActionRow(
+                                    icon = Icons.Outlined.Folder,
+                                    label = "Browse files",
+                                    onClick = {
+                                        expanded = false
+                                        onBrowseFiles(connection)
+                                    },
+                                )
+                                SessionDrawerActionRow(
+                                    icon = Icons.Outlined.Upload,
+                                    label = "Upload file",
+                                    onClick = {
+                                        expanded = false
+                                        onUpload(connection)
+                                    },
+                                )
+                                SessionDrawerActionRow(
+                                    icon = Icons.Outlined.Download,
+                                    label = "Download file",
+                                    onClick = {
+                                        expanded = false
+                                        onDownload(connection)
+                                    },
+                                )
+                                if (onRunScript != null) {
+                                    SessionDrawerActionRow(
+                                        icon = Icons.Outlined.PlayArrow,
+                                        label = "Run script here",
+                                        onClick = {
+                                            expanded = false
+                                            onRunScript()
+                                        },
+                                    )
+                                }
+                            }
+                            if (isLogging) {
+                                SessionDrawerActionRow(
+                                    icon = Icons.Outlined.StopCircle,
+                                    label = "Stop logging",
+                                    onClick = {
+                                        expanded = false
+                                        onStopLogging()
+                                    },
+                                )
+                            } else if (connection != null) {
+                                SessionDrawerActionRow(
+                                    icon = Icons.Outlined.Save,
+                                    label = "Log session…",
+                                    onClick = {
+                                        expanded = false
+                                        onStartLogging(connection)
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    SessionSheetCard {
+                        AgentSectionHeader(
+                            title = "Alerts & Bell",
+                            icon = Icons.Outlined.Notifications,
+                        )
+                        if (onToggleOutputAlerts != null) {
+                            SessionDrawerActionRow(
+                                icon = if (outputAlertsEnabled) {
                                     Icons.Outlined.NotificationsActive
                                 } else {
                                     Icons.Outlined.NotificationsOff
                                 },
-                                contentDescription = null,
+                                label = if (outputAlertsEnabled) "Output alerts: On" else "Output alerts: Muted",
+                                onClick = {
+                                    expanded = false
+                                    onToggleOutputAlerts()
+                                },
                             )
-                        },
-                        onClick = {
-                            expanded = false
-                            onToggleOutputAlerts()
-                        },
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text(BellPreferences.label(bellMode)) },
-                    leadingIcon = { Icon(Icons.Outlined.Notifications, contentDescription = null) },
-                    trailingIcon = {
-                        Icon(
-                            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                            contentDescription = null
-                        )
-                    },
-                    onClick = { showingBell = true },
-                )
-                if (onClose != null) {
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = "Close session",
-                                color = MaterialTheme.colorScheme.error,
+                        }
+                        FlowRow(
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            BellMode.entries.forEach { mode ->
+                                AgentTabPill(
+                                    label = BellPreferences.modeName(mode),
+                                    selected = mode == bellMode,
+                                    onClick = { onBellMode(mode) },
+                                )
+                            }
+                        }
+                    }
+
+                    if (onClose != null) {
+                        SessionSheetCard {
+                            SessionDrawerActionRow(
+                                icon = Icons.Outlined.Close,
+                                label = "Close session",
+                                destructive = true,
+                                onClick = {
+                                    expanded = false
+                                    onClose()
+                                },
                             )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Outlined.Close,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        },
-                        onClick = {
-                            expanded = false
-                            onClose()
-                        },
-                    )
+                        }
+                    }
                 }
             }
         }

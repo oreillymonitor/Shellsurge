@@ -58,6 +58,19 @@ object TerminalTextSanitizer {
         return cleanForDigest(rawText, maxLines)
     }
 
+    /**
+     * Extracts terminal output formatted for a full-screen selectable reader view, stripping TUI
+     * chrome while keeping unified diffs and fenced code block indentation intact.
+     */
+    fun extractReadableOutput(
+        emulator: TerminalEmulator,
+        maxRows: Int = 240,
+        latestTurnOnly: Boolean = true,
+    ): String {
+        val rawText = readRawBuffer(emulator, maxRows = maxRows)
+        return cleanForReadable(rawText, latestTurnOnly = latestTurnOnly)
+    }
+
     private fun readRawBuffer(emulator: TerminalEmulator, maxRows: Int): String {
         val screen = emulator.screen ?: return ""
         val activeTranscript = screen.activeTranscriptRows
@@ -157,10 +170,14 @@ object TerminalTextSanitizer {
         return normalized
     }
 
-    fun cleanForDigest(raw: String, maxLines: Int = 60): String {
-        val normalized = stripTuiChrome(raw)
+    private fun isTransientChrome(unboxed: String): Boolean =
+        (unboxed.length < 5 && unboxed.any { it in SPINNER_CHARS }) ||
+            PROGRESS_BAR_LINE.matches(unboxed) ||
+            TMUX_STATUS_LINE.matches(unboxed) ||
+            TUI_GHOST_PROMPT.matches(unboxed) ||
+            TUI_CHROME_SUBSTRINGS.any { chrome -> unboxed.contains(chrome, ignoreCase = true) }
 
-        // Slice to the latest command turn if an earlier command prompt sits above subsequent output.
+    private fun sliceToLatestTurn(normalized: List<String>): List<String> {
         var lastCommandIdx = -1
         for (idx in normalized.indices.reversed()) {
             val candidate = normalized[idx]
@@ -183,12 +200,62 @@ object TerminalTextSanitizer {
                 }
             }
         }
-
-        val turnLines = if (lastCommandIdx >= 0) {
+        return if (lastCommandIdx >= 0) {
             normalized.subList(lastCommandIdx, normalized.size)
         } else {
             normalized
         }
+    }
+
+    fun cleanForReadable(raw: String, latestTurnOnly: Boolean = true): String {
+        val noAnsi = ANSI_PATTERN.replace(raw, "")
+        val normalized = mutableListOf<String>()
+        var inCodeFence = false
+
+        for (rawLine in noAnsi.lines()) {
+            val trimmedEnd = rawLine.trimEnd()
+            val trimmed = trimmedEnd.trim()
+
+            if (inCodeFence) {
+                normalized.add(trimmedEnd)
+                if (trimmed.startsWith("```")) {
+                    inCodeFence = false
+                }
+                continue
+            }
+
+            if (trimmed.isEmpty()) {
+                if (normalized.isNotEmpty() && normalized.last().isNotEmpty()) {
+                    normalized.add("")
+                }
+                continue
+            }
+
+            val unboxed = BOX_EDGE_STRIP.matchEntire(trimmed)?.groupValues?.get(1)?.trim() ?: trimmed
+            if (unboxed.isEmpty() || BOX_BORDER_ONLY.matches(unboxed)) {
+                continue
+            }
+            if (unboxed.startsWith("```")) {
+                inCodeFence = true
+                normalized.add(unboxed)
+                continue
+            }
+            if (isTransientChrome(unboxed)) {
+                continue
+            }
+            normalized.add(unboxed)
+        }
+
+        val sliced = if (latestTurnOnly) sliceToLatestTurn(normalized) else normalized
+        return sliced
+            .dropWhile { it.isEmpty() }
+            .dropLastWhile { it.isEmpty() }
+            .joinToString("\n")
+    }
+
+    fun cleanForDigest(raw: String, maxLines: Int = 60): String {
+        val normalized = stripTuiChrome(raw)
+        val turnLines = sliceToLatestTurn(normalized)
 
         return turnLines
             .dropWhile { it.isEmpty() }

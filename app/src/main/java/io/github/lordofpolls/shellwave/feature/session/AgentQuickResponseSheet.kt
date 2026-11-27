@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
@@ -77,6 +78,7 @@ internal fun AgentQuickResponseSheet(
     isQuickBarActive: Boolean = false,
     onToggleQuickBar: (() -> Unit)? = null,
     onOpenGitDiff: (() -> Unit)? = null,
+    onOpenReadableOutput: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -131,7 +133,7 @@ internal fun AgentQuickResponseSheet(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // Top Action Bar matching Composer's 36dp control strip
-                if (onSummarize != null || onToggleQuickBar != null || onOpenGitDiff != null) {
+                if (onSummarize != null || onToggleQuickBar != null || onOpenGitDiff != null || onOpenReadableOutput != null) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -239,6 +241,33 @@ internal fun AgentQuickResponseSheet(
                                 Spacer(Modifier.width(5.dp))
                                 Text(
                                     text = "Diff",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+
+                        if (onOpenReadableOutput != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        sheetState.hide()
+                                        onDismiss()
+                                        onOpenReadableOutput()
+                                    }
+                                },
+                                shape = AGENT_BUTTON_SHAPE,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                modifier = Modifier.height(36.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.Article,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = "Read",
                                     style = MaterialTheme.typography.labelMedium,
                                     maxLines = 1,
                                 )

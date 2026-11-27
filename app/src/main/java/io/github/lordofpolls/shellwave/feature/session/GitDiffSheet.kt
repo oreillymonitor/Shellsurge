@@ -292,61 +292,44 @@ internal fun GitDiffSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        dragHandle = {
-            Surface(
-                modifier = Modifier
-                    .padding(top = 8.dp, bottom = 4.dp)
-                    .size(width = 36.dp, height = 4.dp),
-                shape = RoundedCornerShape(2.dp),
-                color = MaterialTheme.colorScheme.outlineVariant,
-            ) {}
-        },
+        dragHandle = { AgentSheetDragHandle() },
         modifier = modifier,
     ) {
+        val branchSubtitle = snapshot?.branch?.takeIf { it.isNotBlank() }?.let { branchText ->
+            "Branch: $branchText · ${snapshot?.files?.size ?: 0} changed"
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
                 .imePadding()
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Code,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Git Diff & Status",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    val branchText = snapshot?.branch?.takeIf { it.isNotBlank() }
-                    if (branchText != null) {
-                        Text(
-                            text = "Branch: $branchText · ${snapshot?.files?.size ?: 0} changed",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+            SessionSheetHeader(
+                icon = Icons.Outlined.Code,
+                title = "Git Diff & Status",
+                subtitle = branchSubtitle,
+                trailing = {
+                    IconButton(
+                        onClick = { reload(explicitDirOrNull(pathInput)) },
+                        enabled = !isLoading,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Refresh,
+                            contentDescription = "Refresh git status",
+                            modifier = Modifier.size(18.dp),
                         )
                     }
-                }
-                IconButton(
-                    onClick = { reload(explicitDirOrNull(pathInput)) },
-                    enabled = !isLoading,
-                ) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = "Refresh git status")
-                }
-            }
+                },
+                onDismiss = onDismiss,
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -571,6 +554,7 @@ internal fun GitDiffSheet(
             }
 
             Spacer(Modifier.height(4.dp))
+            }
         }
     }
 }

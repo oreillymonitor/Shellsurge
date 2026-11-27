@@ -1,55 +1,81 @@
 package io.github.lordofpolls.shellwave.feature.session
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import io.github.lordofpolls.shellwave.core.db.entities.ScriptEntity
 import io.github.lordofpolls.shellwave.feature.scripts.ScriptMode
 
 /**
  * "Run script here". Both modes that can act on an open session are offered, so each row carries a
- * second line saying which one it is. The difference is invisible from the script's name and is not
- * cosmetic: a send-to-current script is typed into the live shell, inheriting the working directory
- * and everything else the prompt is sitting in, and scrolls past in the terminal; a capture script
- * gets its own `exec` channel on the same connection, starting fresh at `~` with no shell state,
- * and comes back in a result sheet that is kept in run history. Picking the wrong one is only
- * obvious afterwards, so the label goes on the row.
+ * subtitle saying which one it is (typed into the live shell vs. captured in a separate `exec`
+ * channel).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ScriptPickerDialog(
     scripts: List<ScriptEntity>,
     onPick: (ScriptEntity) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    AlertDialog(
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("Run a script here") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                scripts.forEach { script ->
-                    TextButton(onClick = { onPick(script) }, modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Text(script.name)
-                            Text(
-                                if (runCatching { ScriptMode.valueOf(script.mode) }.getOrNull() == ScriptMode.CAPTURE) {
-                                    "Runs separately, output captured"
-                                } else {
-                                    "Typed into this session"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
+        sheetState = sheetState,
+        dragHandle = { AgentSheetDragHandle() },
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding(),
+        ) {
+            SessionSheetHeader(
+                icon = Icons.Outlined.PlayArrow,
+                title = "Run a script here",
+                subtitle = "${scripts.size} available",
+                onDismiss = onDismiss,
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SessionSheetCard {
+                    scripts.forEach { script ->
+                        val isCapture =
+                            runCatching { ScriptMode.valueOf(script.mode) }.getOrNull() == ScriptMode.CAPTURE
+                        SessionDrawerActionRow(
+                            icon = Icons.Outlined.PlayArrow,
+                            label = script.name,
+                            subtitle = if (isCapture) {
+                                "Runs separately, output captured"
+                            } else {
+                                "Typed into this session"
+                            },
+                            onClick = { onPick(script) },
+                        )
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+        }
+    }
 }

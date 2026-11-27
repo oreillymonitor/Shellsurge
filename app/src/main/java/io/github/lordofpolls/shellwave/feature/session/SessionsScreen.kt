@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -36,16 +37,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.VpnKey
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
 import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
@@ -270,6 +276,8 @@ fun SessionsScreen(
         var quickResponseOpen by remember(current?.id) { mutableStateOf(false) }
         var gitDiffOpen by remember(current?.id) { mutableStateOf(false) }
         var linksSheetOpen by remember(current?.id) { mutableStateOf(false) }
+        var readableOutputOpen by remember(current?.id) { mutableStateOf(false) }
+        var readableRefreshTick by remember(current?.id) { mutableIntStateOf(0) }
 
         // A capture script pinned to another host is left out: "run it here" and "run it on that
         // other machine" are opposite instructions, and honouring the script's own target would run
@@ -341,6 +349,10 @@ fun SessionsScreen(
                     }) else null,
                     onOpenLinks = if (current?.connection?.emulatorOrNull != null) ({
                         linksSheetOpen = true
+                    }) else null,
+                    onOpenReadableOutput = if (current?.connection?.emulatorOrNull != null) ({
+                        readableRefreshTick++
+                        readableOutputOpen = true
                     }) else null,
                 )
             },
@@ -474,6 +486,38 @@ fun SessionsScreen(
                     linksSheetOpen = false
                 },
                 onDismiss = { linksSheetOpen = false },
+            )
+        }
+
+        if (readableOutputOpen && current != null) {
+            val readerContext = LocalContext.current
+            val latestText = remember(current.id, readableOutputOpen, readableRefreshTick) {
+                current.connection.emulatorOrNull?.let { emu ->
+                    TerminalTextSanitizer.extractReadableOutput(emu, latestTurnOnly = true)
+                }.orEmpty()
+            }
+            val fullText = remember(current.id, readableOutputOpen, readableRefreshTick) {
+                current.connection.emulatorOrNull?.let { emu ->
+                    TerminalTextSanitizer.extractReadableOutput(emu, latestTurnOnly = false)
+                }.orEmpty()
+            }
+            ReadableOutputSheet(
+                latestTurnText = latestText,
+                fullScrollbackText = fullText,
+                onRefresh = { readableRefreshTick++ },
+                onCopyText = { copied ->
+                    current.connection.onCopyTextToClipboard(copied)
+                },
+                onOpenUrl = { url ->
+                    openUrlInBrowser(readerContext, url).onFailure {
+                        Toast.makeText(readerContext, "No app found to open link", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onOpenLinksSheet = {
+                    readableOutputOpen = false
+                    linksSheetOpen = true
+                },
+                onDismiss = { readableOutputOpen = false },
             )
         }
 
@@ -700,6 +744,8 @@ internal fun SessionTabBody(
     var altLatched by remember { mutableStateOf(false) }
     val keyboardEnhancedInput by rememberPrefState { TerminalInputPreferences.getKeyboardEnhancedInput(it) }
     var tabQuickResponseOpen by remember { mutableStateOf(false) }
+    var tabReadableOutputOpen by remember(sessionId) { mutableStateOf(false) }
+    var tabReadableRefreshTick by remember(sessionId) { mutableIntStateOf(0) }
     var quickDrawerActive by remember(sessionId) { mutableStateOf(false) }
     val hideKeyBarPref by rememberPrefState { SessionLayoutPreferences.getHideKeyBarWithKeyboard(it) }
     val configuration = LocalConfiguration.current
@@ -1597,8 +1643,43 @@ internal fun SessionTabBody(
                     tabQuickResponseOpen = false
                     tabGitDiffOpen = true
                 }) else null,
+                onOpenReadableOutput = if (terminalEmulator != null) ({
+                    tabQuickResponseOpen = false
+                    tabReadableRefreshTick++
+                    tabReadableOutputOpen = true
+                }) else null,
                 onDismiss = {
                     tabQuickResponseOpen = false
+                    focusRequester.requestFocus()
+                },
+            )
+        }
+
+        if (tabReadableOutputOpen) {
+            val latestText = remember(sessionId, tabReadableOutputOpen, tabReadableRefreshTick) {
+                terminalEmulator?.let { emu ->
+                    TerminalTextSanitizer.extractReadableOutput(emu, latestTurnOnly = true)
+                }.orEmpty()
+            }
+            val fullText = remember(sessionId, tabReadableOutputOpen, tabReadableRefreshTick) {
+                terminalEmulator?.let { emu ->
+                    TerminalTextSanitizer.extractReadableOutput(emu, latestTurnOnly = false)
+                }.orEmpty()
+            }
+            ReadableOutputSheet(
+                latestTurnText = latestText,
+                fullScrollbackText = fullText,
+                onRefresh = { tabReadableRefreshTick++ },
+                onCopyText = { copied ->
+                    summary.connection.onCopyTextToClipboard(copied)
+                },
+                onOpenUrl = { url ->
+                    openUrlInBrowser(localContext, url).onFailure {
+                        Toast.makeText(localContext, "No app found to open link", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onDismiss = {
+                    tabReadableOutputOpen = false
                     focusRequester.requestFocus()
                 },
             )
@@ -1779,7 +1860,7 @@ private fun openUrlInBrowser(context: Context, url: String): Result<Unit> = runC
  * "Open" is omitted for [LinkType.PATH], which names a path on the remote host rather than anything
  * `Intent.ACTION_VIEW` could open here; "Download" is offered only for it.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun LinkActionDialog(
     link: TerminalLink,
@@ -1794,70 +1875,115 @@ private fun LinkActionDialog(
     isPortAlreadyTunneled: Boolean = false,
     onTunnelAndOpen: (() -> Unit)? = null,
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val displayTitle = when (link.type) {
         LinkType.PATH -> if (link.lineNumber != null) "${link.text}:${link.lineNumber}" else link.text
         LinkType.URL -> link.displayLabel ?: urlDisplayHost(link.text)
         LinkType.IP -> link.text
     }
-    AlertDialog(
-        modifier = modifier,
+    val headerIcon = if (link.type == LinkType.PATH) Icons.Outlined.Code else Icons.Outlined.Link
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text(displayTitle) },
-        text = {
-            when (link.type) {
-                LinkType.PATH -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = link.sourceLine?.takeIf { it.isNotBlank() } ?: "Remote path",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 3,
-                        )
-                        if (onAskAgent != null || onEdit != null) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (onAskAgent != null) {
-                                    Button(
-                                        onClick = onAskAgent,
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                        modifier = Modifier.height(34.dp),
-                                    ) {
-                                        Text("Ask Agent", style = MaterialTheme.typography.labelMedium)
-                                    }
+        sheetState = sheetState,
+        dragHandle = { AgentSheetDragHandle() },
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding(),
+        ) {
+            SessionSheetHeader(
+                icon = headerIcon,
+                title = displayTitle,
+                subtitle = when (link.type) {
+                    LinkType.PATH -> "Remote file path"
+                    LinkType.URL -> if (callbackInfo != null) "OAuth / localhost callback" else "Detected URL"
+                    LinkType.IP -> "IP address"
+                },
+                onDismiss = onDismiss,
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                when (link.type) {
+                    LinkType.PATH -> {
+                        SessionSheetCard {
+                            Text(
+                                text = link.sourceLine?.takeIf { it.isNotBlank() } ?: link.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 4,
+                            )
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (onAskAgent != null) {
+                                Button(
+                                    onClick = onAskAgent,
+                                    shape = AGENT_BUTTON_SHAPE,
+                                ) {
+                                    Text("Ask Agent")
                                 }
-                                if (onEdit != null) {
-                                    TextButton(onClick = onEdit) { Text("Edit") }
+                            }
+                            if (onEdit != null) {
+                                OutlinedButton(
+                                    onClick = onEdit,
+                                    shape = AGENT_BUTTON_SHAPE,
+                                ) {
+                                    Text("Edit")
                                 }
+                            }
+                            OutlinedButton(
+                                onClick = onDownload,
+                                shape = AGENT_BUTTON_SHAPE,
+                            ) {
+                                Text("Download")
+                            }
+                            TextButton(onClick = onCopy) {
+                                Text("Copy")
                             }
                         }
                     }
-                }
 
-                LinkType.URL -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 140.dp)
-                                .verticalScroll(rememberScrollState()),
-                        ) {
-                            Text(
-                                text = link.text,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                            )
+                    LinkType.URL -> {
+                        SessionSheetCard {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 160.dp)
+                                    .verticalScroll(rememberScrollState()),
+                            ) {
+                                Text(
+                                    text = link.text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
+                            if (callbackInfo != null && onTunnelAndOpen != null) {
+                                Text(
+                                    text = if (isPortAlreadyTunneled) {
+                                        "Port ${callbackInfo.port} is already tunneled over SSH."
+                                    } else {
+                                        "Redirects to localhost:${callbackInfo.port}. Tunneling over SSH lets the login finish automatically on this device."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                         }
+
                         if (callbackInfo != null && onTunnelAndOpen != null) {
-                            Text(
-                                text = if (isPortAlreadyTunneled) {
-                                    "Port ${callbackInfo.port} is already tunneled over SSH."
-                                } else {
-                                    "Redirects to localhost:${callbackInfo.port}. Tunneling over SSH lets the login finish automatically on this device."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
                             Button(
                                 onClick = onTunnelAndOpen,
+                                shape = AGENT_BUTTON_SHAPE,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text(
@@ -1865,25 +1991,60 @@ private fun LinkActionDialog(
                                         "Open (:${callbackInfo.port} tunneled)"
                                     } else {
                                         "Tunnel :${callbackInfo.port} & Open"
-                                    }
+                                    },
                                 )
+                            }
+                        }
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (callbackInfo == null || onTunnelAndOpen == null) {
+                                Button(
+                                    onClick = onOpen,
+                                    shape = AGENT_BUTTON_SHAPE,
+                                ) {
+                                    Text("Open in browser")
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = onOpen,
+                                    shape = AGENT_BUTTON_SHAPE,
+                                ) {
+                                    Text("Open without tunnel")
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = onCopy,
+                                shape = AGENT_BUTTON_SHAPE,
+                            ) {
+                                Text("Copy")
+                            }
+                        }
+                    }
+
+                    LinkType.IP -> {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(
+                                onClick = onOpen,
+                                shape = AGENT_BUTTON_SHAPE,
+                            ) {
+                                Text("Open in browser")
+                            }
+                            OutlinedButton(
+                                onClick = onCopy,
+                                shape = AGENT_BUTTON_SHAPE,
+                            ) {
+                                Text("Copy")
                             }
                         }
                     }
                 }
-
-                LinkType.IP -> Text("Open in browser or copy?")
             }
-        },
-        confirmButton = {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (link.type == LinkType.PATH) TextButton(onClick = onDownload) { Text("Download") }
-                if (link.type != LinkType.PATH) TextButton(onClick = onOpen) { Text("Open") }
-                TextButton(onClick = onCopy) { Text("Copy") }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
+        }
+    }
 }

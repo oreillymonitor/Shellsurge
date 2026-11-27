@@ -66,95 +66,77 @@ internal fun SessionLinksSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        dragHandle = { AgentSheetDragHandle() },
         modifier = modifier,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .navigationBarsPadding(),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Link,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = if (links.isEmpty()) "Links in session" else "Links in session (${links.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            SessionSheetHeader(
+                icon = Icons.Outlined.Link,
+                title = "Links in session",
+                subtitle = if (links.isEmpty()) null else "${links.size} detected",
+                onDismiss = onDismiss,
+            )
 
-            if (activeEphemeralPorts.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    activeEphemeralPorts.sorted().forEach { port ->
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (activeEphemeralPorts.isNotEmpty()) {
+                    SessionSheetCard {
+                        AgentSectionHeader(title = "Active OAuth Tunnels", icon = Icons.Outlined.VpnKey)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Text(
-                                    text = "Tunnel active: localhost:$port",
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
-                                TextButton(
+                            activeEphemeralPorts.sorted().forEach { port ->
+                                AgentUtilityPill(
+                                    label = "localhost:$port · Stop",
+                                    active = true,
+                                    isMonospace = true,
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Close,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(13.dp),
+                                        )
+                                    },
                                     onClick = { onStopTunnel(port) },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Close,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                    Spacer(modifier = Modifier.size(4.dp))
-                                    Text("Stop")
-                                }
+                                )
                             }
                         }
                     }
                 }
-            }
 
-            if (links.isEmpty()) {
-                Text(
-                    text = "No links found in this session's output.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 16.dp),
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(links, key = { it.text }) { link ->
-                        SessionLinkCard(
-                            link = link,
-                            activeEphemeralPorts = activeEphemeralPorts,
-                            canTunnel = canTunnel,
-                            onOpen = { onOpen(link) },
-                            onTunnelAndOpen = { port -> onTunnelAndOpen(link, port) },
-                            onCopy = { onCopy(link) },
-                        )
+                if (links.isEmpty()) {
+                    Text(
+                        text = "No links found in this session's output.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(links, key = { it.text }) { link ->
+                            SessionLinkCard(
+                                link = link,
+                                activeEphemeralPorts = activeEphemeralPorts,
+                                canTunnel = canTunnel,
+                                onOpen = { onOpen(link) },
+                                onTunnelAndOpen = { port -> onTunnelAndOpen(link, port) },
+                                onCopy = { onCopy(link) },
+                            )
+                        }
                     }
                 }
             }
@@ -176,110 +158,104 @@ private fun SessionLinkCard(
     val portTunneled = callbackInfo != null && callbackInfo.port in activeEphemeralPorts
     val title = link.displayLabel ?: urlDisplayHost(link.text)
 
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+    SessionSheetCard {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
 
-            if (callbackInfo != null) {
-                val badgeText = when {
-                    portTunneled && callbackInfo.isOAuthRedirect ->
-                        "OAuth callback · localhost:${callbackInfo.port} tunneled"
-                    portTunneled ->
-                        "Localhost:${callbackInfo.port} tunneled"
-                    callbackInfo.isOAuthRedirect ->
-                        "OAuth callback · localhost:${callbackInfo.port}"
-                    else ->
-                        "Localhost · port ${callbackInfo.port}"
-                }
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    Text(
-                        text = badgeText,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                }
+        if (callbackInfo != null) {
+            val badgeText = when {
+                portTunneled && callbackInfo.isOAuthRedirect ->
+                    "OAuth callback · localhost:${callbackInfo.port} tunneled"
+                portTunneled ->
+                    "Localhost:${callbackInfo.port} tunneled"
+                callbackInfo.isOAuthRedirect ->
+                    "OAuth callback · localhost:${callbackInfo.port}"
+                else ->
+                    "Localhost · port ${callbackInfo.port}"
             }
-
-            Text(
-                text = link.text,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
-                if (callbackInfo != null && canTunnel) {
-                    Button(
-                        onClick = { onTunnelAndOpen(callbackInfo.port) },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.VpnKey,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.size(6.dp))
-                        Text(
-                            if (portTunneled) {
-                                "Open (:${callbackInfo.port} tunneled)"
-                            } else {
-                                "Tunnel :${callbackInfo.port} & Open"
-                            }
-                        )
-                    }
-                    TextButton(onClick = onOpen) {
-                        Text("Open")
-                    }
-                } else {
-                    Button(
-                        onClick = onOpen,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.OpenInBrowser,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.size(6.dp))
-                        Text("Open")
-                    }
-                }
-                OutlinedButton(
-                    onClick = onCopy,
+                Text(
+                    text = badgeText,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
+
+        Text(
+            text = link.text,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (callbackInfo != null && canTunnel) {
+                Button(
+                    onClick = { onTunnelAndOpen(callbackInfo.port) },
+                    shape = AGENT_BUTTON_SHAPE,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.ContentCopy,
+                        imageVector = Icons.Outlined.VpnKey,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(modifier = Modifier.size(6.dp))
-                    Text("Copy")
+                    Text(
+                        if (portTunneled) {
+                            "Open (:${callbackInfo.port} tunneled)"
+                        } else {
+                            "Tunnel :${callbackInfo.port} & Open"
+                        },
+                    )
                 }
+                TextButton(onClick = onOpen) {
+                    Text("Open")
+                }
+            } else {
+                Button(
+                    onClick = onOpen,
+                    shape = AGENT_BUTTON_SHAPE,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.OpenInBrowser,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Text("Open")
+                }
+            }
+            OutlinedButton(
+                onClick = onCopy,
+                shape = AGENT_BUTTON_SHAPE,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ContentCopy,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text("Copy")
             }
         }
     }

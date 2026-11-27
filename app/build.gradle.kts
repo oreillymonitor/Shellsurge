@@ -104,6 +104,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Side-by-side install alongside signed GitHub releases without signature collisions.
+            applicationIdSuffix = ".debug"
+        }
+
         release {
             // Keep rules are load-bearing here; see proguard-rules.pro.
             optimization {

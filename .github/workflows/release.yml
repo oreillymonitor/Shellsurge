@@ -87,6 +87,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Test and lint
+        run: ./gradlew --no-daemon testFossDebugUnitTest lintFossDebug
+
       - name: Decode release keystore
         id: keystore
         env:

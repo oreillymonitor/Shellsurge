@@ -16,6 +16,7 @@ keystore.properties
 *.p12
 
 # Working notes. Kept on disk, out of the repository.
+AGENTS.md
 docs/
 /scripts/
 *.der

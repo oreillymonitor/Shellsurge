@@ -1,6 +1,18 @@
 # Changelog
 
 
+## 1.16.7 - 2026-11-28
+
+### Added
+- Agent-first KeyBar with a live context-aware top row (auto-detecting numbered menus, `[Y/n]` prompts, password prompts, and active runs) and 1-tap `⇄` flip to the Shell deck
+- Lean, scrollable, and expandable `InlinePromptComposer` docked inside the KeyBar when tapping `⌨` in Agent Deck (keeping the terminal live and scrollable above)
+
+### Improved
+- Collapsible `SettingsGroupCard` sections with live summaries and status badges (`Appearance` open by default, search auto-expands matches, and direct 1-tap `Terminal & Input` card)
+- Permanently pinned `↵ Enter` and `🎙 Speak` keys in the right 2×2 KeyBar grid, `📋 Paste` on Row 2, and removal of redundant `PgUp`/`PgDn` cluster keys and dedicated Nano Summary button
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.6...1.16.7)
+
 ## 1.16.6 - 2026-11-27
 
 ### Improved

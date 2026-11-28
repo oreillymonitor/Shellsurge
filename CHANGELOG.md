@@ -1,6 +1,22 @@
 # Changelog
 
 
+## 1.16.8 - 2026-11-28
+
+### Added
+- Retro **Amber** (P3 amber CRT) and **Phosphor** (P1 green CRT) app-wide themes with monospace chrome headings/labels and matching **Amber CRT** and **Green CRT** terminal palettes
+- Offline **Gogh theme library** browser (1,257 MIT-licensed themes with All/Dark/Light filters, search, and 1-tap apply) plus `tools/update-gogh-themes.py` (`just update-gogh`)
+- Universal terminal theme importer supporting Ghostty, Alacritty (TOML/YAML), Warp YAML, iTerm2 (`.itermcolors`), Kitty, Termux `.properties`, Gogh (YAML/JSON), Xresources, and Windows Terminal JSON
+- 17 new built-in terminal colour schemes (24 total) with All/Dark/Light filters and search
+- **Default deck** (`Agent` / `Shell`) setting under Terminal & Input
+
+### Improved
+- Unified app-wide monospace typography on bundled variable JetBrains Mono (`ChromeMonoFontFamily`) and aligned KeyBar keycap fonts
+- Improved Inline Prompt Composer discoverability with deck-distinct keyboard icon, draft indicator badge, and one-time raw-typing tip
+- Cleaned up obsolete two-row switch from custom KeyBar layout editor and switched Colour palette picker to a 2-column grid
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.7...1.16.8)
+
 ## 1.16.7 - 2026-11-28
 
 ### Added

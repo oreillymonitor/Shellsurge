@@ -190,7 +190,22 @@ fun SettingsScreen(
     val appLockEnabled by rememberPrefState { SecurityPreferences.isAppLockEnabled(it) }
     val appLockTimeout by rememberPrefState { SecurityPreferences.getAppLockTimeout(it) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var expandedSectionNames by rememberSaveable {
+        mutableStateOf(listOf(SettingsSection.APPEARANCE.name))
+    }
     val matchedSections = remember(searchQuery) { matchingSettingsSections(searchQuery) }
+    val isSearching = searchQuery.isNotBlank()
+    fun isSectionExpanded(section: SettingsSection): Boolean =
+        isSearching || section.name in expandedSectionNames
+    fun toggleSection(section: SettingsSection) {
+        expandedSectionNames = if (section.name in expandedSectionNames) {
+            expandedSectionNames - section.name
+        } else {
+            expandedSectionNames + section.name
+        }
+    }
+    fun sectionToggleHandler(section: SettingsSection): (() -> Unit)? =
+        if (isSearching) null else { { toggleSection(section) } }
     val settingsScope = rememberCoroutineScope()
     var nanoDiag by remember { mutableStateOf<NanoDiagnostics?>(null) }
     var nanoActionStatus by remember { mutableStateOf<String?>(null) }
@@ -273,7 +288,19 @@ fun SettingsScreen(
 
                 // 1. APPEARANCE
                 if (SettingsSection.APPEARANCE in matchedSections) {
-                    SettingsGroupCard(title = "Appearance", icon = Icons.Outlined.Palette) {
+                    val colourThemeLabel = when (colourTheme) {
+                        ColourTheme.DYNAMIC -> "Dynamic"
+                        ColourTheme.SCHEMATIC -> "Schematic"
+                        ColourTheme.NOTHING -> "Nothing"
+                    }
+                    val themeModeLabel = themeMode.name.lowercase().replaceFirstChar(Char::uppercase)
+                    SettingsGroupCard(
+                        title = "Appearance",
+                        icon = Icons.Outlined.Palette,
+                        summary = "$themeModeLabel · $colourThemeLabel",
+                        expanded = isSectionExpanded(SettingsSection.APPEARANCE),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.APPEARANCE),
+                    ) {
                 SettingsSegmentedGroup(
                     label = "Theme mode",
                     options = ThemeMode.entries,
@@ -300,20 +327,25 @@ fun SettingsScreen(
 
                 // 2. TERMINAL & INPUT
                 if (SettingsSection.TERMINAL in matchedSections) {
-                    SettingsGroupCard(title = "Terminal & Input", icon = Icons.Outlined.Terminal) {
-                SettingsRow(
-                    title = "Terminal configuration",
-                    description = "Font, cursor, scrollback, colour scheme, key bar layouts, bell and full-width mode.",
-                    icon = Icons.Outlined.Terminal,
-                    chevron = true,
-                    onClick = onOpenTerminalSettings,
-                )
-                    }
+                    SettingsNavigationCard(
+                        title = "Terminal & Input",
+                        description = "Font, cursor, scrollback, colour scheme, key bar layouts & bell",
+                        icon = Icons.Outlined.Terminal,
+                        onClick = onOpenTerminalSettings,
+                    )
                 }
 
                 // 3. NOTIFICATIONS
                 if (SettingsSection.NOTIFICATIONS in matchedSections) {
-                    SettingsGroupCard(title = "Notifications", icon = Icons.Outlined.Notifications) {
+                    SettingsGroupCard(
+                        title = "Notifications",
+                        icon = Icons.Outlined.Notifications,
+                        summary = "${if (commandNotifyEnabled) "Alerts on" else "Alerts off"} · Bell: ${BellPreferences.modeName(bellMode)}",
+                        badgeText = if (!systemNotificationsEnabled) "Blocked" else null,
+                        badgeColor = if (!systemNotificationsEnabled) MaterialTheme.colorScheme.error else null,
+                        expanded = isSectionExpanded(SettingsSection.NOTIFICATIONS),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.NOTIFICATIONS),
+                    ) {
                 if (!systemNotificationsEnabled) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -410,7 +442,18 @@ fun SettingsScreen(
 
                 // 4. CODING AGENTS
                 if (SettingsSection.CODING_AGENTS in matchedSections) {
-                    SettingsGroupCard(title = "Coding Agents", icon = Icons.Outlined.SmartToy) {
+                    val agentSummary = when (enabledAgents.size) {
+                        0 -> "None enabled"
+                        AgentCli.entries.size -> "All ${enabledAgents.size} enabled"
+                        else -> "${enabledAgents.size} of ${AgentCli.entries.size} enabled"
+                    }
+                    SettingsGroupCard(
+                        title = "Coding Agents",
+                        icon = Icons.Outlined.SmartToy,
+                        summary = agentSummary,
+                        expanded = isSectionExpanded(SettingsSection.CODING_AGENTS),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.CODING_AGENTS),
+                    ) {
                 Text(
                     "Choose which CLI coding harnesses appear in Quick Response and Prompt Composer.",
                     style = MaterialTheme.typography.bodySmall,
@@ -432,7 +475,25 @@ fun SettingsScreen(
 
                 // 5. ON-DEVICE AI (GEMINI NANO)
                 if (SettingsSection.ON_DEVICE_AI in matchedSections) {
-                    SettingsGroupCard(title = "On-Device AI (Gemini Nano)", icon = Icons.Outlined.AutoAwesome) {
+                    val nanoStatus = nanoDiag?.status
+                    val (nanoBadgeText, nanoBadgeColor) = when (nanoStatus) {
+                        FeatureStatus.AVAILABLE -> "Ready" to Color(0xFF2E7D32)
+                        FeatureStatus.DOWNLOADABLE -> "Download" to MaterialTheme.colorScheme.primary
+                        FeatureStatus.DOWNLOADING -> "Downloading" to MaterialTheme.colorScheme.primary
+                        FeatureStatus.UNAVAILABLE -> "Unavailable" to MaterialTheme.colorScheme.onSurfaceVariant
+                        null -> "Checking…" to MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> null to null
+                    }
+                    val nanoExpanded = isSectionExpanded(SettingsSection.ON_DEVICE_AI)
+                    SettingsGroupCard(
+                        title = "On-Device AI (Gemini Nano)",
+                        icon = Icons.Outlined.AutoAwesome,
+                        summary = "${nanoTier.label} · ${nanoChannel.label}",
+                        badgeText = if (!nanoExpanded) nanoBadgeText else null,
+                        badgeColor = nanoBadgeColor,
+                        expanded = nanoExpanded,
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.ON_DEVICE_AI),
+                    ) {
                 val diag = nanoDiag
                 val statusLabel = when (diag?.status) {
                     FeatureStatus.AVAILABLE -> "Available"
@@ -611,12 +672,20 @@ fun SettingsScreen(
                         tailscaleManager = tailscaleManager,
                         onOpenTailnetPeers = onOpenTailnetPeers,
                         uriHandler = uriHandler,
+                        expanded = isSectionExpanded(SettingsSection.TAILSCALE),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.TAILSCALE),
                     )
                 }
 
                 // 7. HOSTS & SECURITY
                 if (SettingsSection.HOSTS_SECURITY in matchedSections) {
-                    SettingsGroupCard(title = "Hosts & Security", icon = Icons.Outlined.Dns) {
+                    SettingsGroupCard(
+                        title = "Hosts & Security",
+                        icon = Icons.Outlined.Dns,
+                        summary = "${if (appLockEnabled) "App lock on" else "App lock off"} · ${if (reachabilityEnabled) "Probing on" else "Probing off"}",
+                        expanded = isSectionExpanded(SettingsSection.HOSTS_SECURITY),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.HOSTS_SECURITY),
+                    ) {
                 SettingsRow(
                     title = "Trusted host keys",
                     description = "Review fingerprints or remove accepted host keys.",
@@ -720,7 +789,15 @@ fun SettingsScreen(
 
                 // 8. AUTOMATION
                 if (SettingsSection.AUTOMATION in matchedSections) {
-                    SettingsGroupCard(title = "Automation", icon = Icons.Outlined.Code) {
+                    SettingsGroupCard(
+                        title = "Automation",
+                        icon = Icons.Outlined.Code,
+                        summary = if (automationEnabled) "Tasker & external intents allowed" else "External script triggers off",
+                        badgeText = if (automationEnabled) "On" else "Off",
+                        badgeColor = if (automationEnabled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        expanded = isSectionExpanded(SettingsSection.AUTOMATION),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.AUTOMATION),
+                    ) {
                 AutomationSettings(
                     enabled = automationEnabled,
                     onEnabledChange = onAutomationEnabledChange,
@@ -732,7 +809,13 @@ fun SettingsScreen(
 
                 // 9. BACKUP & RESTORE
                 if (SettingsSection.BACKUP_RESTORE in matchedSections) {
-                    SettingsGroupCard(title = "Backup & Restore", icon = Icons.Outlined.FolderOpen) {
+                    SettingsGroupCard(
+                        title = "Backup & Restore",
+                        icon = Icons.Outlined.FolderOpen,
+                        summary = "Export or import configuration JSON",
+                        expanded = isSectionExpanded(SettingsSection.BACKUP_RESTORE),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.BACKUP_RESTORE),
+                    ) {
                 ConfigExportRow(onExport = onExportConfig)
                 SettingsCardDivider()
                 ConfigImportRow(onImport = onImportConfig)
@@ -741,7 +824,13 @@ fun SettingsScreen(
 
                 // 10. SUPPORT
                 if (SettingsSection.SUPPORT in matchedSections) {
-                    SettingsGroupCard(title = "Support", icon = Icons.Outlined.FavoriteBorder) {
+                    SettingsGroupCard(
+                        title = "Support",
+                        icon = Icons.Outlined.FavoriteBorder,
+                        summary = "Sponsor Shellwave & supporter options",
+                        expanded = isSectionExpanded(SettingsSection.SUPPORT),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.SUPPORT),
+                    ) {
                 Text(
                     text = "ShellSurge is a fork of Shellwave. If you find this app useful, please consider supporting the original Shellwave developer.",
                     style = MaterialTheme.typography.bodySmall,
@@ -770,7 +859,15 @@ fun SettingsScreen(
 
                 // 11. ABOUT
                 if (SettingsSection.ABOUT in matchedSections) {
-                    SettingsGroupCard(title = "About", icon = Icons.Outlined.Info) {
+                    SettingsGroupCard(
+                        title = "About",
+                        icon = Icons.Outlined.Info,
+                        summary = "Updates, releases, source & licences",
+                        badgeText = "v${BuildConfig.VERSION_NAME}",
+                        badgeColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        expanded = isSectionExpanded(SettingsSection.ABOUT),
+                        onToggleExpanded = sectionToggleHandler(SettingsSection.ABOUT),
+                    ) {
                 SettingsRow(
                     title = "Version",
                     description = "ShellSurge SSH & Terminal Client",
@@ -1179,6 +1276,8 @@ private fun TailscaleSettingsCard(
     onOpenTailnetPeers: () -> Unit,
     uriHandler: UriHandler,
     modifier: Modifier = Modifier,
+    expanded: Boolean = true,
+    onToggleExpanded: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
@@ -1220,10 +1319,20 @@ private fun TailscaleSettingsCard(
         status.isActive -> status.state to MaterialTheme.colorScheme.secondary
         else -> "Stopped" to MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val tailscaleSummary = if (status.isRunning) {
+        listOfNotNull(status.selfIp, status.tailnetName).joinToString(" · ").ifBlank { "Userspace tsnet" }
+    } else {
+        "Userspace tsnet · ${if (autoStart) "Auto-start on" else "Manual"}"
+    }
 
     SettingsGroupCard(
         title = "Tailscale (Embedded)",
         icon = Icons.Outlined.Hub,
+        summary = tailscaleSummary,
+        badgeText = if (!expanded) badgeText else null,
+        badgeColor = badgeColor,
+        expanded = expanded,
+        onToggleExpanded = onToggleExpanded,
         modifier = modifier,
     ) {
         Surface(

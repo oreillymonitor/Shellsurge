@@ -213,7 +213,7 @@ internal fun AgentQuickResponseSheet(
                                 )
                                 Spacer(Modifier.width(5.dp))
                                 Text(
-                                    text = "Quick Bar",
+                                    text = if (isQuickBarActive) "Shell Keys" else "Agent Deck",
                                     style = MaterialTheme.typography.labelMedium,
                                     maxLines = 1,
                                 )

@@ -107,6 +107,7 @@ import io.github.lordofpolls.shellwave.ssh.SessionManager
 import io.github.lordofpolls.shellwave.ssh.SessionStatus
 import io.github.lordofpolls.shellwave.ssh.SshConnection
 import io.github.lordofpolls.shellwave.ssh.TerminalSize
+import io.github.lordofpolls.shellwave.terminal.AgentBarContext
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_KEY_BAR_KEYS
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_TERMINAL_PROFILE
 import io.github.lordofpolls.shellwave.terminal.DEFAULT_TERMINAL_TEXT_SIZE_SP
@@ -700,8 +701,12 @@ internal fun SessionTabBody(
     var isAnalyzingDigest by remember { mutableStateOf(false) }
     var streamingDigestText by remember(sessionId) { mutableStateOf<String?>(null) }
     var activeDigestEpoch by remember(sessionId) { mutableStateOf<Long?>(null) }
-    var tabPromptComposerOpen by remember { mutableStateOf(false) }
-    var tabComposerInitialText by remember { mutableStateOf("") }
+    var tabPromptComposerOpen by remember(sessionId) { mutableStateOf(false) }
+    var tabComposerDraft by remember(sessionId) { mutableStateOf("") }
+    var tabComposerExpanded by remember(sessionId) { mutableStateOf(false) }
+    var tabComposerFocusTick by remember(sessionId) { mutableIntStateOf(0) }
+    var tabComposerVoiceTick by remember(sessionId) { mutableIntStateOf(0) }
+    var isComposerVoiceListening by remember(sessionId) { mutableStateOf(false) }
     var tabGitDiffOpen by remember(sessionId) { mutableStateOf(false) }
     val autoDigestOnReturn by rememberPrefState { NotificationPreferences.isAutoDigestOnReturn(it) }
 
@@ -712,6 +717,26 @@ internal fun SessionTabBody(
             localContext,
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
+
+    fun openInlineComposer(prefill: String? = null) {
+        if (!prefill.isNullOrBlank()) {
+            tabComposerDraft = when {
+                tabComposerDraft.isBlank() -> prefill
+                tabComposerDraft.endsWith("\n") -> "$tabComposerDraft$prefill"
+                else -> "$tabComposerDraft\n$prefill"
+            }
+        }
+        tabPromptComposerOpen = true
+        tabComposerFocusTick++
+    }
+
+    fun closeInlineComposer(clearDraft: Boolean = false) {
+        if (clearDraft) tabComposerDraft = ""
+        tabComposerExpanded = false
+        tabPromptComposerOpen = false
+        keyboardController?.hide()
+        focusRequester.requestFocus()
+    }
 
     val voiceEngine = remember {
         AgentVoiceEngine(
@@ -730,8 +755,7 @@ internal fun SessionTabBody(
                 activeDigestEpoch = null
             },
             onFreeformSpeech = { recognizedText ->
-                tabComposerInitialText = recognizedText
-                tabPromptComposerOpen = true
+                openInlineComposer(recognizedText)
                 activeDigestEpoch?.let { sessionManager.dismissCachedDigest(sessionId, it) }
                 activeDigest = null
                 activeDigestEpoch = null
@@ -793,7 +817,8 @@ internal fun SessionTabBody(
     var tabQuickResponseOpen by remember { mutableStateOf(false) }
     var tabReadableOutputOpen by remember(sessionId) { mutableStateOf(false) }
     var tabReadableRefreshTick by remember(sessionId) { mutableIntStateOf(0) }
-    var quickDrawerActive by remember(sessionId) { mutableStateOf(false) }
+    var agentDeckActive by remember(sessionId) { mutableStateOf(true) }
+    var agentBarContext by remember(sessionId) { mutableStateOf<AgentBarContext>(AgentBarContext.Default) }
     val hideKeyBarPref by rememberPrefState { SessionLayoutPreferences.getHideKeyBarWithKeyboard(it) }
     val configuration = LocalConfiguration.current
     val keyBarHidden = shouldHideKeyBar(
@@ -931,6 +956,24 @@ internal fun SessionTabBody(
         summary.connection.outputTick.sample(150).collect {
             val emulator = terminalEmulator ?: return@collect
             visibleLinks = findVisibleUrlLinks(emulator, topRow, summary.connection.recentOsc8Links())
+        }
+    }
+
+    // Infer the live KeyBar Agent Deck context on Main (emulator reads stay main-thread confined).
+    LaunchedEffect(terminalEmulator) {
+        val emulator = terminalEmulator
+        agentBarContext = if (emulator != null) {
+            detectAgentBarContext(TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 18))
+        } else {
+            AgentBarContext.Default
+        }
+    }
+    LaunchedEffect(summary.connection) {
+        summary.connection.outputTick.sample(200).collect {
+            val emulator = terminalEmulator ?: return@collect
+            agentBarContext = detectAgentBarContext(
+                TerminalTextSanitizer.extractCleanTail(emulator, maxLines = 18),
+            )
         }
     }
 
@@ -1154,12 +1197,33 @@ internal fun SessionTabBody(
         }
     }
 
-    val toggleKeyboard: () -> Unit = {
+    val toggleRawKeyboard: () -> Unit = {
+        tabComposerExpanded = false
+        tabPromptComposerOpen = false
         if (imeVisible) {
             keyboardController?.hide()
         } else {
             focusRequester.requestFocus()
             keyboardController?.show()
+        }
+    }
+
+    val toggleKeyboard: () -> Unit = {
+        if (tabPromptComposerOpen) {
+            if (imeVisible) {
+                keyboardController?.hide()
+                if (tabComposerDraft.isBlank()) {
+                    tabComposerExpanded = false
+                    tabPromptComposerOpen = false
+                    focusRequester.requestFocus()
+                }
+            } else {
+                tabComposerFocusTick++
+            }
+        } else if (agentDeckActive && agentBarContext !is AgentBarContext.PasswordPrompt) {
+            openInlineComposer()
+        } else {
+            toggleRawKeyboard()
         }
     }
 
@@ -1400,9 +1464,8 @@ internal fun SessionTabBody(
                         onAskAgent = if (link.type == LinkType.PATH) ({
                             val location = link.lineNumber?.let { "${link.text}:$it" } ?: link.text
                             val contextLine = link.sourceLine?.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()
-                            tabComposerInitialText = "Look at $location and fix this issue:$contextLine"
                             detectedLink = null
-                            tabPromptComposerOpen = true
+                            openInlineComposer("Look at $location and fix this issue:$contextLine")
                         }) else null,
                         callbackInfo = callbackInfo,
                         isPortAlreadyTunneled = isPortTunneled,
@@ -1564,6 +1627,16 @@ internal fun SessionTabBody(
             .fillMaxWidth()
             .height(preKeyBarGap))
 
+        fun toggleVoiceListening() {
+            if (isVoiceListening) {
+                voiceEngine.stopListening()
+            } else if (hasAudioPermission()) {
+                voiceEngine.startListeningWindow(autoTriggered = false)
+            } else {
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+
         if (isAnalyzingDigest) {
             AgentDigestLoadingCapsule(
                 onDismiss = {
@@ -1580,15 +1653,7 @@ internal fun SessionTabBody(
                     onListenClick = {
                         voiceEngine.speak(digest.spokenSummary, listenAfter = hasAudioPermission())
                     },
-                    onMicClick = {
-                        if (isVoiceListening) {
-                            voiceEngine.stopListening()
-                        } else if (hasAudioPermission()) {
-                            voiceEngine.startListeningWindow(autoTriggered = false)
-                        } else {
-                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    },
+                    onMicClick = ::toggleVoiceListening,
                     onActionClick = { actionText ->
                         val emulator = terminalEmulator
                         if (emulator != null) {
@@ -1641,7 +1706,7 @@ internal fun SessionTabBody(
         // `weight(1f)` clamps the terminal to zero for that frame and the key bar is placed
         // immediately after it, at the top, which reads as a second key bar flashing. Padding only
         // this one removes the weighted sibling from the equation.
-        if (keyBarHidden) {
+        if (keyBarHidden && !tabPromptComposerOpen) {
             Spacer(modifier = Modifier.imePadding())
         } else KeyBar(
             ctrlLatched = ctrlLatched,
@@ -1654,18 +1719,53 @@ internal fun SessionTabBody(
             onMacro = { text -> sendText(text) },
             keyboardVisible = imeVisible,
             onKeyboardToggle = toggleKeyboard,
-            onOpenPromptComposer = {
-                tabComposerInitialText = ""
-                tabPromptComposerOpen = true
-            },
+            onRawKeyboardToggle = toggleRawKeyboard,
             onOpenQuickResponse = { tabQuickResponseOpen = true },
-            onOpenDigest = { triggerDigest(speakImmediately = false) },
-            quickDrawerActive = quickDrawerActive,
-            onToggleQuickDrawer = { quickDrawerActive = !quickDrawerActive },
+            agentDeckActive = agentDeckActive,
+            onToggleDeck = { agentDeckActive = !agentDeckActive },
+            agentContext = agentBarContext,
+            isVoiceListening = if (tabPromptComposerOpen) isComposerVoiceListening else isVoiceListening,
+            onVoiceClick = {
+                if (tabPromptComposerOpen) {
+                    tabComposerVoiceTick++
+                } else {
+                    toggleVoiceListening()
+                }
+            },
+            onPaste = { summary.connection.onPasteTextFromClipboard() },
+            composerActive = tabPromptComposerOpen,
+            composerContent = { composerModifier ->
+                InlinePromptComposer(
+                    text = tabComposerDraft,
+                    onTextChange = { tabComposerDraft = it },
+                    expanded = tabComposerExpanded,
+                    onToggleExpanded = { tabComposerExpanded = !tabComposerExpanded },
+                    focusTrigger = tabComposerFocusTick,
+                    voiceToggleTrigger = tabComposerVoiceTick,
+                    onVoiceListeningChange = { isComposerVoiceListening = it },
+                    onUploadImage = if (summary.status == SessionStatus.CONNECTED) {
+                        { uri -> summary.connection.uploadImageAttachment(uri) }
+                    } else {
+                        null
+                    },
+                    onUploadFile = if (summary.status == SessionStatus.CONNECTED) {
+                        { uri -> summary.connection.uploadFileAttachment(uri) }
+                    } else {
+                        null
+                    },
+                    onSend = { prompt, enter ->
+                        sendQuickText(prompt, enter)
+                        closeInlineComposer(clearDraft = true)
+                    },
+                    onClose = { closeInlineComposer(clearDraft = false) },
+                    modifier = composerModifier,
+                )
+            },
             onQuickAction = { text, sendEnter -> sendQuickText(text, sendEnter) },
             onSendRaw = { control -> summary.connection.write(control) },
             keys = keyBarKeys,
             rows = keyBarRows,
+            hasCustomLayout = overrideLayout != null,
             modifier = Modifier.imePadding(),
         )
 
@@ -1677,15 +1777,14 @@ internal fun SessionTabBody(
                 },
                 onOpenComposerWithText = { initialText ->
                     tabQuickResponseOpen = false
-                    tabComposerInitialText = initialText
-                    tabPromptComposerOpen = true
+                    openInlineComposer(initialText)
                 },
                 onSummarize = {
                     triggerDigest(speakImmediately = true)
                 },
                 isSummarizing = isAnalyzingDigest,
-                isQuickBarActive = quickDrawerActive,
-                onToggleQuickBar = { quickDrawerActive = !quickDrawerActive },
+                isQuickBarActive = agentDeckActive,
+                onToggleQuickBar = { agentDeckActive = !agentDeckActive },
                 onOpenGitDiff = if (summary.status == SessionStatus.CONNECTED) ({
                     tabQuickResponseOpen = false
                     tabGitDiffOpen = true
@@ -1741,8 +1840,7 @@ internal fun SessionTabBody(
                 promptDirHint = promptDirHint,
                 onAskAgent = { reviewPrompt ->
                     tabGitDiffOpen = false
-                    tabComposerInitialText = reviewPrompt
-                    tabPromptComposerOpen = true
+                    openInlineComposer(reviewPrompt)
                 },
                 onDismiss = {
                     tabGitDiffOpen = false
@@ -1753,28 +1851,6 @@ internal fun SessionTabBody(
                         tabGitDiffOpen = false
                         editCb(sessionId, remotePath)
                     }
-                },
-            )
-        }
-
-        if (tabPromptComposerOpen) {
-            PromptComposerDialog(
-                initialText = tabComposerInitialText,
-                onUploadImage = if (summary.status == SessionStatus.CONNECTED) {
-                    { uri -> summary.connection.uploadImageAttachment(uri) }
-                } else {
-                    null
-                },
-                onUploadFile = if (summary.status == SessionStatus.CONNECTED) {
-                    { uri -> summary.connection.uploadFileAttachment(uri) }
-                } else {
-                    null
-                },
-                onSend = { prompt, enter -> sendQuickText(prompt, enter) },
-                onDismiss = {
-                    tabPromptComposerOpen = false
-                    tabComposerInitialText = ""
-                    focusRequester.requestFocus()
                 },
             )
         }

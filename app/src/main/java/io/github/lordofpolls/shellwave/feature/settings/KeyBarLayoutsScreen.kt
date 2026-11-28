@@ -95,7 +95,7 @@ fun KeyBarLayoutsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "A host with no layout assigned uses the default bar (Esc, Tab, Home, End, arrows).",
+                "A host with no layout assigned uses the built-in Shell deck. Custom layouts override the Shell deck while keeping the Agent deck one tap away.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

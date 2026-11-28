@@ -12,26 +12,29 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.KeyboardDoubleArrowDown
-import androidx.compose.material.icons.outlined.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.outlined.KeyboardHide
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +52,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.lordofpolls.shellwave.ui.design.MachineText
 import kotlinx.coroutines.delay
@@ -98,23 +102,55 @@ fun KeyBar(
     modifier: Modifier = Modifier,
     keyboardVisible: Boolean = false,
     onKeyboardToggle: () -> Unit = {},
-    onOpenPromptComposer: (() -> Unit)? = null,
+    onRawKeyboardToggle: (() -> Unit)? = null,
     onOpenQuickResponse: (() -> Unit)? = null,
-    onOpenDigest: (() -> Unit)? = null,
-    quickDrawerActive: Boolean = false,
-    onToggleQuickDrawer: (() -> Unit)? = null,
+    agentDeckActive: Boolean = true,
+    onToggleDeck: (() -> Unit)? = null,
+    agentContext: AgentBarContext = AgentBarContext.Default,
+    isVoiceListening: Boolean = false,
+    onVoiceClick: (() -> Unit)? = null,
+    onPaste: (() -> Unit)? = null,
+    composerActive: Boolean = false,
+    composerContent: (@Composable (Modifier) -> Unit)? = null,
     onQuickAction: ((text: String, sendEnter: Boolean) -> Unit)? = null,
     onSendRaw: ((control: String) -> Unit)? = null,
     keys: List<KeyBarKey> = DEFAULT_KEY_BAR_KEYS,
     rows: Int = 1,
+    hasCustomLayout: Boolean = false,
 ) {
     val haptics = LocalHapticFeedback.current
 
+    if (composerActive && composerContent != null) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(KeyGap),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            composerContent(Modifier.weight(1f))
+            Column(
+                verticalArrangement = Arrangement.spacedBy(KeyGap),
+                horizontalAlignment = Alignment.End,
+            ) {
+                if (onVoiceClick != null) {
+                    VoicePinnedKey(listening = isVoiceListening, onClick = onVoiceClick)
+                }
+                KeyboardKey(
+                    visible = keyboardVisible,
+                    onClick = onKeyboardToggle,
+                    onLongClick = onRawKeyboardToggle ?: { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
+                    modifier = Modifier.size(ClusterKeySize),
+                )
+            }
+        }
+        return
+    }
+
     // A cluster is drawn as its own pinned column below, so it never enters the chunked flow.
     val hasCluster = keys.any { it.type == KeyBarKeyType.CURSOR_CLUSTER }
+    val showAgentDeck = agentDeckActive && onQuickAction != null
+    val useBuiltInShellDeck = !showAgentDeck && !hasCustomLayout
 
-    // The flowing part of the bar as one ordered list, so the row split below is a plain chunking
-    // of it rather than a second notion of what's on the bar.
+    // The flowing part of the bar for custom layouts, as one ordered list.
     val buttons: List<@Composable () -> Unit> =
         buildList {
             add { LatchButton(label = "Ctrl", latched = ctrlLatched, onClick = onCtrlToggle) }
@@ -153,8 +189,8 @@ fun KeyBar(
             }
         }
 
-    // A cluster or stacked AI controls make the strip two rows tall, so a second row of flat keys is free.
-    val hasTwoRowPinned = hasCluster || (onOpenQuickResponse != null || onOpenPromptComposer != null || onOpenDigest != null)
+    // Stacked pinned controls make the strip two rows tall, so two rows of keys are always free.
+    val hasTwoRowPinned = hasCluster || showAgentDeck || useBuiltInShellDeck || onOpenQuickResponse != null || onVoiceClick != null
     val freeSecondRow = hasTwoRowPinned && buttons.size >= MIN_BUTTONS_FOR_FREE_SECOND_ROW
     val rowCount = maxOf(rows.coerceIn(1, MAX_KEY_BAR_ROWS), if (freeSecondRow) 2 else 1)
     // Ceiling division puts the longer row first: the bar grows away from the terminal.
@@ -164,87 +200,94 @@ fun KeyBar(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(KeyGap),
         // Bottom, since the pinned columns are the tall ones: fewer flowing rows should settle
-        // against the cluster's lower arm, where the thumb rests, instead of floating above a gap.
+        // against the lower arm, where the thumb rests, instead of floating above a gap.
         verticalAlignment = Alignment.Bottom,
     ) {
         Column(
             // Weighted, so the pinned columns measure first and the scrolling rows take what is
-            // left. The other way round, a long layout pushes the cluster and the keyboard key
+            // left. The other way round, a long layout pushes the pinned controls and keyboard key
             // off-screen, which is the thing being prevented.
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(KeyGap),
         ) {
-            if (quickDrawerActive && onQuickAction != null) {
-                QuickResponseDrawerRows(
-                    onQuickAction = onQuickAction,
-                    onSendRaw = onSendRaw,
-                    onToggleQuickDrawer = onToggleQuickDrawer,
-                )
-            } else {
-                buttons.chunked(perRow).forEach { rowButtons ->
-                    // Two rows can still be wider than the window; scroll rather than crowd.
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(KeyGap),
-                    ) {
-                        rowButtons.forEach { it() }
+            when {
+                showAgentDeck -> {
+                    AgentDeckRows(
+                        agentContext = agentContext,
+                        onQuickAction = onQuickAction,
+                        onSpecialKey = onSpecialKey,
+                        onSendRaw = onSendRaw,
+                        onMacro = onMacro,
+                        onToggleDeck = onToggleDeck,
+                        onKeyboardToggle = onKeyboardToggle,
+                        onRawKeyboardToggle = onRawKeyboardToggle,
+                        isVoiceListening = isVoiceListening,
+                        onVoiceClick = onVoiceClick,
+                        onPaste = onPaste,
+                    )
+                }
+
+                useBuiltInShellDeck -> {
+                    DefaultShellDeckRows(
+                        ctrlLatched = ctrlLatched,
+                        altLatched = altLatched,
+                        onCtrlToggle = onCtrlToggle,
+                        onAltToggle = onAltToggle,
+                        onSpecialKey = onSpecialKey,
+                        onMacro = onMacro,
+                        onToggleDeck = onToggleDeck,
+                    )
+                }
+
+                else -> {
+                    val customRows = buttons.chunked(perRow)
+                    customRows.forEachIndexed { rowIdx, rowButtons ->
+                        val insertDeckToggle = onToggleDeck != null &&
+                            ((customRows.size >= 2 && rowIdx == 1) || (customRows.size == 1 && rowIdx == 0))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(KeyGap),
+                        ) {
+                            if (insertDeckToggle) {
+                                DeckToggleButton(inShellDeck = true, onClick = onToggleDeck)
+                            }
+                            rowButtons.forEach { it() }
+                        }
                     }
                 }
             }
         }
-        if (hasCluster) CursorCluster(onSpecialKey = onSpecialKey)
 
-        // Pinned controls at the right edge: 2x2 grid of circular controls (Composer/Enter, Robot, Digest, Keyboard)
+        if (showAgentDeck || useBuiltInShellDeck) {
+            VerticalArrowColumn(onSpecialKey = onSpecialKey)
+        } else if (hasCluster) {
+            CursorCluster(onSpecialKey = onSpecialKey)
+        }
+
+        // Pinned controls at the right edge: 2x2 grid (Robot/Voice on top, Enter/Keyboard below)
         Column(
             verticalArrangement = Arrangement.spacedBy(KeyGap),
             horizontalAlignment = Alignment.End,
         ) {
             val topRowKeys: List<@Composable () -> Unit> = buildList {
-                if (onOpenPromptComposer != null) {
-                    if (quickDrawerActive) {
-                        add {
-                            DedicatedEnterKey(
-                                onClick = { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
-                                onLongClick = onOpenPromptComposer,
-                            )
-                        }
-                    } else {
-                        add {
-                            PromptComposerKey(
-                                onClick = onOpenPromptComposer,
-                                onLongClick = { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
-                            )
-                        }
-                    }
-                }
                 if (onOpenQuickResponse != null) {
                     add {
                         AgentQuickResponseKey(
                             onClick = onOpenQuickResponse,
-                            onLongClick = onToggleQuickDrawer,
-                            active = quickDrawerActive,
+                            onLongClick = onToggleDeck,
+                            active = !agentDeckActive,
                         )
                     }
                 }
-            }
-            val bottomRowKeys: List<@Composable () -> Unit> = buildList {
-                if (onOpenDigest != null) {
+                if (onVoiceClick != null) {
                     add {
-                        AgentDigestKey(
-                            onClick = onOpenDigest,
-                            onLongClick = onToggleQuickDrawer,
+                        VoicePinnedKey(
+                            listening = isVoiceListening,
+                            onClick = onVoiceClick,
                         )
                     }
-                }
-                add {
-                    KeyboardKey(
-                        visible = keyboardVisible,
-                        onClick = onKeyboardToggle,
-                        onLongClick = { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
-                        modifier = Modifier.size(ClusterKeySize),
-                    )
                 }
             }
 
@@ -254,7 +297,15 @@ fun KeyBar(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
-                bottomRowKeys.forEach { it() }
+                DedicatedEnterKey(
+                    onClick = { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
+                )
+                KeyboardKey(
+                    visible = keyboardVisible,
+                    onClick = onKeyboardToggle,
+                    onLongClick = onRawKeyboardToggle ?: { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
+                    modifier = Modifier.size(ClusterKeySize),
+                )
             }
         }
     }
@@ -268,14 +319,23 @@ fun KeyBar(
 private const val MIN_BUTTONS_FOR_FREE_SECOND_ROW = 4
 
 /**
- * Two-row Quick Response Drawer replacing the left-side terminal keys when flipped on,
- * giving immediate 1-tap access to Enter, y/n, numbered choices 1-4, and Ctrl+C.
+ * Agent-first two-row deck: Row 1 adapts dynamically to the terminal state (detected numbered
+ * choices, `[y/n]` confirmation, password/passphrase prompt, active run controls, or idle
+ * `1 2 3 Y N`), while Row 2 holds fixed muscle-memory controls (`⇄`, `ESC`, `⇧TAB`, `^C`, `📋`).
  */
 @Composable
-private fun QuickResponseDrawerRows(
+private fun AgentDeckRows(
+    agentContext: AgentBarContext,
     onQuickAction: (text: String, sendEnter: Boolean) -> Unit,
+    onSpecialKey: (keyCode: Int) -> Unit,
     onSendRaw: ((control: String) -> Unit)?,
-    onToggleQuickDrawer: (() -> Unit)?,
+    onMacro: (text: String) -> Unit,
+    onToggleDeck: (() -> Unit)?,
+    onKeyboardToggle: () -> Unit,
+    onRawKeyboardToggle: (() -> Unit)?,
+    isVoiceListening: Boolean,
+    onVoiceClick: (() -> Unit)?,
+    onPaste: (() -> Unit)?,
 ) {
     Row(
         modifier = Modifier
@@ -283,30 +343,187 @@ private fun QuickResponseDrawerRows(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(KeyGap),
     ) {
+        when (agentContext) {
+            is AgentBarContext.NumberedChoices -> {
+                agentContext.choices.forEachIndexed { index, choice ->
+                    val isFirst = index == 0
+                    KeyBarPillButton(
+                        label = choice.label,
+                        contentDescription = "Select option ${choice.label}",
+                        containerColor = if (isFirst) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        },
+                        contentColor = if (isFirst) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        },
+                        onClick = { onQuickAction(choice.sendText, true) },
+                    )
+                }
+            }
+
+            is AgentBarContext.YesNoPrompt -> {
+                val yesDefault = agentContext.defaultYes != false
+                KeyBarPillButton(
+                    label = "✓ YES",
+                    contentDescription = "Answer yes",
+                    containerColor = if (yesDefault) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    },
+                    contentColor = if (yesDefault) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    },
+                    onClick = { onQuickAction("y", true) },
+                )
+                KeyBarPillButton(
+                    label = "✕ NO",
+                    contentDescription = "Answer no",
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    onClick = { onQuickAction("n", true) },
+                )
+                if (agentContext.defaultYes != null) {
+                    KeyBarPillButton(
+                        label = "↵ DEFAULT",
+                        contentDescription = "Accept default response",
+                        onClick = { onQuickAction("", true) },
+                    )
+                }
+            }
+
+            AgentBarContext.PasswordPrompt -> {
+                KeyBarPillButton(
+                    label = "TYPE SECRET",
+                    contentDescription = "Open terminal keyboard for password entry",
+                    icon = Icons.Outlined.Keyboard,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    onClick = onRawKeyboardToggle ?: onKeyboardToggle,
+                )
+                QuickDrawerButton(
+                    label = "ESC",
+                    contentDescription = "Send Escape key",
+                    onClick = { onSpecialKey(KeyEvent.KEYCODE_ESCAPE) },
+                )
+                QuickDrawerButton(
+                    label = "^C",
+                    contentDescription = "Send Ctrl+C interrupt",
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    onClick = {
+                        if (onSendRaw != null) {
+                            onSendRaw("\u0003")
+                        } else {
+                            onQuickAction("\u0003", false)
+                        }
+                    },
+                )
+            }
+
+            AgentBarContext.Running -> {
+                KeyBarPillButton(
+                    label = "ESC STOP",
+                    contentDescription = "Send Escape to stop agent",
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    onClick = { onSpecialKey(KeyEvent.KEYCODE_ESCAPE) },
+                )
+                KeyBarPillButton(
+                    label = "^C KILL",
+                    contentDescription = "Send Ctrl+C interrupt",
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                    onClick = {
+                        if (onSendRaw != null) {
+                            onSendRaw("\u0003")
+                        } else {
+                            onQuickAction("\u0003", false)
+                        }
+                    },
+                )
+                if (onVoiceClick != null) {
+                    KeyBarPillButton(
+                        label = if (isVoiceListening) "LISTENING…" else "STEER",
+                        contentDescription = if (isVoiceListening) "Stop voice input" else "Steer agent by voice",
+                        icon = if (isVoiceListening) Icons.Outlined.GraphicEq else Icons.Outlined.Mic,
+                        containerColor = if (isVoiceListening) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        },
+                        contentColor = if (isVoiceListening) {
+                            MaterialTheme.colorScheme.onError
+                        } else {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        },
+                        onClick = onVoiceClick,
+                    )
+                }
+            }
+
+            AgentBarContext.Default -> {
+                (1..3).forEach { num ->
+                    QuickDrawerButton(
+                        label = "$num",
+                        contentDescription = "Send $num and Enter",
+                        onClick = { onQuickAction("$num", true) },
+                    )
+                }
+                QuickDrawerButton(
+                    label = "Y",
+                    contentDescription = "Send y and Enter",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    onClick = { onQuickAction("y", true) },
+                )
+                QuickDrawerButton(
+                    label = "N",
+                    contentDescription = "Send n and Enter",
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    onClick = { onQuickAction("n", true) },
+                )
+            }
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(KeyGap),
+    ) {
+        if (onToggleDeck != null) {
+            DeckToggleButton(inShellDeck = false, onClick = onToggleDeck)
+        }
         QuickDrawerButton(
-            label = "↵ ENTER",
-            contentDescription = "Send Enter key",
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            onClick = { onQuickAction("", true) },
+            label = "ESC",
+            contentDescription = "Send Escape key",
+            onClick = { onSpecialKey(KeyEvent.KEYCODE_ESCAPE) },
         )
-        QuickDrawerButton(
-            label = "YES (Y)",
-            contentDescription = "Send y and Enter",
-            onClick = { onQuickAction("y", true) },
-        )
-        QuickDrawerButton(
-            label = "NO (N)",
-            contentDescription = "Send n and Enter",
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            onClick = { onQuickAction("n", true) },
+        KeyBarPillButton(
+            label = "⇧TAB",
+            contentDescription = "Send Shift+Tab",
+            onClick = {
+                if (onSendRaw != null) {
+                    onSendRaw("\u001B[Z")
+                } else {
+                    onMacro("\u001B[Z")
+                }
+            },
         )
         QuickDrawerButton(
             label = "^C",
             contentDescription = "Send Ctrl+C interrupt",
-            containerColor = MaterialTheme.colorScheme.error,
-            contentColor = MaterialTheme.colorScheme.onError,
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
             onClick = {
                 if (onSendRaw != null) {
                     onSendRaw("\u0003")
@@ -315,27 +532,192 @@ private fun QuickResponseDrawerRows(
                 }
             },
         )
+        if (onPaste != null) {
+            PasteBarButton(onClick = onPaste)
+        }
     }
+}
+
+/**
+ * Built-in Shell deck for hosts without a custom keybar layout, trading `PgUp`/`PgDn` (already
+ * covered by the floating scrollback pills & scrollbar) for direct shell punctuation and left/right.
+ */
+@Composable
+private fun DefaultShellDeckRows(
+    ctrlLatched: Boolean,
+    altLatched: Boolean,
+    onCtrlToggle: () -> Unit,
+    onAltToggle: () -> Unit,
+    onSpecialKey: (keyCode: Int) -> Unit,
+    onMacro: (text: String) -> Unit,
+    onToggleDeck: (() -> Unit)?,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(KeyGap),
     ) {
-        (1..4).forEach { num ->
-            QuickDrawerButton(
-                label = "$num",
-                contentDescription = "Send $num and Enter",
-                onClick = { onQuickAction("$num", true) },
-            )
+        LatchButton(label = "Ctrl", latched = ctrlLatched, onClick = onCtrlToggle)
+        LatchButton(label = "Alt", latched = altLatched, onClick = onAltToggle)
+        QuickDrawerButton(
+            label = "ESC",
+            contentDescription = "Send Escape key",
+            onClick = { onSpecialKey(KeyEvent.KEYCODE_ESCAPE) },
+        )
+        QuickDrawerButton(
+            label = "TAB",
+            contentDescription = "Send Tab key",
+            onClick = { onSpecialKey(KeyEvent.KEYCODE_TAB) },
+        )
+        ClusterKey(KeyEvent.KEYCODE_DPAD_LEFT, "←", onSpecialKey)
+        QuickDrawerButton(
+            label = "~",
+            contentDescription = "Send tilde character",
+            onClick = { onMacro("~") },
+        )
+        QuickDrawerButton(
+            label = "HOME",
+            contentDescription = "Move to start of line",
+            onClick = { onSpecialKey(KeyEvent.KEYCODE_MOVE_HOME) },
+        )
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(KeyGap),
+    ) {
+        if (onToggleDeck != null) {
+            DeckToggleButton(inShellDeck = true, onClick = onToggleDeck)
         }
-        if (onToggleQuickDrawer != null) {
-            QuickDrawerButton(
-                label = "⇄ KEYS",
-                contentDescription = "Switch back to standard keys",
-                onClick = onToggleQuickDrawer,
+        QuickDrawerButton(
+            label = "/",
+            contentDescription = "Send slash character",
+            onClick = { onMacro("/") },
+        )
+        QuickDrawerButton(
+            label = "-",
+            contentDescription = "Send hyphen character",
+            onClick = { onMacro("-") },
+        )
+        QuickDrawerButton(
+            label = "|",
+            contentDescription = "Send pipe character",
+            onClick = { onMacro("|") },
+        )
+        ClusterKey(KeyEvent.KEYCODE_DPAD_RIGHT, "→", onSpecialKey)
+        QuickDrawerButton(
+            label = "\\",
+            contentDescription = "Send backslash character",
+            onClick = { onMacro("\\") },
+        )
+        QuickDrawerButton(
+            label = "END",
+            contentDescription = "Move to end of line",
+            onClick = { onSpecialKey(KeyEvent.KEYCODE_MOVE_END) },
+        )
+    }
+}
+
+@Composable
+private fun DeckToggleButton(
+    inShellDeck: Boolean,
+    onClick: () -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
+    FilledTonalButton(
+        onClick = {
+            haptics.keyTap()
+            onClick()
+        },
+        colors = if (inShellDeck) {
+            ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             )
+        } else {
+            ButtonDefaults.filledTonalButtonColors()
+        },
+        modifier = Modifier
+            .size(ClusterKeySize)
+            .semantics {
+                contentDescription = if (inShellDeck) "Switch to Agent deck" else "Switch to Shell deck"
+            },
+        contentPadding = PaddingValues(0.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.SwapHoriz,
+            contentDescription = null,
+            modifier = Modifier.size(KeyIconSize),
+        )
+    }
+}
+
+@Composable
+private fun PasteBarButton(onClick: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    FilledTonalButton(
+        onClick = {
+            haptics.keyTap()
+            onClick()
+        },
+        modifier = Modifier
+            .size(ClusterKeySize)
+            .semantics {
+                contentDescription = "Paste from clipboard"
+            },
+        contentPadding = PaddingValues(0.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.ContentPaste,
+            contentDescription = null,
+            modifier = Modifier.size(KeyIconSize),
+        )
+    }
+}
+
+@Composable
+private fun KeyBarPillButton(
+    label: String,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
+    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+) {
+    val haptics = LocalHapticFeedback.current
+    FilledTonalButton(
+        onClick = {
+            haptics.keyTap()
+            onClick()
+        },
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        modifier = modifier
+            .height(ClusterKeySize)
+            .widthIn(min = ClusterKeySize)
+            .semantics { this.contentDescription = contentDescription },
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(4.dp))
         }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -428,22 +810,30 @@ private fun PinnedActionKey(
 }
 
 /**
- * Triggers the on-device Gemini Nano terminal output digest; long-press flips the quick response drawer.
+ * Pinned voice quick-reply / compose key in the top-right slot of the KeyBar grid.
  */
 @Composable
-private fun AgentDigestKey(
+private fun VoicePinnedKey(
+    listening: Boolean,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
 ) {
     PinnedActionKey(
         onClick = onClick,
-        onLongClick = onLongClick,
-        contentDescription = "Summarize terminal output",
-        onClickLabel = "Summarize terminal output",
-        onLongClickLabel = "Toggle quick response drawer",
+        contentDescription = if (listening) "Stop listening" else "Speak reply or prompt",
+        onClickLabel = if (listening) "Stop listening" else "Start voice input",
+        containerColor = if (listening) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        },
+        contentColor = if (listening) {
+            MaterialTheme.colorScheme.onError
+        } else {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        },
     ) {
         Icon(
-            imageVector = Icons.Outlined.AutoAwesome,
+            imageVector = if (listening) Icons.Outlined.GraphicEq else Icons.Outlined.Mic,
             contentDescription = null,
             modifier = Modifier.size(KeyIconSize),
         )
@@ -451,43 +841,16 @@ private fun AgentDigestKey(
 }
 
 /**
- * Opens the multi-line Prompt Composer dialog; long-press immediately sends Enter.
- */
-@Composable
-private fun PromptComposerKey(
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
-) {
-    PinnedActionKey(
-        onClick = onClick,
-        onLongClick = onLongClick,
-        contentDescription = "Compose prompt for AI agent, hold to send Enter",
-        onClickLabel = "Open prompt composer",
-        onLongClickLabel = "Send Enter",
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.EditNote,
-            contentDescription = null,
-            modifier = Modifier.size(KeyIconSize),
-        )
-    }
-}
-
-/**
- * Dedicated 1-tap Enter key shown in place of [PromptComposerKey] when the Quick Response Drawer is active;
- * long-press opens the Prompt Composer.
+ * Dedicated 1-tap Enter key pinned in the bottom-right grid.
  */
 @Composable
 private fun DedicatedEnterKey(
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
 ) {
     PinnedActionKey(
         onClick = onClick,
-        onLongClick = onLongClick,
-        contentDescription = "Send Enter key, hold to open prompt composer",
+        contentDescription = "Send Enter key",
         onClickLabel = "Send Enter",
-        onLongClickLabel = "Open prompt composer",
         containerColor = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
     ) {
@@ -500,8 +863,7 @@ private fun DedicatedEnterKey(
 }
 
 /**
- * Opens the Quick Response menu on tap; long-press flips the KeyBar between standard keys
- * and the Quick Response Drawer.
+ * Opens the Quick Response menu on tap; long-press flips between Agent Deck and Shell Deck.
  */
 @Composable
 private fun AgentQuickResponseKey(
@@ -513,12 +875,12 @@ private fun AgentQuickResponseKey(
         onClick = onClick,
         onLongClick = onLongClick,
         contentDescription = if (active) {
-            "Open agent quick response menu, quick drawer active"
+            "Open agent quick response menu, shell deck active"
         } else {
-            "Open agent quick response menu, hold to flip quick drawer"
+            "Open agent quick response menu, hold to switch key deck"
         },
         onClickLabel = "Open agent quick response menu",
-        onLongClickLabel = "Toggle quick response drawer",
+        onLongClickLabel = "Switch key deck",
         containerColor = if (active) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
@@ -587,38 +949,28 @@ private fun HapticFeedback.keyTap() = performHapticFeedback(HapticFeedbackType.K
 const val MAX_KEY_BAR_ROWS = 2
 
 /**
- * The arrow keys as the inverted T every physical keyboard uses, with the page keys in the two
- * cells the T leaves empty:
- * ```
- * PgUp  ↑  PgDn
- *  ←    ↓   →
- * ```
- * Two rows tall, about 44dp of terminal height, and that was the accepted trade. A linear `↑↓←→`
- * run has no spatial meaning and every press needs reading. PgUp/PgDn here rather than as flat
- * keys because those cost bar width the flowing rows do not have, and these cells were blank.
- * Drawn as icons: "PgUp" wraps inside a 48dp cell, and the Unicode page glyphs come from a
- * fallback font that renders them at half the arrows' size.
- *
- * Fixed [ClusterKeySize] rather than [MinKeyWidth], since `↑` has to sit above `↓` and equal-width
- * cells are what guarantee it.
+ * Compact 1-column vertical stack of Up/Down arrows used by Agent Deck and the built-in Shell Deck.
+ */
+@Composable
+private fun VerticalArrowColumn(onSpecialKey: (keyCode: Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(KeyGap)) {
+        ClusterKey(KeyEvent.KEYCODE_DPAD_UP, "↑", onSpecialKey)
+        ClusterKey(KeyEvent.KEYCODE_DPAD_DOWN, "↓", onSpecialKey)
+    }
+}
+
+/**
+ * The arrow keys as the inverted T for custom layouts that include [KeyBarKeyType.CURSOR_CLUSTER].
+ * Redundant `PgUp`/`PgDn` cells beside `↑` stay blank since scrollback stepping and scrubbing sit
+ * directly above the bar.
  */
 @Composable
 private fun CursorCluster(onSpecialKey: (keyCode: Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(KeyGap)) {
         Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
-            ClusterKey(
-                KeyEvent.KEYCODE_PAGE_UP,
-                "PgUp",
-                onSpecialKey,
-                icon = Icons.Outlined.KeyboardDoubleArrowUp,
-            )
+            Spacer(modifier = Modifier.size(ClusterKeySize))
             ClusterKey(KeyEvent.KEYCODE_DPAD_UP, "↑", onSpecialKey)
-            ClusterKey(
-                KeyEvent.KEYCODE_PAGE_DOWN,
-                "PgDn",
-                onSpecialKey,
-                icon = Icons.Outlined.KeyboardDoubleArrowDown,
-            )
+            Spacer(modifier = Modifier.size(ClusterKeySize))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(KeyGap)) {
             ClusterKey(KeyEvent.KEYCODE_DPAD_LEFT, "←", onSpecialKey)

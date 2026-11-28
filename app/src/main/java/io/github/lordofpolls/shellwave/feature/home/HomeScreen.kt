@@ -1,5 +1,6 @@
 package io.github.lordofpolls.shellwave.feature.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -24,24 +25,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -89,6 +85,7 @@ import io.github.lordofpolls.shellwave.feature.settings.UpdateCheckState
 import io.github.lordofpolls.shellwave.feature.settings.checkForUpdate
 import io.github.lordofpolls.shellwave.feature.settings.shouldAutoCheckForUpdates
 import io.github.lordofpolls.shellwave.feature.settings.shouldShowUpdateBanner
+import io.github.lordofpolls.shellwave.ui.design.ActionTrayChip
 import io.github.lordofpolls.shellwave.ssh.SessionStatus
 import io.github.lordofpolls.shellwave.ssh.SessionSummary
 import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
@@ -172,6 +169,7 @@ fun HomeScreen(
     var hostPendingDelete by remember { mutableStateOf<HostEntity?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var quickConnectText by rememberSaveable { mutableStateOf("") }
+    var sortBarOpen by rememberSaveable { mutableStateOf(false) }
     var groupBeingEdited by remember { mutableStateOf<GroupEntity?>(null) }
     var groupPendingDelete by remember { mutableStateOf<GroupEntity?>(null) }
     val sort by rememberPrefState { HostListPreferences.sort(it) }
@@ -239,44 +237,88 @@ fun HomeScreen(
                             },
                         )
                     }
+                    IconButton(onClick = { sortBarOpen = !sortBarOpen }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.Sort,
+                            contentDescription = "Sort hosts",
+                            tint = if (sortBarOpen) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    IconButton(onClick = onImportSshConfig) {
+                        Icon(Icons.Outlined.FileOpen, contentDescription = "Import from ~/.ssh/config")
+                    }
                     IconButton(onClick = onAddHost) {
                         Icon(Icons.Outlined.Add, contentDescription = "Add host")
                     }
-                    HostsOverflow(
-                        sort = sort,
-                        onSort = { picked ->
-                            if (picked == HostSort.MANUAL && sort != HostSort.MANUAL) {
-                                // Seeded before the pref flips, or the list renders unseeded for a frame.
-                                scope.launch {
-                                    // Unfiltered, so a search in progress doesn't leave hidden hosts unseeded.
-                                    val shown = buildSections(hosts, groups, sort)
-                                    onSetGroupPositions(positionsFor(shown.mapNotNull { it.group?.id }))
-                                    shown.forEach { onSetHostPositions(positionsFor(it.hosts.map { h -> h.id })) }
-                                    HostListPreferences.setSort(context, picked)
-                                }
-                            } else {
-                                HostListPreferences.setSort(context, picked)
-                            }
-                        },
-                        onImportSshConfig = onImportSshConfig,
-                    )
                 },
                 scrollBehavior = scrollBehavior,
             )
         },
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = PaddingValues(
-                start = ScreenMargin + LocalReadableInset.current,
-                end = ScreenMargin + LocalReadableInset.current,
-                top = 8.dp,
-                bottom = 16.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            AnimatedVisibility(visible = sortBarOpen) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        FlowRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    horizontal = ScreenMargin + LocalReadableInset.current,
+                                    vertical = 8.dp,
+                                ),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            HostSort.entries.forEach { mode ->
+                                ActionTrayChip(
+                                    label = mode.label,
+                                    selected = mode == sort,
+                                    onClick = {
+                                        sortBarOpen = false
+                                        if (mode == HostSort.MANUAL && sort != HostSort.MANUAL) {
+                                            scope.launch {
+                                                val shown = buildSections(hosts, groups, sort)
+                                                onSetGroupPositions(positionsFor(shown.mapNotNull { it.group?.id }))
+                                                shown.forEach { onSetHostPositions(positionsFor(it.hosts.map { h -> h.id })) }
+                                                HostListPreferences.setSort(context, mode)
+                                            }
+                                        } else {
+                                            HostListPreferences.setSort(context, mode)
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                        )
+                    }
+                }
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(
+                    start = ScreenMargin + LocalReadableInset.current,
+                    end = ScreenMargin + LocalReadableInset.current,
+                    top = 8.dp,
+                    bottom = 16.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
             if (bannerRelease != null) {
                 item(key = "updateBanner") {
                     HomeUpdateBanner(
@@ -480,6 +522,7 @@ fun HomeScreen(
                 }
             }
         }
+        }
     }
 
     hostPendingDelete?.let { host ->
@@ -616,62 +659,6 @@ internal fun hostScriptActions(
                 name = script.name,
                 onRun = { onRunScript(script, host) })
         }
-
-@Composable
-private fun HostsOverflow(
-    sort: HostSort,
-    onSort: (HostSort) -> Unit,
-    onImportSshConfig: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    // Reset on every open so the menu never reappears mid-submenu.
-    var showingSort by remember { mutableStateOf(false) }
-    Box {
-        IconButton(onClick = { showingSort = false; expanded = true }) {
-            Icon(Icons.Outlined.MoreVert, contentDescription = "More options")
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (showingSort) {
-                DropdownMenuItem(
-                    text = { Text("Back") },
-                    leadingIcon = {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null)
-                    },
-                    onClick = { showingSort = false },
-                )
-                HostSort.entries.forEach { mode ->
-                    DropdownMenuItem(
-                        text = { Text(mode.label) },
-                        trailingIcon = {
-                            if (mode == sort) Icon(Icons.Outlined.Check, contentDescription = "Selected")
-                        },
-                        onClick = {
-                            expanded = false
-                            onSort(mode)
-                        },
-                    )
-                }
-            } else {
-                DropdownMenuItem(
-                    text = { Text("Sort by") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Sort, contentDescription = null) },
-                    trailingIcon = {
-                        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null)
-                    },
-                    onClick = { showingSort = true },
-                )
-                DropdownMenuItem(
-                    text = { Text("Import from ~/.ssh/config") },
-                    leadingIcon = { Icon(Icons.Outlined.FileOpen, contentDescription = null) },
-                    onClick = {
-                        expanded = false
-                        onImportSshConfig()
-                    },
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun HomeUpdateBanner(

@@ -1,35 +1,34 @@
 package io.github.lordofpolls.shellwave.ui.design
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.ToggleOn
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,20 +53,16 @@ data class HostScriptAction(val id: Long, val name: String, val onRun: () -> Uni
 /** A null [accent] is "No group". */
 data class HostMoveTarget(val name: String, val accent: Color?, val current: Boolean, val onMove: () -> Unit)
 
-private enum class HostMenuPage { MAIN, SCRIPTS, GROUPS }
+private enum class HostTraySubPanel { NONE, SCRIPTS, GROUPS }
 
 /**
- * Name and status on row 1, `user@host` (plus `:port` when not 22) on row 2, nothing else in or under the card. Cards
- * were once twice as tall as their content, with each host's scripts as free-floating boxes
- * underneath, so a handful of hosts filled the screen. Natural height is now ~68dp.
+ * Name and status on row 1, `user@host` (plus `:port` when not 22) on row 2; tapping the trailing
+ * chevron (or long-pressing the card) expands an inline action tray directly inside the card.
  *
  * StatusMarker appears inline only while a session for this host is live or transitioning;
  * otherwise a non-null [reachability] puts a [ReachabilityMarker] in the same slot, never both.
- *
- * The overflow button exists because long-press alone is not discoverable. Its script and group
- * submenus are further pages of the same menu, since M3 Compose has no cascading-submenu component.
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun HostCard(
     displayName: String,
@@ -93,9 +88,13 @@ fun HostCard(
     moveTargets: List<HostMoveTarget> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    // Reset on every open so the menu never reappears mid-submenu.
-    var menuPage by remember { mutableStateOf(HostMenuPage.MAIN) }
+    var expanded by remember { mutableStateOf(false) }
+    var subPanel by remember { mutableStateOf(HostTraySubPanel.NONE) }
+
+    fun toggleExpanded() {
+        subPanel = HostTraySubPanel.NONE
+        expanded = !expanded
+    }
 
     Card(
         modifier =
@@ -103,246 +102,235 @@ fun HostCard(
                 .fillMaxWidth()
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = {
-                        menuPage = HostMenuPage.MAIN
-                        menuExpanded = true
-                    },
+                    onLongClick = { toggleExpanded() },
                     onClickLabel = "Connect",
                     onLongClickLabel = "Host options",
                 ),
     ) {
-        // The overflow sits outside row 1: an IconButton pads itself to a 48dp touch target, which
-        // would make that row 48dp tall on its own and push the card to ~90dp.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                Icons.Outlined.Dns,
-                contentDescription = null,
-                tint = accent ?: MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Icon(
+                    Icons.Outlined.Dns,
+                    contentDescription = null,
+                    tint = accent ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text(
-                        displayName,
-                        style = MaterialTheme.typography.titleMedium,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (liveStatus != null) {
+                            StatusMarker(liveStatus)
+                        } else if (reachability != null) {
+                            ReachabilityMarker(reachability)
+                        }
+                    }
+                    MachineText(
+                        identity,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    // LIVE means this app holds an open connection; UP means something answered on
-                    // that port a moment ago. Showing both leaves the user deciding which to
-                    // believe.
-                    if (liveStatus != null) {
-                        StatusMarker(liveStatus)
-                    } else if (reachability != null) {
-                        ReachabilityMarker(reachability)
-                    }
                 }
-                MachineText(
-                    identity,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Box {
-                IconButton(
-                    onClick = {
-                        menuPage = HostMenuPage.MAIN
-                        menuExpanded = true
-                    },
-                ) {
+                IconButton(onClick = { toggleExpanded() }) {
                     Icon(
-                        Icons.Outlined.MoreVert,
-                        contentDescription = "More options for $displayName"
+                        imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                        contentDescription = if (expanded) "Hide options for $displayName" else "Show options for $displayName",
                     )
                 }
-                HostMenu(
-                    expanded = menuExpanded,
-                    page = menuPage,
-                    scripts = scripts,
-                    moveTargets = moveTargets,
-                    onDismiss = { menuExpanded = false },
-                    onPage = { menuPage = it },
-                    onConnect = { menuExpanded = false; onClick() },
-                    onEdit = { menuExpanded = false; onEdit() },
-                    onDuplicate = { menuExpanded = false; onDuplicate() },
-                    onWake = onWake?.let { wake -> { menuExpanded = false; wake() } },
-                    isWolTile = isWolTile,
-                    onUseForWolTile = onUseForWolTile?.let { use -> { menuExpanded = false; use() } },
-                    onMoveUp = onMoveUp?.let { up -> { menuExpanded = false; up() } },
-                    onMoveDown = onMoveDown?.let { down -> { menuExpanded = false; down() } },
-                    onDelete = { menuExpanded = false; onDelete() },
-                    onRunScript = { action -> menuExpanded = false; action.onRun() },
-                    onMoveTo = { target -> menuExpanded = false; target.onMove() },
-                )
             }
-        }
-    }
-}
 
-/** Delete is last and tinted `error`. It reports intent only; the confirmation is the caller's. */
-@Composable
-private fun HostMenu(
-    expanded: Boolean,
-    page: HostMenuPage,
-    scripts: List<HostScriptAction>,
-    moveTargets: List<HostMoveTarget>,
-    onDismiss: () -> Unit,
-    onPage: (HostMenuPage) -> Unit,
-    onConnect: () -> Unit,
-    onEdit: () -> Unit,
-    onDuplicate: () -> Unit,
-    onWake: (() -> Unit)?,
-    isWolTile: Boolean,
-    onUseForWolTile: (() -> Unit)?,
-    onMoveUp: (() -> Unit)?,
-    onMoveDown: (() -> Unit)?,
-    onDelete: () -> Unit,
-    onRunScript: (HostScriptAction) -> Unit,
-    onMoveTo: (HostMoveTarget) -> Unit,
-) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        if (page != HostMenuPage.MAIN) {
-            DropdownMenuItem(
-                text = { Text("Back") },
-                leadingIcon = {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = null
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
                     )
-                },
-                onClick = { onPage(HostMenuPage.MAIN) },
-            )
-        }
-        if (page == HostMenuPage.GROUPS) {
-            moveTargets.forEach { target ->
-                DropdownMenuItem(
-                    text = { Text(target.name) },
-                    leadingIcon = {
-                        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                            target.accent?.let {
-                                Box(Modifier.size(12.dp).clip(CircleShape).background(it))
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ActionTrayChip(
+                            label = "Edit",
+                            icon = Icons.Outlined.Edit,
+                            onClick = {
+                                expanded = false
+                                onEdit()
+                            },
+                        )
+                        ActionTrayChip(
+                            label = "Duplicate",
+                            icon = Icons.Outlined.ContentCopy,
+                            onClick = {
+                                expanded = false
+                                onDuplicate()
+                            },
+                        )
+                        if (onWake != null) {
+                            ActionTrayChip(
+                                label = "Wake",
+                                icon = Icons.Outlined.PowerSettingsNew,
+                                onClick = {
+                                    expanded = false
+                                    onWake()
+                                },
+                            )
+                        }
+                        if (scripts.isNotEmpty()) {
+                            ActionTrayChip(
+                                label = "Scripts",
+                                icon = Icons.Outlined.PlayArrow,
+                                selected = subPanel == HostTraySubPanel.SCRIPTS,
+                                onClick = {
+                                    subPanel = if (subPanel == HostTraySubPanel.SCRIPTS) {
+                                        HostTraySubPanel.NONE
+                                    } else {
+                                        HostTraySubPanel.SCRIPTS
+                                    }
+                                },
+                            )
+                        }
+                        if (moveTargets.isNotEmpty()) {
+                            ActionTrayChip(
+                                label = "Group",
+                                icon = Icons.Outlined.Folder,
+                                selected = subPanel == HostTraySubPanel.GROUPS,
+                                onClick = {
+                                    subPanel = if (subPanel == HostTraySubPanel.GROUPS) {
+                                        HostTraySubPanel.NONE
+                                    } else {
+                                        HostTraySubPanel.GROUPS
+                                    }
+                                },
+                            )
+                        }
+                        if (onUseForWolTile != null) {
+                            ActionTrayChip(
+                                label = if (isWolTile) "Remove WOL tile" else "WOL tile",
+                                icon = Icons.Outlined.ToggleOn,
+                                selected = isWolTile,
+                                onClick = {
+                                    expanded = false
+                                    onUseForWolTile()
+                                },
+                            )
+                        }
+                        if (onMoveUp != null) {
+                            ActionTrayChip(
+                                label = "Move up",
+                                icon = Icons.Outlined.ArrowUpward,
+                                onClick = {
+                                    expanded = false
+                                    onMoveUp()
+                                },
+                            )
+                        }
+                        if (onMoveDown != null) {
+                            ActionTrayChip(
+                                label = "Move down",
+                                icon = Icons.Outlined.ArrowDownward,
+                                onClick = {
+                                    expanded = false
+                                    onMoveDown()
+                                },
+                            )
+                        }
+                        ActionTrayChip(
+                            label = "Delete",
+                            icon = Icons.Outlined.Delete,
+                            destructive = true,
+                            onClick = {
+                                expanded = false
+                                onDelete()
+                            },
+                        )
+                    }
+
+                    AnimatedVisibility(visible = subPanel == HostTraySubPanel.SCRIPTS && scripts.isNotEmpty()) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                            )
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                scripts.forEach { script ->
+                                    ActionTrayChip(
+                                        label = script.name,
+                                        icon = Icons.Outlined.PlayArrow,
+                                        onClick = {
+                                            expanded = false
+                                            subPanel = HostTraySubPanel.NONE
+                                            script.onRun()
+                                        },
+                                    )
+                                }
                             }
                         }
-                    },
-                    trailingIcon = {
-                        if (target.current) Icon(Icons.Outlined.Check, contentDescription = "Current")
-                    },
-                    onClick = { onMoveTo(target) },
-                )
+                    }
+
+                    AnimatedVisibility(visible = subPanel == HostTraySubPanel.GROUPS && moveTargets.isNotEmpty()) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                            )
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                moveTargets.forEach { target ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (target.accent != null) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .padding(end = 4.dp)
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(target.accent),
+                                            )
+                                        }
+                                        ActionTrayChip(
+                                            label = target.name,
+                                            selected = target.current,
+                                            onClick = {
+                                                expanded = false
+                                                subPanel = HostTraySubPanel.NONE
+                                                target.onMove()
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        } else if (page == HostMenuPage.SCRIPTS) {
-            scripts.forEach { script ->
-                DropdownMenuItem(
-                    text = { Text(script.name) },
-                    leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null) },
-                    onClick = { onRunScript(script) },
-                )
-            }
-        } else {
-            DropdownMenuItem(
-                text = { Text("Connect") },
-                leadingIcon = {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.Login,
-                        contentDescription = null
-                    )
-                },
-                onClick = onConnect,
-            )
-            DropdownMenuItem(
-                text = { Text("Edit") },
-                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                onClick = onEdit,
-            )
-            DropdownMenuItem(
-                text = { Text("Duplicate") },
-                leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
-                onClick = onDuplicate,
-            )
-            if (onWake != null) {
-                DropdownMenuItem(
-                    text = { Text("Wake") },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.PowerSettingsNew, contentDescription = null)
-                    },
-                    onClick = onWake,
-                )
-            }
-            if (onUseForWolTile != null) {
-                DropdownMenuItem(
-                    text = { Text(if (isWolTile) "Remove from WOL tile" else "Use for WOL tile") },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.ToggleOn, contentDescription = null)
-                    },
-                    onClick = onUseForWolTile,
-                )
-            }
-            if (scripts.isNotEmpty()) {
-                DropdownMenuItem(
-                    text = { Text("Run script") },
-                    leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null) },
-                    trailingIcon = {
-                        Icon(
-                            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                            contentDescription = null
-                        )
-                    },
-                    onClick = { onPage(HostMenuPage.SCRIPTS) },
-                )
-            }
-            if (moveTargets.isNotEmpty()) {
-                DropdownMenuItem(
-                    text = { Text("Move to group") },
-                    leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                    trailingIcon = {
-                        Icon(
-                            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                            contentDescription = null
-                        )
-                    },
-                    onClick = { onPage(HostMenuPage.GROUPS) },
-                )
-            }
-            if (onMoveUp != null) {
-                DropdownMenuItem(
-                    text = { Text("Move up") },
-                    leadingIcon = { Icon(Icons.Outlined.ArrowUpward, contentDescription = null) },
-                    onClick = onMoveUp,
-                )
-            }
-            if (onMoveDown != null) {
-                DropdownMenuItem(
-                    text = { Text("Move down") },
-                    leadingIcon = { Icon(Icons.Outlined.ArrowDownward, contentDescription = null) },
-                    onClick = onMoveDown,
-                )
-            }
-            DropdownMenuItem(
-                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                leadingIcon = {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
-                onClick = onDelete,
-            )
         }
     }
 }

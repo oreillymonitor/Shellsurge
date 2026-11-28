@@ -26,13 +26,12 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -113,7 +112,6 @@ fun KeysScreen(
     val hostsOrNull by hostDao.observeAll().collectAsState<List<HostEntity>, List<HostEntity>?>(initial = null)
     val hosts = hostsOrNull.orEmpty()
 
-    var addMenuOpen by rememberSaveable { mutableStateOf(false) }
     var generating by rememberSaveable { mutableStateOf(false) }
     var importing by rememberSaveable { mutableStateOf(false) }
     var renamingId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -141,18 +139,11 @@ fun KeysScreen(
                     if (hostsOrNull != null && unusedKeys(keys, hosts).isNotEmpty()) {
                         TextButton(onClick = { removingUnused = true }) { Text("Remove unused") }
                     }
-                    IconButton(onClick = { addMenuOpen = true }) {
-                        Icon(Icons.Outlined.Add, contentDescription = "Add key")
+                    IconButton(onClick = { importing = true }) {
+                        Icon(Icons.Outlined.FileOpen, contentDescription = "Import a key")
                     }
-                    DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Generate a key") },
-                            onClick = { addMenuOpen = false; generating = true },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Import a key") },
-                            onClick = { addMenuOpen = false; importing = true },
-                        )
+                    IconButton(onClick = { generating = true }) {
+                        Icon(Icons.Outlined.Add, contentDescription = "Generate a key")
                     }
                 },
             )

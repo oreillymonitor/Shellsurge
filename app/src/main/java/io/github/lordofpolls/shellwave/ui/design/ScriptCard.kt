@@ -1,23 +1,25 @@
 package io.github.lordofpolls.shellwave.ui.design
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.ToggleOn
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -35,14 +37,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * Run takes the leading edge as the frequent action; overflow trails; tapping the body edits, the
- * editor being a script's detail view.
+ * Run takes the leading edge as the frequent action; tapping the body edits; the trailing chevron
+ * expands an inline action tray for History, Widget/QS-tile pinning, and Delete.
  *
- * The `WIDGET`/`QUICK SETTINGS` badges are words rather than pictographs: registration is machine truth
- * and belongs beside the mode and target. [onPinToWidget]/[onUseForQsTile] are nullable because a
- * background trigger refuses anything but a capture script, and offering to pin one would be a
- * promise the app will not keep.
+ * The `WIDGET`/`QUICK SETTINGS` badges are words rather than pictographs: registration is machine
+ * truth and belongs beside the mode and target. [onPinToWidget]/[onUseForQsTile] are nullable
+ * because a background trigger refuses anything but a capture script.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ScriptCard(
     name: String,
@@ -58,119 +60,123 @@ fun ScriptCard(
     onUseForQsTile: (() -> Unit)? = null,
     accent: Color? = null,
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
 
     Card(modifier = modifier.fillMaxWidth()) {
-        Row(
-            // Tighter than the other cards: the two IconButtons each bring their own 48dp box.
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Naming the script here keeps a column of identical play triangles from reading to
-            // TalkBack as several identical "Run" buttons.
-            IconButton(onClick = onRun) {
-                Icon(
-                    Icons.Outlined.PlayArrow,
-                    contentDescription = "Run $name",
-                    tint = accent ?: LocalContentColor.current,
-                )
-            }
-            Column(
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                // Tighter than the other cards: the two IconButtons each bring their own 48dp box.
                 modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClickLabel = "Edit") { onEdit() }
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    name,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                IconButton(onClick = onRun) {
+                    Icon(
+                        Icons.Outlined.PlayArrow,
+                        contentDescription = "Run $name",
+                        tint = accent ?: LocalContentColor.current,
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(onClickLabel = "Edit") { onEdit() }
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    MachineText(
-                        modeAndTarget,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Text(
+                        name,
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (pinnedToWidget) TriggerBadge("WIDGET")
-                    if (isQsTile) TriggerBadge("QUICK SETTINGS")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MachineText(
+                            modeAndTarget,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (pinnedToWidget) TriggerBadge("WIDGET")
+                        if (isQsTile) TriggerBadge("QUICK SETTINGS")
+                    }
+                }
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                        contentDescription = if (expanded) "Hide options for $name" else "Show options for $name",
+                    )
                 }
             }
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Outlined.MoreVert, contentDescription = "More options for $name")
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Run") },
-                        leadingIcon = { Icon(Icons.Outlined.PlayArrow, contentDescription = null) },
-                        onClick = { menuExpanded = false; onRun() },
+
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
                     )
-                    if (onHistory != null) {
-                        DropdownMenuItem(
-                            text = { Text("History") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.History,
-                                    contentDescription = null
-                                )
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ActionTrayChip(
+                            label = "Edit",
+                            icon = Icons.Outlined.Edit,
+                            onClick = {
+                                expanded = false
+                                onEdit()
                             },
-                            onClick = { menuExpanded = false; onHistory() },
                         )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Edit") },
-                        leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                        onClick = { menuExpanded = false; onEdit() },
-                    )
-                    if (onPinToWidget != null) {
-                        DropdownMenuItem(
-                            // The label says what tapping does; the badge on row 2 reports state.
-                            text = { Text(if (pinnedToWidget) "Unpin from widget" else "Pin to widget") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.PushPin,
-                                    contentDescription = null
-                                )
-                            },
-                            onClick = { menuExpanded = false; onPinToWidget() },
-                        )
-                    }
-                    if (onUseForQsTile != null) {
-                        DropdownMenuItem(
-                            text = { Text(if (isQsTile) "Remove from Quick Settings tile" else "Use for Quick Settings tile") },
-                            // `Toggles` is absent from the installed material-icons-extended
-                            // artifact.
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.ToggleOn,
-                                    contentDescription = null
-                                )
-                            },
-                            onClick = { menuExpanded = false; onUseForQsTile() },
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Outlined.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
+                        if (onHistory != null) {
+                            ActionTrayChip(
+                                label = "History",
+                                icon = Icons.Outlined.History,
+                                onClick = {
+                                    expanded = false
+                                    onHistory()
+                                },
                             )
-                        },
-                        onClick = { menuExpanded = false; onDelete() },
-                    )
+                        }
+                        if (onPinToWidget != null) {
+                            ActionTrayChip(
+                                label = if (pinnedToWidget) "Unpin widget" else "Pin to widget",
+                                icon = Icons.Outlined.PushPin,
+                                selected = pinnedToWidget,
+                                onClick = {
+                                    expanded = false
+                                    onPinToWidget()
+                                },
+                            )
+                        }
+                        if (onUseForQsTile != null) {
+                            ActionTrayChip(
+                                label = if (isQsTile) "Remove tile" else "QS tile",
+                                icon = Icons.Outlined.ToggleOn,
+                                selected = isQsTile,
+                                onClick = {
+                                    expanded = false
+                                    onUseForQsTile()
+                                },
+                            )
+                        }
+                        ActionTrayChip(
+                            label = "Delete",
+                            icon = Icons.Outlined.Delete,
+                            destructive = true,
+                            onClick = {
+                                expanded = false
+                                onDelete()
+                            },
+                        )
+                    }
                 }
             }
         }

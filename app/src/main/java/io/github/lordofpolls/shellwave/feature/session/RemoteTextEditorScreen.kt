@@ -17,14 +17,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -119,7 +116,6 @@ fun RemoteTextEditorScreen(
     var reloadToken by remember { mutableIntStateOf(0) }
     var dirty by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
-    var menuOpen by remember { mutableStateOf(false) }
     var conflict by remember { mutableStateOf(false) }
     var confirmReload by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
@@ -253,21 +249,11 @@ fun RemoteTextEditorScreen(
                 ) {
                     Icon(Icons.Outlined.Check, contentDescription = "Save")
                 }
-                Box {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Outlined.MoreVert, contentDescription = "More options")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Reload") },
-                            leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
-                            enabled = connection != null && !loading && !saving,
-                            onClick = {
-                                menuOpen = false
-                                requestReload()
-                            },
-                        )
-                    }
+                IconButton(
+                    onClick = { requestReload() },
+                    enabled = connection != null && !loading && !saving,
+                ) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = "Reload")
                 }
             },
             windowInsets = WindowInsets(0, 0, 0, 0),

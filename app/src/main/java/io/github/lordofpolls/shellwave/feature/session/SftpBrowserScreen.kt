@@ -5,11 +5,14 @@ import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +35,8 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
@@ -76,6 +81,7 @@ import io.github.lordofpolls.shellwave.ssh.RemoteEntry
 import io.github.lordofpolls.shellwave.ssh.SftpOp
 import io.github.lordofpolls.shellwave.ssh.SshConnection
 import io.github.lordofpolls.shellwave.ssh.describeSftpFailure
+import io.github.lordofpolls.shellwave.ui.design.ActionTrayChip
 import io.github.lordofpolls.shellwave.ui.design.EmptyState
 import io.github.lordofpolls.shellwave.ui.design.MachineText
 import kotlinx.coroutines.Dispatchers
@@ -519,9 +525,8 @@ fun SftpBrowserScreen(
                                 }
                             },
                             onLongClick = { selected = selected + entry.path },
-                            onOverflow = { menuFor = entry.path },
+                            onOverflow = { menuFor = if (menuFor == entry.path) null else entry.path },
                             menuExpanded = menuFor == entry.path,
-                            onDismissMenu = { menuFor = null },
                             onRename = {
                                 menuFor = null
                                 renaming = entry
@@ -755,7 +760,7 @@ private fun NameDialog(
  * Long-press selects rather than opens a menu of its own: the per-row overflow already covers
  * every single-item action, so a second gesture to reach the same actions would be redundant.
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun SftpEntryRow(
     entry: RemoteEntry,
@@ -765,7 +770,6 @@ private fun SftpEntryRow(
     onLongClick: () -> Unit,
     onOverflow: () -> Unit,
     menuExpanded: Boolean,
-    onDismissMenu: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
@@ -774,90 +778,88 @@ private fun SftpEntryRow(
     onOpenWith: () -> Unit,
     onOpenInTerminal: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .clearAndSetSemantics {
-                contentDescription = "${if (entry.isDirectory) "Folder" else "File"} ${entry.name}"
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        if (selectionMode) {
-            Icon(
-                if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                contentDescription = null,
-            )
-        } else {
-            Icon(
-                if (entry.isDirectory) Icons.Outlined.Folder else Icons.Outlined.Description,
-                contentDescription = null,
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            MachineText(entry.name, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
-            entryDetail(entry)?.let {
-                MachineText(it, maxLines = 1, style = MaterialTheme.typography.bodySmall)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .clearAndSetSemantics {
+                    contentDescription = "${if (entry.isDirectory) "Folder" else "File"} ${entry.name}"
+                },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (selectionMode) {
+                Icon(
+                    if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                    contentDescription = null,
+                )
+            } else {
+                Icon(
+                    if (entry.isDirectory) Icons.Outlined.Folder else Icons.Outlined.Description,
+                    contentDescription = null,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                MachineText(entry.name, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
+                entryDetail(entry)?.let {
+                    MachineText(it, maxLines = 1, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (!selectionMode) {
+                IconButton(onClick = onOverflow) {
+                    Icon(
+                        imageVector = if (menuExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                        contentDescription = if (menuExpanded) {
+                            "Hide options for ${entry.name}"
+                        } else {
+                            "Show options for ${entry.name}"
+                        },
+                    )
+                }
             }
         }
-        if (!selectionMode) {
-            Box {
-                IconButton(onClick = onOverflow) {
-                    Icon(Icons.Outlined.MoreVert, contentDescription = "Options for ${entry.name}")
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = onDismissMenu) {
-                    DropdownMenuItem(
-                        text = { Text("Rename") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Outlined.DriveFileRenameOutline,
-                                contentDescription = null
-                            )
-                        },
-                        onClick = onRename,
+
+        AnimatedVisibility(visible = menuExpanded && !selectionMode) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 48.dp, end = 12.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!entry.isDirectory) {
+                    ActionTrayChip(label = "Edit", icon = Icons.Outlined.Edit, onClick = onEdit)
+                    ActionTrayChip(label = "Download", icon = Icons.Outlined.Download, onClick = onDownload)
+                    ActionTrayChip(
+                        label = "Open with",
+                        icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                        onClick = onOpenWith,
                     )
-                    if (!entry.isDirectory) {
-                        DropdownMenuItem(
-                            text = { Text("Edit") },
-                            leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                            onClick = onEdit,
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Download") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Download,
-                                    contentDescription = null
-                                )
-                            },
-                            onClick = onDownload,
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Open with") },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null) },
-                            onClick = onOpenWith,
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Copy path") },
-                        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
-                        onClick = onCopyPath,
-                    )
-                    if (entry.isDirectory) {
-                        DropdownMenuItem(
-                            text = { Text("Open in terminal") },
-                            leadingIcon = { Icon(Icons.Outlined.Terminal, contentDescription = null) },
-                            onClick = onOpenInTerminal,
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
-                        onClick = onDelete,
+                } else {
+                    ActionTrayChip(
+                        label = "Open in terminal",
+                        icon = Icons.Outlined.Terminal,
+                        onClick = onOpenInTerminal,
                     )
                 }
+                ActionTrayChip(
+                    label = "Rename",
+                    icon = Icons.Outlined.DriveFileRenameOutline,
+                    onClick = onRename,
+                )
+                ActionTrayChip(
+                    label = "Copy path",
+                    icon = Icons.Outlined.ContentCopy,
+                    onClick = onCopyPath,
+                )
+                ActionTrayChip(
+                    label = "Delete",
+                    icon = Icons.Outlined.Delete,
+                    destructive = true,
+                    onClick = onDelete,
+                )
             }
         }
     }

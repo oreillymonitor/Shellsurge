@@ -5,19 +5,24 @@ import android.content.ComponentName
 import android.graphics.drawable.Icon
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,33 +34,31 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.updateAll
+import io.github.lordofpolls.shellwave.R
 import io.github.lordofpolls.shellwave.core.db.entities.HostEntity
 import io.github.lordofpolls.shellwave.core.db.entities.ScriptEntity
 import io.github.lordofpolls.shellwave.core.prefs.WidgetPreferences
-import io.github.lordofpolls.shellwave.R
 import io.github.lordofpolls.shellwave.feature.glance.ScriptTileService
 import io.github.lordofpolls.shellwave.feature.glance.ScriptWidget
+import io.github.lordofpolls.shellwave.ui.design.ActionTrayChip
 import io.github.lordofpolls.shellwave.ui.design.EmptyState
 import io.github.lordofpolls.shellwave.ui.design.LocalReadableInset
+import io.github.lordofpolls.shellwave.ui.design.MachineText
 import io.github.lordofpolls.shellwave.ui.design.ScriptCard
 import kotlinx.coroutines.launch
 
+private enum class ScriptsTab { SAVED, TEMPLATES }
+
 /**
- * The Scripts destination. Each row is a [ScriptCard], carrying Run as its one always-visible
- * action with the rest in a menu.
- *
- * Widget and QS-tile state is read and written here rather than inside ScriptCard, for the reason
- * the delete confirmation is here: a `ui/design` component reports intent and renders what it is
- * given, while [WidgetPreferences] and `ScriptWidget.updateAll` are app state.
- *
- * Pinning is offered only for capture-mode scripts, because `ScriptTriggerService` refuses
- * everything else on a background trigger. That refusal is a security boundary, so the UI must not
- * offer to cross it.
+ * The Scripts destination, organized into two inline tabs (`My scripts` and `Templates`) so
+ * built-in starter templates are directly browsable without a popup menu or dialog.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,22 +81,9 @@ fun ScriptsScreen(
     var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // WidgetPreferences has no change-notification Flow, so this is re-read through `pinChanges`
-    // after every write. A screen-wide counter and not per-script state, so a QS-tile change -
-    // which implicitly clears whichever other script held the tile - refreshes every card.
+    // after every write.
     var pinChanges by remember { mutableStateOf(0) }
-
-    // Owned here rather than by the top bar, because the empty state opens it too.
-    var templatesOpen by rememberSaveable { mutableStateOf(false) }
-
-    if (templatesOpen) {
-        ScriptTemplateDialog(
-            onPick = { template ->
-                templatesOpen = false
-                onAddFromTemplate(template)
-            },
-            onDismiss = { templatesOpen = false },
-        )
-    }
+    var activeTab by rememberSaveable { mutableStateOf(ScriptsTab.SAVED) }
 
     Scaffold(
         modifier = modifier,
@@ -104,12 +94,6 @@ fun ScriptsScreen(
                 title = { Text("Scripts") },
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 actions = {
-                    IconButton(onClick = { templatesOpen = true }) {
-                        Icon(
-                            Icons.Outlined.LibraryBooks,
-                            contentDescription = "Start from a template"
-                        )
-                    }
                     IconButton(onClick = onAdd) {
                         Icon(Icons.Outlined.Add, contentDescription = "Add script")
                     }
@@ -117,86 +101,165 @@ fun ScriptsScreen(
             )
         },
     ) { innerPadding ->
-        if (scripts.isEmpty()) {
-            // The catalogue over the blank editor the "+" already reaches: EmptyState has one
-            // action slot, and someone with no scripts is least able to write one from nothing.
-            EmptyState(
-                message = "No scripts yet.",
-                actionLabel = "Start from a template",
-                onAction = { templatesOpen = true },
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(horizontal = 16.dp + LocalReadableInset.current, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp + LocalReadableInset.current, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(scripts, key = { it.id }) { script ->
-                    val capture = isCapture(script.mode)
-                    // What a widget, tile or shortcut can actually run: capture mode and a fixed
-                    // host, since "ask each run" has no picker out there. History stays on
-                    // `capture` alone - past runs exist however the host was chosen.
-                    val runnableInBackground = capture && script.targetHostId != null
-                    val pinned = remember(script.id, pinChanges) {
-                        WidgetPreferences.isPinned(
-                            context,
-                            script.id
-                        )
-                    }
-                    val isQsTile = remember(
-                        script.id,
-                        pinChanges
-                    ) { WidgetPreferences.qsTileScriptId(context) == script.id }
+                ActionTrayChip(
+                    label = "My scripts (${scripts.size})",
+                    selected = activeTab == ScriptsTab.SAVED,
+                    onClick = { activeTab = ScriptsTab.SAVED },
+                )
+                ActionTrayChip(
+                    label = "Templates (${ScriptTemplates.ALL.size})",
+                    selected = activeTab == ScriptsTab.TEMPLATES,
+                    onClick = { activeTab = ScriptsTab.TEMPLATES },
+                )
+            }
 
-                    ScriptCard(
-                        name = script.name,
-                        modeAndTarget = scriptModeAndTarget(script, hosts),
-                        accent = script.color?.let { Color(it) },
-                        pinnedToWidget = pinned,
-                        isQsTile = isQsTile,
-                        onRun = { onRun(script) },
-                        onEdit = { onEdit(script) },
-                        onDelete = { pendingDeleteId = script.id },
-                        onHistory = if (capture) ({ onHistory(script) }) else null,
-                        // Undoing stays offered once a script stops being runnable (edited to "ask
-                        // each run", or its host deleted), or the badge has no way off.
-                        onPinToWidget =
-                            if (!runnableInBackground && !pinned) {
-                                null
-                            } else {
-                                {
-                                    WidgetPreferences.setPinned(context, script.id, !pinned)
-                                    pinChanges++
-                                    scope.launch { ScriptWidget().updateAll(context) }
+            when (activeTab) {
+                ScriptsTab.SAVED -> {
+                    if (scripts.isEmpty()) {
+                        EmptyState(
+                            message = "No scripts yet.",
+                            actionLabel = "Browse templates",
+                            onAction = { activeTab = ScriptsTab.TEMPLATES },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentPadding = PaddingValues(
+                                start = 16.dp + LocalReadableInset.current,
+                                end = 16.dp + LocalReadableInset.current,
+                                top = 8.dp,
+                                bottom = 16.dp,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(scripts, key = { it.id }) { script ->
+                                val capture = isCapture(script.mode)
+                                val runnableInBackground = capture && script.targetHostId != null
+                                val pinned = remember(script.id, pinChanges) {
+                                    WidgetPreferences.isPinned(context, script.id)
                                 }
-                            },
-                        onUseForQsTile =
-                            if (!runnableInBackground && !isQsTile) {
-                                null
-                            } else {
-                                {
-                                    WidgetPreferences.setQsTileScriptId(
-                                        context,
-                                        if (isQsTile) null else script.id
-                                    )
-                                    pinChanges++
-                                    if (!isQsTile && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        context.getSystemService(StatusBarManager::class.java)
-                                            ?.requestAddTileService(
-                                                ComponentName(context, ScriptTileService::class.java),
-                                                script.name,
-                                                Icon.createWithResource(context, R.drawable.ic_stat_shellwave),
-                                                context.mainExecutor,
-                                            ) {}
+                                val isQsTile = remember(script.id, pinChanges) {
+                                    WidgetPreferences.qsTileScriptId(context) == script.id
+                                }
+
+                                ScriptCard(
+                                    name = script.name,
+                                    modeAndTarget = scriptModeAndTarget(script, hosts),
+                                    accent = script.color?.let { Color(it) },
+                                    pinnedToWidget = pinned,
+                                    isQsTile = isQsTile,
+                                    onRun = { onRun(script) },
+                                    onEdit = { onEdit(script) },
+                                    onDelete = { pendingDeleteId = script.id },
+                                    onHistory = if (capture) ({ onHistory(script) }) else null,
+                                    onPinToWidget =
+                                        if (!runnableInBackground && !pinned) {
+                                            null
+                                        } else {
+                                            {
+                                                WidgetPreferences.setPinned(context, script.id, !pinned)
+                                                pinChanges++
+                                                scope.launch { ScriptWidget().updateAll(context) }
+                                            }
+                                        },
+                                    onUseForQsTile =
+                                        if (!runnableInBackground && !isQsTile) {
+                                            null
+                                        } else {
+                                            {
+                                                WidgetPreferences.setQsTileScriptId(
+                                                    context,
+                                                    if (isQsTile) null else script.id,
+                                                )
+                                                pinChanges++
+                                                if (!isQsTile && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                    context.getSystemService(StatusBarManager::class.java)
+                                                        ?.requestAddTileService(
+                                                            ComponentName(context, ScriptTileService::class.java),
+                                                            script.name,
+                                                            Icon.createWithResource(context, R.drawable.ic_stat_shellwave),
+                                                            context.mainExecutor,
+                                                        ) {}
+                                                }
+                                            }
+                                        },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                ScriptsTab.TEMPLATES -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(
+                            start = 16.dp + LocalReadableInset.current,
+                            end = 16.dp + LocalReadableInset.current,
+                            top = 8.dp,
+                            bottom = 16.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(ScriptTemplates.ALL, key = { it.name }) { template ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                                        ) {
+                                            Text(
+                                                text = template.name,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                            Text(
+                                                text = template.description,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        FilledTonalButton(
+                                            onClick = { onAddFromTemplate(template) },
+                                        ) {
+                                            Text("Use")
+                                        }
                                     }
+                                    MachineText(
+                                        text = template.snippet,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
                                 }
-                            },
-                    )
+                            }
+                        }
+                    }
                 }
             }
         }

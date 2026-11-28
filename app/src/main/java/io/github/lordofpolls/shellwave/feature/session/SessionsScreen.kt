@@ -273,7 +273,7 @@ fun SessionsScreen(
         var scriptPickerOpen by remember(current?.id) { mutableStateOf(false) }
         var promptComposerOpen by remember(current?.id) { mutableStateOf(false) }
         var composerInitialText by remember(current?.id) { mutableStateOf("") }
-        var quickResponseOpen by remember(current?.id) { mutableStateOf(false) }
+        var sessionTrayOpen by remember(current?.id) { mutableStateOf(false) }
         var gitDiffOpen by remember(current?.id) { mutableStateOf(false) }
         var linksSheetOpen by remember(current?.id) { mutableStateOf(false) }
         var readableOutputOpen by remember(current?.id) { mutableStateOf(false) }
@@ -308,60 +308,9 @@ fun SessionsScreen(
             onClose = sessionManager::closeSession,
             onNewSession = onNewSession,
             overflow = {
-                // Close is the exception: closing a session that never connected is exactly
-                // what a user needs when one is stuck.
-                val overflowConnection =
-                    current?.connection?.takeIf { current.status == SessionStatus.CONNECTED }
-                // current.connection, not the CONNECTED-gated overflowConnection: "Stop logging"
-                // must stay reachable through a drop or reconnect, not just while the channel that
-                // started it is still up. Memoized per session id, not a fresh fallback flow on
-                // every recomposition.
-                val loggingFlow = remember(current?.id) {
-                    current?.connection?.isLogging ?: MutableStateFlow(false)
-                }
-                val isLogging by loggingFlow.collectAsState()
-                TerminalOverflowMenu(
-                    connection = overflowConnection,
-                    bellMode = bellMode,
-                    onBellMode = { mode -> BellPreferences.set(bellContext, mode) },
-                    outputAlertsEnabled = current?.outputAlertsEnabled ?: true,
-                    onToggleOutputAlerts = current?.let { s ->
-                        { sessionManager.setSessionOutputAlerts(s.id, !s.outputAlertsEnabled) }
-                    },
-                    onDownload = { connection -> fileTransferController.requestDownload(connection) },
-                    onUpload = { connection -> fileTransferController.requestUpload(connection) },
-                    onBrowseFiles = { connection ->
-                        current?.let { onBrowseFiles(it.id, connection) }
-                    },
-                    onRunScript = if (runnableHere.isEmpty()) null else ({
-                        scriptPickerOpen = true
-                    }),
-                    onPromptComposer = {
-                        composerInitialText = ""
-                        promptComposerOpen = true
-                    },
-                    onAgentQuickResponse = { quickResponseOpen = true },
-                    onClose = current?.let { { sessionManager.closeSession(it.id) } },
-                    onSearch = searchController::show,
-                    isLogging = isLogging,
-                    onStartLogging = loggingController::requestStart,
-                    onStopLogging = { current?.connection?.stopLogging() },
-                    onOpenGitDiff = if (current?.status == SessionStatus.CONNECTED) ({
-                        gitDiffOpen = true
-                    }) else null,
-                    onOpenLinks = if (current?.connection?.emulatorOrNull != null) ({
-                        linksSheetOpen = true
-                    }) else null,
-                    onOpenReadableOutput = if (current?.connection?.emulatorOrNull != null) ({
-                        readableRefreshTick++
-                        readableOutputOpen = true
-                    }) else null,
-                    onOpenTmux = if (current?.status == SessionStatus.CONNECTED) ({
-                        tmuxSheetOpen = true
-                    }) else null,
-                    onOpenListeningPorts = if (current?.status == SessionStatus.CONNECTED) ({
-                        portsSheetOpen = true
-                    }) else null,
+                TerminalTrayToggleButton(
+                    expanded = sessionTrayOpen,
+                    onToggle = { sessionTrayOpen = !sessionTrayOpen },
                 )
             },
         )
@@ -392,36 +341,6 @@ fun SessionsScreen(
                     onRunScript(script, current.connection)
                 },
                 onDismiss = { scriptPickerOpen = false },
-            )
-        }
-
-        if (quickResponseOpen && current != null) {
-            AgentQuickResponseSheet(
-                onSendText = { text, sendEnter ->
-                    val conn = current.connection
-                    val emulator = conn.emulatorOrNull
-                    if (emulator != null && text.isNotEmpty()) {
-                        emulator.paste(text)
-                    } else if (text.isNotEmpty()) {
-                        conn.write(text.replace("\n", "\r"))
-                    }
-                    if (sendEnter) {
-                        conn.write("\r")
-                    }
-                },
-                onSendRaw = { control ->
-                    current.connection.write(control)
-                },
-                onOpenComposerWithText = { initialText ->
-                    quickResponseOpen = false
-                    composerInitialText = initialText
-                    promptComposerOpen = true
-                },
-                onOpenGitDiff = if (current.status == SessionStatus.CONNECTED) ({
-                    quickResponseOpen = false
-                    gitDiffOpen = true
-                }) else null,
-                onDismiss = { quickResponseOpen = false },
             )
         }
 
@@ -625,29 +544,80 @@ fun SessionsScreen(
             )
         }
 
-        SessionsSplitLayout(
-            posture = posture,
-            isWide = isWide,
-            fullWidthTerminal = fullWidthTerminal,
-            onToggleFullWidth = {
-                SessionLayoutPreferences.setFullWidthTerminal(layoutContext, !fullWidthTerminal)
-            },
-            navigator = navigator,
-            selectedId = selectedId,
-            onSelect = ::selectSession,
-            summaries = summaries,
-            hosts = hosts,
-            sessionManager = sessionManager,
-            terminalProfile = terminalProfile,
-            terminalProfileDao = terminalProfileDao,
-            keyBarLayoutDao = keyBarLayoutDao,
-            fileTransferController = fileTransferController,
-            searchController = searchController,
-            onEditRemoteFile = onEditRemoteFile,
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxSize(),
-        )
+        ) {
+            SessionsSplitLayout(
+                posture = posture,
+                isWide = isWide,
+                fullWidthTerminal = fullWidthTerminal,
+                onToggleFullWidth = {
+                    SessionLayoutPreferences.setFullWidthTerminal(layoutContext, !fullWidthTerminal)
+                },
+                navigator = navigator,
+                selectedId = selectedId,
+                onSelect = ::selectSession,
+                summaries = summaries,
+                hosts = hosts,
+                sessionManager = sessionManager,
+                terminalProfile = terminalProfile,
+                terminalProfileDao = terminalProfileDao,
+                keyBarLayoutDao = keyBarLayoutDao,
+                fileTransferController = fileTransferController,
+                searchController = searchController,
+                onEditRemoteFile = onEditRemoteFile,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            val trayConnection =
+                current?.connection?.takeIf { current.status == SessionStatus.CONNECTED }
+            val loggingFlow = remember(current?.id) {
+                current?.connection?.isLogging ?: MutableStateFlow(false)
+            }
+            val isLogging by loggingFlow.collectAsState()
+            TerminalSessionTray(
+                expanded = sessionTrayOpen,
+                connection = trayConnection,
+                bellMode = bellMode,
+                onBellMode = { mode -> BellPreferences.set(bellContext, mode) },
+                outputAlertsEnabled = current?.outputAlertsEnabled ?: true,
+                onToggleOutputAlerts = current?.let { s ->
+                    { sessionManager.setSessionOutputAlerts(s.id, !s.outputAlertsEnabled) }
+                },
+                onDownload = { connection -> fileTransferController.requestDownload(connection) },
+                onUpload = { connection -> fileTransferController.requestUpload(connection) },
+                onBrowseFiles = { connection ->
+                    current?.let { onBrowseFiles(it.id, connection) }
+                },
+                onRunScript = if (runnableHere.isEmpty()) null else ({
+                    scriptPickerOpen = true
+                }),
+                onClose = current?.let { { sessionManager.closeSession(it.id) } },
+                onSearch = searchController::show,
+                isLogging = isLogging,
+                onStartLogging = loggingController::requestStart,
+                onStopLogging = { current?.connection?.stopLogging() },
+                onOpenGitDiff = if (current?.status == SessionStatus.CONNECTED) ({
+                    gitDiffOpen = true
+                }) else null,
+                onOpenLinks = if (current?.connection?.emulatorOrNull != null) ({
+                    linksSheetOpen = true
+                }) else null,
+                onOpenReadableOutput = if (current?.connection?.emulatorOrNull != null) ({
+                    readableRefreshTick++
+                    readableOutputOpen = true
+                }) else null,
+                onOpenTmux = if (current?.status == SessionStatus.CONNECTED) ({
+                    tmuxSheetOpen = true
+                }) else null,
+                onOpenListeningPorts = if (current?.status == SessionStatus.CONNECTED) ({
+                    portsSheetOpen = true
+                }) else null,
+                onDismiss = { sessionTrayOpen = false },
+            )
+        }
     }
 
     // Once for the screen: an AlertDialog overlays everything wherever it is composed.

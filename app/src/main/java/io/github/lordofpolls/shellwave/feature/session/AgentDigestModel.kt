@@ -1,6 +1,7 @@
 package io.github.lordofpolls.shellwave.feature.session
 
 import android.content.Context
+import io.github.lordofpolls.shellwave.ssh.NotificationQuickAction
 import io.github.lordofpolls.shellwave.terminal.TerminalTextSanitizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -120,6 +121,9 @@ internal object AgentDigestModel {
         "should i",
         "shall i",
         "want me to",
+        "ready to",
+        "want to",
+        "go ahead",
         "apply",
     )
     private val PROMPT_LINE_REGEX = Regex("^[\\w.-]+@[\\w.-]+:.*[$#%]\\s*$|^[$#>❯➜%]\\s*$")
@@ -177,6 +181,71 @@ internal object AgentDigestModel {
             }
         }
         return result
+    }
+
+    private val TWO_CHOICE_QUESTION_REGEX = Regex(
+        "(?i)(?:would you like(?: me)? to|do you want(?: me)? to|should i|want me to)\\s+(.+?)(?:,\\s*or\\s+|\\s+or\\s+)(?:(?:should i|would you like(?: me)? to|do you want(?: me)? to)\\s+)?(.+?)\\??$",
+    )
+    private val VIA_CLAUSE_REGEX = Regex("\\s+(?:via|using)\\s+.*$", RegexOption.IGNORE_CASE)
+
+    private fun truncateQuickActionLabel(label: String, maxChars: Int = 20): String {
+        val trimmed = label.trim()
+        return if (trimmed.length <= maxChars) trimmed else trimmed.take(maxChars - 1).trimEnd() + "…"
+    }
+
+    private fun extractChoiceQuickActions(question: String?): List<NotificationQuickAction> {
+        val q = question?.trim()?.takeIf { it.isNotEmpty() } ?: return emptyList()
+        val match = TWO_CHOICE_QUESTION_REGEX.find(q) ?: return emptyList()
+        val choices = listOf(match.groupValues[1], match.groupValues[2]).mapNotNull { raw ->
+            val cleaned = cleanDigestLine(raw)
+            val withoutVia = VIA_CLAUSE_REGEX.replace(cleaned, "").trim().trimEnd(',', '.', '?', ';')
+            val finalSend = withoutVia.ifBlank { cleaned.trimEnd(',', '.', '?', ';') }.trim()
+            if (finalSend.length < 2) {
+                null
+            } else {
+                val label = truncateQuickActionLabel(
+                    finalSend.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() },
+                )
+                NotificationQuickAction(label = label, sendText = finalSend.take(64))
+            }
+        }
+        return if (choices.size == 2 && !choices[0].sendText.equals(choices[1].sendText, ignoreCase = true)) {
+            choices
+        } else {
+            emptyList()
+        }
+    }
+
+    internal fun resolveNotificationQuickActions(
+        watcherActions: List<NotificationQuickAction>,
+        digest: AgentDigestResult,
+        isResponseNeeded: Boolean,
+    ): List<NotificationQuickAction> {
+        if (watcherActions.isNotEmpty()) return watcherActions.take(2)
+        if (digest.quickActions.isNotEmpty()) {
+            return digest.quickActions.take(2).map { action ->
+                NotificationQuickAction(
+                    label = truncateQuickActionLabel(action.label),
+                    sendText = action.sendText,
+                )
+            }
+        }
+        if (isResponseNeeded || digest.hasQuestion) {
+            val choiceActions = extractChoiceQuickActions(digest.question)
+            if (choiceActions.isNotEmpty()) return choiceActions
+            return if (isResponseNeeded) {
+                listOf(
+                    NotificationQuickAction("Yes", "y"),
+                    NotificationQuickAction("No", "n"),
+                )
+            } else {
+                listOf(
+                    NotificationQuickAction("Yes", "yes"),
+                    NotificationQuickAction("No", "no"),
+                )
+            }
+        }
+        return emptyList()
     }
 
     internal fun formatNotificationTitle(

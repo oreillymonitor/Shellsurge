@@ -664,9 +664,16 @@ constructor(
                                 return@launch
                             }
 
+                            val effectiveResponseNeeded = isResponseNeeded || digest.hasQuestion
+                            val resolvedActions = AgentDigestModel.resolveNotificationQuickActions(
+                                watcherActions = actions,
+                                digest = digest,
+                                isResponseNeeded = isResponseNeeded,
+                            )
+
                             entry.cachedDigest = CachedTurnDigest(
                                 turnEpoch = turnEpoch,
-                                isResponseNeeded = isResponseNeeded,
+                                isResponseNeeded = effectiveResponseNeeded,
                                 result = digest,
                                 wasAwayWhenCompleted = wasAway,
                                 dismissed = false,
@@ -676,7 +683,7 @@ constructor(
                             val filter = NotificationPreferences.getNotificationFilter(context)
                             val passesFilter = NotificationPreferences.shouldNotifyForOutcome(
                                 filter = filter,
-                                isResponseNeeded = isResponseNeeded,
+                                isResponseNeeded = effectiveResponseNeeded,
                                 isError = digest.isError,
                             )
                             if (willPostNotification && passesFilter) {
@@ -688,7 +695,7 @@ constructor(
                                         ?.trim()
                                         ?.takeIf { it.isNotEmpty() }
                                         ?: compactSessionHostLabel(entry.label)
-                                    val notifyTitle = AgentDigestModel.formatNotificationTitle(isResponseNeeded, digest)
+                                    val notifyTitle = AgentDigestModel.formatNotificationTitle(effectiveResponseNeeded, digest)
                                     val notifyBody = AgentDigestModel.formatNotificationBody(digest, fallbackBody)
                                     sessionAlerts.commandOutput(
                                         sessionId = entry.id,
@@ -696,8 +703,8 @@ constructor(
                                         body = notifyBody,
                                         isActiveTab = nowActiveTab,
                                         notifyOnActiveTab = notifyOnActiveTab,
-                                        isResponseNeeded = isResponseNeeded,
-                                        quickActions = actions,
+                                        isResponseNeeded = effectiveResponseNeeded,
+                                        quickActions = resolvedActions,
                                         turnEpoch = turnEpoch,
                                         subText = shortHost,
                                         isError = digest.isError,

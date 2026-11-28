@@ -2,7 +2,6 @@ package io.github.lordofpolls.shellwave.feature.session
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -10,22 +9,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.Build
@@ -57,7 +56,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -69,6 +74,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.lordofpolls.shellwave.core.prefs.READABLE_FONT_SIZE_RANGE
@@ -119,7 +125,22 @@ internal fun ReadableOutputSheet(
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var fontSizeSp by remember { mutableIntStateOf(SessionLayoutPreferences.getReadableFontSizeSp(context)) }
-    val contentScrollState = rememberScrollState()
+    val listState = rememberLazyListState()
+    val rawHorizontalScrollState = rememberScrollState()
+    val blockSheetDragConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset = available
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity,
+            ): Velocity = available
+        }
+    }
 
     LaunchedEffect(copiedAll) {
         if (copiedAll) {
@@ -128,8 +149,8 @@ internal fun ReadableOutputSheet(
         }
     }
 
-    LaunchedEffect(scope) {
-        contentScrollState.scrollTo(0)
+    LaunchedEffect(scope, renderMode) {
+        listState.scrollToItem(0)
     }
 
     val latestLineCount = remember(latestTurnText) {
@@ -148,6 +169,13 @@ internal fun ReadableOutputSheet(
         ReadableScope.SCROLLBACK -> fullScrollbackText
     }
     val blocks = remember(activeText) { parseReadableBlocks(activeText) }
+    val rawChunks = remember(activeText) {
+        if (activeText.isBlank()) {
+            emptyList()
+        } else {
+            activeText.lines().chunked(40).map { it.joinToString("\n") }
+        }
+    }
     val cleanQuery = searchQuery.trim()
     val filteredBlocks = remember(blocks, cleanQuery) {
         if (cleanQuery.isEmpty()) {
@@ -347,44 +375,52 @@ internal fun ReadableOutputSheet(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
                 )
             } else {
-                SelectionContainer(modifier = Modifier.weight(1f)) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(contentScrollState)
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        if (renderMode == ReadableRenderMode.RAW) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                            ) {
-                                Text(
-                                    text = highlightSearchInPlainText(
-                                        text = activeText,
-                                        query = cleanQuery,
-                                        highlightBg = MaterialTheme.colorScheme.tertiaryContainer,
-                                        highlightFg = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        fontSize = (fontSizeSp - 2).coerceAtLeast(11).sp,
-                                        lineHeight = ((fontSizeSp - 2).coerceAtLeast(11) * 1.48f).sp,
-                                    ),
-                                    fontFamily = ChromeMonoFontFamily,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (renderMode == ReadableRenderMode.RAW) 0.dp else 10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .nestedScroll(blockSheetDragConnection),
+                ) {
+                    if (renderMode == ReadableRenderMode.RAW) {
+                        itemsIndexed(rawChunks) { _, chunk ->
+                            SelectionContainer {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rawHorizontalScrollState),
+                                ) {
+                                    Text(
+                                        text = highlightSearchInPlainText(
+                                            text = chunk,
+                                            query = cleanQuery,
+                                            highlightBg = MaterialTheme.colorScheme.tertiaryContainer,
+                                            highlightFg = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = (fontSizeSp - 2).coerceAtLeast(11).sp,
+                                            lineHeight = ((fontSizeSp - 2).coerceAtLeast(11) * 1.48f).sp,
+                                        ),
+                                        fontFamily = ChromeMonoFontFamily,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
                             }
-                        } else if (filteredBlocks.isEmpty()) {
+                        }
+                    } else if (filteredBlocks.isEmpty()) {
+                        item {
                             Text(
                                 text = "No matching blocks for \"$cleanQuery\".",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(vertical = 12.dp),
                             )
-                        } else {
-                            filteredBlocks.forEachIndexed { index, block ->
+                        }
+                    } else {
+                        itemsIndexed(filteredBlocks) { index, block ->
+                            SelectionContainer {
                                 when (block) {
                                     is ReadableBlock.Heading -> ReadableHeadingBlock(
                                         level = block.level,
@@ -938,34 +974,30 @@ private fun ReadableQuoteBlock(
     searchQuery: String,
     onOpenUrl: (String) -> Unit,
 ) {
+    val accentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
+        Text(
+            text = rememberFormattedText(text = text, onOpenUrl = onOpenUrl, searchQuery = searchQuery),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = (baseFontSizeSp - 1).coerceAtLeast(11).sp,
+                lineHeight = ((baseFontSizeSp - 1).coerceAtLeast(11) * 1.48f).sp,
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Min),
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)),
-            )
-            Text(
-                text = rememberFormattedText(text = text, onOpenUrl = onOpenUrl, searchQuery = searchQuery),
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = (baseFontSizeSp - 1).coerceAtLeast(11).sp,
-                    lineHeight = ((baseFontSizeSp - 1).coerceAtLeast(11) * 1.48f).sp,
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-            )
-        }
+                .drawBehind {
+                    drawRect(
+                        color = accentColor,
+                        topLeft = Offset.Zero,
+                        size = Size(3.dp.toPx(), size.height),
+                    )
+                }
+                .padding(start = 13.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+        )
     }
 }
 

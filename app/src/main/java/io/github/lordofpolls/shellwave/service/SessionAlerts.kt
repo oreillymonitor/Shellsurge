@@ -151,12 +151,19 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                         0,
                         action.label,
                         quickReplyPendingIntent(id * 5 + idx + 1, sessionId, action.sendText, mutable = false),
-                    ).build()
+                    )
+                        .setShowsUserInterface(false)
+                        .build()
                 )
             }
 
             val remoteInput = RemoteInput.Builder(SessionReplyReceiver.KEY_DIRECT_REPLY)
                 .setLabel("Send to terminal…")
+                .apply {
+                    if (actionsToAttach.isNotEmpty()) {
+                        setChoices(actionsToAttach.map { it.label }.toTypedArray())
+                    }
+                }
                 .build()
             builder.addAction(
                 NotificationCompat.Action.Builder(
@@ -166,6 +173,8 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                 )
                     .addRemoteInput(remoteInput)
                     .setAllowGeneratedReplies(false)
+                    .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+                    .setShowsUserInterface(false)
                     .build()
             )
 

@@ -1,5 +1,6 @@
 package io.github.lordofpolls.shellwave.feature.session
 
+import io.github.lordofpolls.shellwave.ssh.NotificationQuickAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -303,5 +304,63 @@ class AgentDigestModelTest {
 
         val readyDigest = AgentDigestResult(spokenSummary = "Reviewed session logs.")
         assertEquals("Ready for next prompt", AgentDigestModel.formatNotificationTitle(isResponseNeeded = false, readyDigest))
+    }
+
+    @Test
+    fun `resolveNotificationQuickActions surfaces two-choice, yes-no, and menu actions even when watcher marked COMPLETED`() {
+        val choiceDigest = AgentDigestModel.fallbackAnalyze(
+            "Fixed Read Mode scroll jitter.\nWould you like to test this locally via ./gradlew :app:installFossDebug, or push and cut 1.16.11?",
+        )
+        assertTrue(choiceDigest.hasQuestion)
+        val choiceActions = AgentDigestModel.resolveNotificationQuickActions(
+            watcherActions = emptyList(),
+            digest = choiceDigest,
+            isResponseNeeded = false,
+        )
+        assertEquals(
+            listOf(
+                NotificationQuickAction("Test this locally", "test this locally"),
+                NotificationQuickAction("Push and cut 1.16.11", "push and cut 1.16.11"),
+            ),
+            choiceActions,
+        )
+
+        val readyPromptDigest = AgentDigestModel.fallbackAnalyze(
+            "All checks passed.\nReady to push these notification fixes to master, wait for CI, and cut 1.16.10?",
+        )
+        assertTrue(readyPromptDigest.hasQuestion)
+        val readyActions = AgentDigestModel.resolveNotificationQuickActions(
+            watcherActions = emptyList(),
+            digest = readyPromptDigest,
+            isResponseNeeded = false,
+        )
+        assertEquals(
+            listOf(
+                NotificationQuickAction("Yes", "yes"),
+                NotificationQuickAction("No", "no"),
+            ),
+            readyActions,
+        )
+
+        val menuDigest = AgentDigestModel.fallbackAnalyze(
+            "Allow edit?\n1) Allow once\n2) Allow for session\n3) Deny",
+        )
+        val menuActions = AgentDigestModel.resolveNotificationQuickActions(
+            watcherActions = emptyList(),
+            digest = menuDigest,
+            isResponseNeeded = true,
+        )
+        assertEquals(2, menuActions.size)
+        assertEquals("1", menuActions[0].sendText)
+        assertEquals("2", menuActions[1].sendText)
+
+        val idleDigest = AgentDigestResult(spokenSummary = "Tests passed.")
+        assertTrue(
+            AgentDigestModel.resolveNotificationQuickActions(
+                watcherActions = emptyList(),
+                digest = idleDigest,
+                isResponseNeeded = false,
+            ).isEmpty(),
+        )
     }
 }

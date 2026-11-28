@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.16.5 - 2026-11-27
+
+### Fixed
+- Restore standard Material 3 dropdown menus for all `⋮` overflow buttons across Hosts and Terminal sessions
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.4...1.16.5)
+
 ## 1.16.4 - 2026-11-27
 
 ### Improved

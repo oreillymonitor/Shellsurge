@@ -1,6 +1,15 @@
 # Changelog
 
 
+## 1.16.4 - 2026-11-27
+
+### Improved
+- Switch terminal overflow (`⋮`) menu to a styled top-right anchored dropdown popover
+- Upgrade Readable Output formatting with structured Markdown blocks, reflowed prose, inline styles, diff/table cards, and a Formatted/Raw toggle
+- Separate and group `http(s)://` web links vs `file://` links in Links sheet with filter pills and direct remote file editing
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.3...1.16.4)
+
 ## 1.16.3 - 2026-11-27
 
 ### New

@@ -1,6 +1,17 @@
 # Changelog
 
 
+## 1.16.3 - 2026-11-27
+
+### New
+- Add complementary File attachment upload to Prompt Composer alongside Image
+- Add remote `tmux` session, window, and pane management drawer with bell/activity indicators
+- Add Listening Ports scanner drawer with 1-tap SSH local forwarding and browser preview
+- Add optional app-wide biometric/PIN lock, timeout selector, and `FLAG_SECURE` Recents privacy toggle
+- Add pinned Settings search bar to filter preference sections
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.2...1.16.3)
+
 ## 1.16.2 - 2026-11-27
 
 ### New

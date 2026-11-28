@@ -16,6 +16,14 @@ import kotlin.math.min
  */
 enum class LinkType { URL, IP, PATH }
 
+enum class SessionLinkCategory { WEB, FILE, OTHER }
+
+data class GroupedSessionLinks(
+    val web: List<TerminalLink>,
+    val files: List<TerminalLink>,
+    val other: List<TerminalLink>,
+)
+
 data class LinkRowSpan(
     val row: Int,
     val startCol: Int,
@@ -682,6 +690,74 @@ fun urlDisplayHost(url: String): String {
     val uri = runCatching { URI(url) }.getOrNull() ?: return "Open link"
     val host = uri.host?.takeIf { it.isNotBlank() } ?: return uri.scheme ?: "Open link"
     return if (uri.port > 0) "$host:${uri.port}" else host
+}
+
+fun classifyLinkScheme(url: String): SessionLinkCategory {
+    val scheme = url.substringBefore("://", missingDelimiterValue = "").lowercase()
+    return when (scheme) {
+        "http", "https" -> SessionLinkCategory.WEB
+        "file" -> SessionLinkCategory.FILE
+        else -> SessionLinkCategory.OTHER
+    }
+}
+
+fun groupSessionLinks(links: List<TerminalLink>): GroupedSessionLinks {
+    val web = mutableListOf<TerminalLink>()
+    val files = mutableListOf<TerminalLink>()
+    val other = mutableListOf<TerminalLink>()
+    for (link in links) {
+        when (classifyLinkScheme(link.text)) {
+            SessionLinkCategory.WEB -> web += link
+            SessionLinkCategory.FILE -> files += link
+            SessionLinkCategory.OTHER -> other += link
+        }
+    }
+    return GroupedSessionLinks(web = web, files = files, other = other)
+}
+
+private val FILE_LINE_SUFFIX_REGEX = Regex(""":(\d+)(?::\d+)?$""")
+
+/**
+ * Extracts and percent-decodes a POSIX path from a `file://` URI, stripping any trailing
+ * `#L...` fragment or `:line(:col)` suffix. Returns `null` for non-`file://` URIs.
+ */
+fun extractFileUriPath(url: String): String? {
+    if (!url.startsWith("file://", ignoreCase = true)) return null
+    val rawPath = runCatching {
+        val uri = URI(url)
+        if (!uri.scheme.equals("file", ignoreCase = true)) return@runCatching null
+        uri.rawPath?.takeIf { it.isNotEmpty() }
+    }.getOrNull() ?: run {
+        val withoutScheme = url.substring(7)
+        val withoutFragOrQuery = withoutScheme.substringBefore('#').substringBefore('?')
+        val normalized = if (withoutFragOrQuery.startsWith("localhost/", ignoreCase = true)) {
+            withoutFragOrQuery.substring("localhost".length)
+        } else {
+            withoutFragOrQuery
+        }
+        normalized.takeIf { it.startsWith("/") }
+    } ?: return null
+
+    val decoded = decodePercentEncodedPath(rawPath)
+    val strippedLineSuffix = FILE_LINE_SUFFIX_REGEX.replace(decoded, "")
+    return strippedLineSuffix.ifBlank { decoded }.takeIf { it.isNotBlank() }
+}
+
+fun linkDisplayTitle(link: TerminalLink): String {
+    link.displayLabel?.takeIf { it.isNotBlank() }?.let { return it }
+    if (classifyLinkScheme(link.text) == SessionLinkCategory.FILE) {
+        val path = extractFileUriPath(link.text)
+        if (path != null) {
+            return path.trimEnd('/').substringAfterLast('/').ifBlank { path }
+        }
+    }
+    return urlDisplayHost(link.text)
+}
+
+private fun decodePercentEncodedPath(raw: String): String {
+    val safeForUrlDecoder = raw.replace("+", "%2B")
+    return runCatching { URLDecoder.decode(safeForUrlDecoder, StandardCharsets.UTF_8.name()) }
+        .getOrDefault(raw)
 }
 
 private fun decodeQueryComponent(raw: String): String =

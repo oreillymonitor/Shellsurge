@@ -1,17 +1,16 @@
 package io.github.lordofpolls.shellwave.feature.session
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.ViewQuilt
@@ -31,13 +30,11 @@ import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.StopCircle
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Upload
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,13 +47,13 @@ import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.ssh.SshConnection
 
 /**
- * The terminal's options drawer, triggered from the chip rail's overflow button and styled to
- * match [PromptComposerDialog] and [AgentQuickResponseSheet].
+ * The terminal's anchored top-right overflow popover, keeping the grouped pill and card styling
+ * while opening directly beneath the `⋮` trigger.
  *
  * [connection] is non-null only while the selected session is `CONNECTED`, gating actions that
  * require a live SSH channel. [onClose] stays available even while connecting/failed.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TerminalOverflowMenu(
     connection: SshConnection?,
@@ -88,35 +85,27 @@ internal fun TerminalOverflowMenu(
         IconButton(onClick = { expanded = true }) {
             Icon(Icons.Outlined.MoreVert, contentDescription = "Session options")
         }
-    }
 
-    if (expanded) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        DropdownMenu(
+            expanded = expanded,
             onDismissRequest = { expanded = false },
-            sheetState = sheetState,
-            dragHandle = { AgentSheetDragHandle() },
+            shape = RoundedCornerShape(16.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            tonalElevation = 6.dp,
+            shadowElevation = 8.dp,
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            ),
+            modifier = Modifier.width(296.dp),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding(),
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SessionSheetHeader(
-                    icon = Icons.Outlined.Tune,
-                    title = "Session options",
-                    onDismiss = { expanded = false },
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 520.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    SessionSheetCard {
+                SessionSheetCard {
                         AgentSectionHeader(title = "Agent & View")
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -359,7 +348,6 @@ internal fun TerminalOverflowMenu(
                             )
                         }
                     }
-                }
             }
         }
     }

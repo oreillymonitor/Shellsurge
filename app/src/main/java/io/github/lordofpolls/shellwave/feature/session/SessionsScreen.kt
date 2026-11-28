@@ -493,6 +493,18 @@ fun SessionsScreen(
                     current.connection.onCopyTextToClipboard(link.text)
                     linksSheetOpen = false
                 },
+                onOpenRemoteFile = if (current.status == SessionStatus.CONNECTED && onEditRemoteFile != null) {
+                    { remotePath ->
+                        linksSheetOpen = false
+                        onEditRemoteFile(current.id, remotePath)
+                    }
+                } else {
+                    null
+                },
+                onCopyText = { text ->
+                    current.connection.onCopyTextToClipboard(text)
+                    linksSheetOpen = false
+                },
                 onDismiss = { linksSheetOpen = false },
             )
         }

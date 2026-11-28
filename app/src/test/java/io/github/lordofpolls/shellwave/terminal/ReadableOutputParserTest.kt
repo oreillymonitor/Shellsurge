@@ -94,4 +94,101 @@ class ReadableOutputParserTest {
             findUrlsInReadableText(text),
         )
     }
+
+    @Test
+    fun `parseReadableBlocks parses headings, prompts, lists, quotes, dividers, tables, and diffs`() {
+        val text = """
+            user@box:~/repo$ ./gradlew test
+            ## Build Summary
+            This is a soft-wrapped sentence
+            that continues cleanly onto the next line.
+
+            Status: passed
+            PASS: unit suite
+
+            - First bullet item that
+              wraps across lines
+            - Second bullet item
+
+            1. Ordered first
+            2. Ordered second
+
+            > Quoted note line one
+            > line two
+
+            ---
+
+            | Task | State |
+            | --- | --- |
+            | lint | OK |
+            | test | OK |
+
+            diff --git a/Foo.kt b/Foo.kt
+            @@ -1,2 +1,2 @@
+            -val x = 1
+            +val x = 2
+        """.trimIndent()
+
+        val blocks = parseReadableBlocks(text)
+        assertEquals(ReadableBlock.Command("user@box:~/repo$", "./gradlew test"), blocks[0])
+        assertEquals(ReadableBlock.Heading(2, "Build Summary"), blocks[1])
+        assertEquals(
+            ReadableBlock.Prose("This is a soft-wrapped sentence that continues cleanly onto the next line."),
+            blocks[2],
+        )
+        assertEquals(ReadableBlock.Prose("Status: passed\nPASS: unit suite"), blocks[3])
+        assertEquals(
+            ReadableBlock.BulletList(
+                listOf(
+                    ReadableListItem("•", "First bullet item that wraps across lines"),
+                    ReadableListItem("•", "Second bullet item"),
+                ),
+            ),
+            blocks[4],
+        )
+        assertEquals(
+            ReadableBlock.BulletList(
+                listOf(
+                    ReadableListItem("1.", "Ordered first"),
+                    ReadableListItem("2.", "Ordered second"),
+                ),
+            ),
+            blocks[5],
+        )
+        assertEquals(ReadableBlock.Quote("Quoted note line one line two"), blocks[6])
+        assertEquals(ReadableBlock.Divider, blocks[7])
+        assertEquals(
+            ReadableBlock.Table(
+                headers = listOf("Task", "State"),
+                rows = listOf(listOf("lint", "OK"), listOf("test", "OK")),
+            ),
+            blocks[8],
+        )
+        val diff = blocks[9] as ReadableBlock.Diff
+        assertEquals("diff --git a/Foo.kt b/Foo.kt", diff.lines.first())
+        assertTrue(diff.lines.contains("+val x = 2"))
+    }
+
+    @Test
+    fun `parseInlineSpans parses bold, italic, inline code, markdown links, and bare urls`() {
+        val spans = parseInlineSpans(
+            "See **important** *note* in `Foo.kt` at [docs](https://example.com/docs) or https://example.com/raw.",
+        )
+        assertEquals(
+            listOf(
+                ReadableInlineSpan.Plain("See "),
+                ReadableInlineSpan.Bold("important"),
+                ReadableInlineSpan.Plain(" "),
+                ReadableInlineSpan.Italic("note"),
+                ReadableInlineSpan.Plain(" in "),
+                ReadableInlineSpan.InlineCode("Foo.kt"),
+                ReadableInlineSpan.Plain(" at "),
+                ReadableInlineSpan.Link("docs", "https://example.com/docs"),
+                ReadableInlineSpan.Plain(" or "),
+                ReadableInlineSpan.Link("https://example.com/raw", "https://example.com/raw"),
+                ReadableInlineSpan.Plain("."),
+            ),
+            spans,
+        )
+    }
 }

@@ -95,7 +95,7 @@ fun KeyBarLayoutsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "A host with no layout assigned uses the built-in Shell deck. Custom layouts override the Shell deck while keeping the Agent deck one tap away.",
+                "Hosts with a custom layout start on the Shell deck automatically. Tap ⇄ on the bar anytime to flip to the Agent deck.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -193,14 +193,12 @@ private val KeyBarLayoutsStateSaver =
 private fun KeyBarLayoutEditor(layout: KeyBarLayoutEntity, onChange: (KeyBarLayoutEntity) -> Unit) {
     var name by remember(layout.id) { mutableStateOf(layout.name) }
     var keys by remember(layout.id) { mutableStateOf(decodeKeyBarKeys(layout.keysJson)) }
-    var rows by remember(layout.id) { mutableStateOf(layout.rows) }
     var addKeyOpen by rememberSaveable { mutableStateOf(false) }
 
-    fun persist(newName: String = name, newKeys: List<KeyBarKey> = keys, newRows: Int = rows) {
+    fun persist(newName: String = name, newKeys: List<KeyBarKey> = keys) {
         name = newName
         keys = newKeys
-        rows = newRows
-        onChange(layout.copy(name = newName, keysJson = encodeKeyBarKeys(newKeys), rows = newRows))
+        onChange(layout.copy(name = newName, keysJson = encodeKeyBarKeys(newKeys)))
     }
 
     OutlinedTextField(
@@ -209,21 +207,6 @@ private fun KeyBarLayoutEditor(layout: KeyBarLayoutEntity, onChange: (KeyBarLayo
         label = { Text("Layout name") },
         singleLine = true,
         modifier = Modifier.fillMaxWidth()
-    )
-
-    SettingsSwitch(
-        title = "Two rows",
-        // Says "already" rather than silently ignoring the switch: a layout with an arrows
-        // cluster is two rows tall whatever this is set to (KeyBar's doc explains why), and
-        // a toggle that visibly does nothing reads as a bug rather than as a no-op.
-        description =
-            if (keys.any { it.type == KeyBarKeyType.CURSOR_CLUSTER }) {
-                "Arrows already make this layout two rows tall."
-            } else {
-                "Stack keys across two rows instead of one scrolling row."
-            },
-        checked = rows >= 2,
-        onCheckedChange = { persist(newRows = if (it) 2 else 1) },
     )
 
     keys.forEachIndexed { index, key ->

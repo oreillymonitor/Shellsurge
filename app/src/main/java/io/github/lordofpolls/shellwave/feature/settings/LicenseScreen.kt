@@ -25,7 +25,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
@@ -131,7 +131,7 @@ fun LicenseScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                                 "compile without its original local-pty/JNI subprocess code, which this app " +
                                 "does not use (ShellSurge connects over SSH instead).",
                         style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ChromeMonoFontFamily,
                     )
                 }
             }
@@ -162,7 +162,7 @@ fun LicenseScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                             ) { append(SOURCE_REPOSITORY_URL) }
                         },
                         style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = ChromeMonoFontFamily
                     )
                 }
             }
@@ -198,7 +198,7 @@ fun LicenseScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         Text(
                             noticeText,
                             style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = ChromeMonoFontFamily
                         )
                     }
                 }
@@ -227,7 +227,7 @@ fun LicenseScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         Text(
                             licenseText,
                             style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = ChromeMonoFontFamily
                         )
                     }
                 }

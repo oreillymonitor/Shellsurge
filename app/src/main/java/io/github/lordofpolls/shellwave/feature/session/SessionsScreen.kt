@@ -83,7 +83,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -97,6 +97,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.KeyBarLayoutEntity
 import io.github.lordofpolls.shellwave.core.db.entities.ScriptEntity
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
+import io.github.lordofpolls.shellwave.core.prefs.DefaultKeyBarDeck
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SessionLayoutPreferences
 import io.github.lordofpolls.shellwave.core.prefs.TerminalInputPreferences
@@ -817,9 +818,15 @@ internal fun SessionTabBody(
     var tabQuickResponseOpen by remember { mutableStateOf(false) }
     var tabReadableOutputOpen by remember(sessionId) { mutableStateOf(false) }
     var tabReadableRefreshTick by remember(sessionId) { mutableIntStateOf(0) }
-    var agentDeckActive by remember(sessionId) { mutableStateOf(true) }
+    var agentDeckActive by remember(sessionId) {
+        mutableStateOf(
+            summary.keyBarLayoutId == null &&
+                SessionLayoutPreferences.getDefaultKeyBarDeck(localContext) == DefaultKeyBarDeck.AGENT,
+        )
+    }
     var agentBarContext by remember(sessionId) { mutableStateOf<AgentBarContext>(AgentBarContext.Default) }
     val hideKeyBarPref by rememberPrefState { SessionLayoutPreferences.getHideKeyBarWithKeyboard(it) }
+    val composerRawTipDismissed by rememberPrefState { SessionLayoutPreferences.isComposerRawTipDismissed(it) }
     val configuration = LocalConfiguration.current
     val keyBarHidden = shouldHideKeyBar(
         hideKeyBarPref,
@@ -1198,6 +1205,9 @@ internal fun SessionTabBody(
     }
 
     val toggleRawKeyboard: () -> Unit = {
+        if (!composerRawTipDismissed) {
+            SessionLayoutPreferences.setComposerRawTipDismissed(localContext, true)
+        }
         tabComposerExpanded = false
         tabPromptComposerOpen = false
         if (imeVisible) {
@@ -1722,7 +1732,12 @@ internal fun SessionTabBody(
             onRawKeyboardToggle = toggleRawKeyboard,
             onOpenQuickResponse = { tabQuickResponseOpen = true },
             agentDeckActive = agentDeckActive,
-            onToggleDeck = { agentDeckActive = !agentDeckActive },
+            onToggleDeck = {
+                if (!composerRawTipDismissed) {
+                    SessionLayoutPreferences.setComposerRawTipDismissed(localContext, true)
+                }
+                agentDeckActive = !agentDeckActive
+            },
             agentContext = agentBarContext,
             isVoiceListening = if (tabPromptComposerOpen) isComposerVoiceListening else isVoiceListening,
             onVoiceClick = {
@@ -1734,6 +1749,7 @@ internal fun SessionTabBody(
             },
             onPaste = { summary.connection.onPasteTextFromClipboard() },
             composerActive = tabPromptComposerOpen,
+            hasComposerDraft = tabComposerDraft.isNotBlank(),
             composerContent = { composerModifier ->
                 InlinePromptComposer(
                     text = tabComposerDraft,
@@ -1752,6 +1768,10 @@ internal fun SessionTabBody(
                         { uri -> summary.connection.uploadFileAttachment(uri) }
                     } else {
                         null
+                    },
+                    showRawTypingTip = !composerRawTipDismissed,
+                    onDismissRawTypingTip = {
+                        SessionLayoutPreferences.setComposerRawTipDismissed(localContext, true)
                     },
                     onSend = { prompt, enter ->
                         sendQuickText(prompt, enter)
@@ -1891,7 +1911,7 @@ private fun ScrollbackStepperPill(
                     text = "▲10",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = ChromeMonoFontFamily,
                     fontSize = 11.sp,
                 )
             }
@@ -1904,7 +1924,7 @@ private fun ScrollbackStepperPill(
                     text = "▼10",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = ChromeMonoFontFamily,
                     fontSize = 11.sp,
                 )
             }
@@ -1956,7 +1976,7 @@ private fun ScrollbackJumpPill(
                     text = "▲10",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = ChromeMonoFontFamily,
                     fontSize = 11.sp,
                 )
             }
@@ -2045,7 +2065,7 @@ private fun LinkActionDialog(
                             Text(
                                 text = link.sourceLine?.takeIf { it.isNotBlank() } ?: link.text,
                                 style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = ChromeMonoFontFamily,
                                 maxLines = 4,
                             )
                         }
@@ -2092,7 +2112,7 @@ private fun LinkActionDialog(
                                 Text(
                                     text = link.text,
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = ChromeMonoFontFamily,
                                 )
                             }
                             if (callbackInfo != null && onTunnelAndOpen != null) {

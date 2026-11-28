@@ -38,7 +38,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -295,7 +295,7 @@ fun TerminalScrollbar(
                         text = label,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ChromeMonoFontFamily,
                         fontSize = 12.sp,
                         softWrap = false,
                         maxLines = 1,

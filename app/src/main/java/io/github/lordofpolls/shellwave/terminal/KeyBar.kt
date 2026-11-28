@@ -3,6 +3,7 @@ package io.github.lordofpolls.shellwave.terminal
 import android.view.KeyEvent
 import android.view.ViewConfiguration
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.KeyboardHide
@@ -111,6 +113,7 @@ fun KeyBar(
     onVoiceClick: (() -> Unit)? = null,
     onPaste: (() -> Unit)? = null,
     composerActive: Boolean = false,
+    hasComposerDraft: Boolean = false,
     composerContent: (@Composable (Modifier) -> Unit)? = null,
     onQuickAction: ((text: String, sendEnter: Boolean) -> Unit)? = null,
     onSendRaw: ((control: String) -> Unit)? = null,
@@ -139,6 +142,8 @@ fun KeyBar(
                     onClick = onKeyboardToggle,
                     onLongClick = onRawKeyboardToggle ?: { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
                     modifier = Modifier.size(ClusterKeySize),
+                    composeMode = true,
+                    hasDraft = hasComposerDraft,
                 )
             }
         }
@@ -305,6 +310,8 @@ fun KeyBar(
                     onClick = onKeyboardToggle,
                     onLongClick = onRawKeyboardToggle ?: { onSpecialKey(KeyEvent.KEYCODE_ENTER) },
                     modifier = Modifier.size(ClusterKeySize),
+                    composeMode = agentDeckActive && agentContext !is AgentBarContext.PasswordPrompt,
+                    hasDraft = hasComposerDraft,
                 )
             }
         }
@@ -350,6 +357,7 @@ private fun AgentDeckRows(
                     KeyBarPillButton(
                         label = choice.label,
                         contentDescription = "Select option ${choice.label}",
+                        isMonospace = false,
                         containerColor = if (isFirst) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
@@ -684,6 +692,7 @@ private fun KeyBarPillButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isMonospace: Boolean = true,
     icon: ImageVector? = null,
     containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
     contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -712,12 +721,21 @@ private fun KeyBarPillButton(
             )
             Spacer(modifier = Modifier.width(4.dp))
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (isMonospace) {
+            MachineText(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -921,26 +939,63 @@ internal fun KeyboardKey(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    composeMode: Boolean = false,
+    hasDraft: Boolean = false,
 ) {
+    val highlightDraft = !visible && composeMode && hasDraft
     PinnedActionKey(
         onClick = onClick,
         onLongClick = onLongClick,
-        contentDescription = if (visible) {
-            "Hide the keyboard, hold to send Enter"
-        } else {
-            "Show the keyboard, hold to send Enter"
+        contentDescription = when {
+            visible -> "Hide the keyboard"
+            composeMode && hasDraft -> "Resume saved prompt draft, hold for raw keyboard"
+            composeMode -> "Open prompt composer, hold for raw keyboard"
+            else -> "Show the keyboard, hold to send Enter"
         },
-        onClickLabel = if (visible) "Hide keyboard" else "Show keyboard",
-        onLongClickLabel = "Send Enter",
+        onClickLabel = when {
+            visible -> "Hide keyboard"
+            composeMode && hasDraft -> "Resume prompt draft"
+            composeMode -> "Open prompt composer"
+            else -> "Show keyboard"
+        },
+        onLongClickLabel = if (composeMode) "Open raw keyboard" else "Send Enter",
+        containerColor = if (highlightDraft) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        },
+        contentColor = if (highlightDraft) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        },
         modifier = modifier,
     ) {
-        Icon(
-            imageVector = if (visible) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,
-            // The button carries the description; a second one here would have TalkBack read the
-            // control twice on the way past.
-            contentDescription = null,
-            modifier = Modifier.size(KeyIconSize),
-        )
+        Box(
+            modifier = Modifier.size(28.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = when {
+                    visible -> Icons.Outlined.KeyboardHide
+                    composeMode -> Icons.Outlined.EditNote
+                    else -> Icons.Outlined.Keyboard
+                },
+                // The button carries the description; a second one here would have TalkBack read the
+                // control twice on the way past.
+                contentDescription = null,
+                modifier = Modifier.size(KeyIconSize),
+            )
+            if (hasDraft && !visible) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
     }
 }
 

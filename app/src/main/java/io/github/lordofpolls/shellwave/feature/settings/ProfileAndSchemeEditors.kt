@@ -20,27 +20,48 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -72,12 +93,23 @@ import io.github.lordofpolls.shellwave.terminal.TerminalCursorStyle
 import io.github.lordofpolls.shellwave.terminal.TerminalFontFamily
 import io.github.lordofpolls.shellwave.terminal.ansiColors
 import io.github.lordofpolls.shellwave.terminal.autoCursorColorFor
+import io.github.lordofpolls.shellwave.terminal.importColorScheme
+import io.github.lordofpolls.shellwave.terminal.isLightBackground
+import io.github.lordofpolls.shellwave.terminal.loadGoghThemes
 import io.github.lordofpolls.shellwave.terminal.parseHexColorOrNull
 import io.github.lordofpolls.shellwave.terminal.resolveTerminalTypeface
 import io.github.lordofpolls.shellwave.terminal.selectionHighlightColor
 import io.github.lordofpolls.shellwave.terminal.toHexColorString
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import io.github.lordofpolls.shellwave.ui.design.ColorPickerDialog
+import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
+
+private enum class SchemeFilter(val label: String) {
+    ALL("All"),
+    DARK("Dark"),
+    LIGHT("Light"),
+}
 
 /**
  * The terminal-profile and colour-scheme field editors, shared by [TerminalSettingsScreen] and
@@ -275,6 +307,24 @@ internal fun ColorSchemeFields(
         onChange(scheme.transform().copy(isBuiltIn = false, name = "Custom"))
     }
     var pendingBuiltInName by rememberSaveable { mutableStateOf<String?>(null) }
+    var schemeFilter by rememberSaveable { mutableStateOf(SchemeFilter.ALL) }
+    var schemeSearch by rememberSaveable { mutableStateOf("") }
+    var importDialogOpen by rememberSaveable { mutableStateOf(false) }
+    var goghSheetOpen by rememberSaveable { mutableStateOf(false) }
+
+    val filteredSchemes = remember(schemeFilter, schemeSearch) {
+        val q = schemeSearch.trim().lowercase()
+        BuiltInColorSchemes.ALL.filter { preset ->
+            val light = isLightBackground(preset.background)
+            val matchesTone = when (schemeFilter) {
+                SchemeFilter.ALL -> true
+                SchemeFilter.DARK -> !light
+                SchemeFilter.LIGHT -> light
+            }
+            val matchesQuery = q.isEmpty() || preset.name.lowercase().contains(q)
+            matchesTone && matchesQuery
+        }
+    }
 
     @Composable
     fun SchemeColorField(
@@ -297,16 +347,17 @@ internal fun ColorSchemeFields(
             ColorSchemePreview(scheme = scheme, modifier = Modifier.fillMaxWidth())
         }
 
-        SettingsGroupCard(title = "Built-in presets") {
+        SettingsGroupCard(title = "Theme presets") {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Select a theme preset",
+                    text = "${BuiltInColorSchemes.ALL.size} built-in · ${filteredSchemes.size} shown",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
                 )
                 if (!scheme.isBuiltIn) {
                     Surface(
@@ -314,90 +365,121 @@ internal fun ColorSchemeFields(
                         color = MaterialTheme.colorScheme.tertiaryContainer,
                     ) {
                         Text(
-                            text = "Custom (edited)",
+                            text = scheme.name.takeIf { it.isNotBlank() && it != "Custom" } ?: "Custom (edited)",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
                 }
             }
 
-            BuiltInColorSchemes.ALL.chunked(2).forEach { pair ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(
+                    onClick = { goghSheetOpen = true },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Palette,
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.IconSize),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Gogh library", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                }
+                OutlinedButton(
+                    onClick = { importDialogOpen = true },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.FileOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.IconSize),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Import", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SchemeFilter.entries.forEach { filter ->
+                    FilterChip(
+                        selected = schemeFilter == filter,
+                        onClick = { schemeFilter = filter },
+                        label = { Text(filter.label) },
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = schemeSearch,
+                onValueChange = { schemeSearch = it },
+                placeholder = { Text("Filter themes…") },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (schemeSearch.isNotEmpty()) {
+                        IconButton(onClick = { schemeSearch = "" }) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Clear filter")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            if (filteredSchemes.isEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "No themes match \"$schemeSearch\".",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = {
+                        schemeFilter = SchemeFilter.ALL
+                        schemeSearch = ""
+                    }) {
+                        Text("Reset")
+                    }
+                }
+            }
+
+            filteredSchemes.chunked(2).forEach { pair ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     pair.forEach { builtin ->
                         val isSelected = scheme.isBuiltIn && scheme.name == builtin.name
-                        val previewAnsi = remember(builtin.ansiColorsCsv) { builtin.ansiColors() }
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable(role = Role.RadioButton) {
-                                    if (scheme.isBuiltIn) onChange(builtin.copy(id = scheme.id))
-                                    else pendingBuiltInName = builtin.name
-                                },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f)
+                        ColorSchemeSwatchCard(
+                            scheme = builtin,
+                            isSelected = isSelected,
+                            onClick = {
+                                if (scheme.isBuiltIn) onChange(builtin.copy(id = scheme.id))
+                                else pendingBuiltInName = builtin.name
                             },
-                            border = BorderStroke(
-                                width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant
-                                },
-                            ),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(
-                                    text = builtin.name,
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(builtin.background))
-                                        .border(
-                                            1.dp,
-                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                            RoundedCornerShape(6.dp),
-                                        )
-                                        .padding(horizontal = 6.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Text(
-                                        text = ">_",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = Color(builtin.foreground),
-                                    )
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    for (idx in 1..6) {
-                                        if (idx < previewAnsi.size) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(8.dp)
-                                                    .background(Color(previewAnsi[idx]), CircleShape),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                     if (pair.size == 1) {
                         Spacer(modifier = Modifier.weight(1f))
@@ -420,6 +502,27 @@ internal fun ColorSchemeFields(
                 dismissButton = {
                     TextButton(onClick = { pendingBuiltInName = null }) { Text("Cancel") }
                 },
+            )
+        }
+
+        if (importDialogOpen) {
+            ImportColorSchemeDialog(
+                onImport = { imported ->
+                    importDialogOpen = false
+                    onChange(imported.copy(id = scheme.id))
+                },
+                onDismiss = { importDialogOpen = false },
+            )
+        }
+
+        if (goghSheetOpen) {
+            GoghLibrarySheet(
+                currentScheme = scheme,
+                onSelect = { selected ->
+                    goghSheetOpen = false
+                    onChange(selected.copy(id = scheme.id))
+                },
+                onDismiss = { goghSheetOpen = false },
             )
         }
 
@@ -782,3 +885,372 @@ internal fun displayNameForUri(context: Context, uriString: String): String? =
             if (cursor.moveToFirst()) cursor.getString(0) else null
         }
     }.getOrNull()
+
+private const val MAX_IMPORT_THEME_BYTES = 512 * 1024
+
+private fun readThemeTextCapped(context: Context, uri: Uri): String? =
+    runCatching {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val out = ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            var remaining = MAX_IMPORT_THEME_BYTES
+            while (remaining > 0) {
+                val read = input.read(buf, 0, minOf(buf.size, remaining))
+                if (read <= 0) break
+                out.write(buf, 0, read)
+                remaining -= read
+            }
+            out.toString(Charsets.UTF_8.name())
+        }
+    }.getOrNull()
+
+@Composable
+private fun ImportColorSchemeDialog(
+    onImport: (ColorSchemeEntity) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var rawText by rememberSaveable { mutableStateOf("") }
+    var pickedFileName by rememberSaveable { mutableStateOf<String?>(null) }
+    var fileReadError by remember { mutableStateOf<String?>(null) }
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        pickedFileName = displayNameForUri(context, uri.toString())
+        val content = readThemeTextCapped(context, uri)
+        if (content != null) {
+            rawText = content
+            fileReadError = null
+        } else {
+            fileReadError = "Could not read selected file."
+        }
+    }
+
+    val parseResult = remember(rawText, pickedFileName) {
+        if (rawText.isBlank()) null else importColorScheme(rawText, pickedFileName)
+    }
+    val parsedScheme = parseResult?.getOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Import terminal colours") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = "Paste or pick a Ghostty, Alacritty, iTerm2 (.itermcolors), Warp, Kitty, Termux, Gogh, or Windows Terminal theme (e.g. from terminalcolors.com or gogh.website).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
+                        Icon(
+                            imageVector = Icons.Outlined.FileOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Choose file")
+                    }
+                    if (!pickedFileName.isNullOrBlank()) {
+                        Text(
+                            text = pickedFileName.orEmpty(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = rawText,
+                    onValueChange = {
+                        rawText = it
+                        fileReadError = null
+                    },
+                    label = { Text("Theme config / JSON / plist") },
+                    placeholder = { Text("background = #1e1e2e\nforeground = #cdd6f4\n…") },
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = ChromeMonoFontFamily),
+                    minLines = 4,
+                    maxLines = 8,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                val errorMsg = fileReadError ?: parseResult?.exceptionOrNull()?.message
+                if (errorMsg != null) {
+                    Text(
+                        text = errorMsg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                if (parsedScheme != null) {
+                    Text(
+                        text = "Preview: ${parsedScheme.name}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    ColorSchemePreview(
+                        scheme = parsedScheme,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = parsedScheme != null,
+                onClick = { parsedScheme?.let(onImport) },
+            ) {
+                Text("Apply")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun ColorSchemeSwatchCard(
+    scheme: ColorSchemeEntity,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val previewAnsi = remember(scheme.ansiColorsCsv) { scheme.ansiColors() }
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(role = Role.RadioButton, onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f)
+        },
+        border = BorderStroke(
+            width = if (isSelected) 1.5.dp else 1.dp,
+            color = if (isSelected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            },
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = scheme.name,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(scheme.background))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        RoundedCornerShape(6.dp),
+                    )
+                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = ">_",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(scheme.foreground),
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                for (idx in 1..6) {
+                    if (idx < previewAnsi.size) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(Color(previewAnsi[idx]), CircleShape),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GoghLibrarySheet(
+    currentScheme: ColorSchemeEntity,
+    onSelect: (ColorSchemeEntity) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val allThemes by produceState<List<ColorSchemeEntity>?>(initialValue = null, context) {
+        value = loadGoghThemes(context)
+    }
+    var filter by rememberSaveable { mutableStateOf(SchemeFilter.ALL) }
+    var query by rememberSaveable { mutableStateOf("") }
+
+    val filtered = remember(allThemes, filter, query) {
+        val list = allThemes ?: return@remember emptyList()
+        val q = query.trim().lowercase()
+        list.filter { theme ->
+            val light = isLightBackground(theme.background)
+            val matchesTone = when (filter) {
+                SchemeFilter.ALL -> true
+                SchemeFilter.DARK -> !light
+                SchemeFilter.LIGHT -> light
+            }
+            val matchesQuery = q.isEmpty() || theme.name.lowercase().contains(q)
+            matchesTone && matchesQuery
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Gogh theme library",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    )
+                    Text(
+                        text = if (allThemes == null) {
+                            "Loading offline catalog…"
+                        } else {
+                            "${filtered.size} of ${allThemes?.size ?: 0} themes · MIT"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Outlined.Close, contentDescription = "Close")
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SchemeFilter.entries.forEach { tone ->
+                    FilterChip(
+                        selected = filter == tone,
+                        onClick = { filter = tone },
+                        label = { Text(tone.label) },
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Search Gogh themes…") },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            when {
+                allThemes == null -> {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                filtered.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = "No themes match \"$query\".",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = {
+                                filter = SchemeFilter.ALL
+                                query = ""
+                            }) {
+                                Text("Reset filters")
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(
+                            items = filtered,
+                            key = { index, theme -> "${theme.name}_$index" },
+                        ) { _, theme ->
+                            ColorSchemeSwatchCard(
+                                scheme = theme,
+                                isSelected = !currentScheme.isBuiltIn && currentScheme.name == theme.name,
+                                onClick = { onSelect(theme) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

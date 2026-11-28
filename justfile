@@ -1,6 +1,7 @@
 # ShellSurge. `just` on its own lists what there is.
 #
 #   just hooks          install the pre-commit hook
+#   just update-gogh    refresh bundled Gogh terminal themes from upstream
 #   just bump 1.11.0    rewrite the version and CHANGELOG.md from commit history
 #   just notes          read what the release page will say
 #   just release        commit, tag and push what bump wrote
@@ -16,6 +17,10 @@ default:
 # Install the pre-commit hook that runs the invariant checks and gitleaks
 hooks:
     ln -sf ../../tools/pre-commit.sh .git/hooks/pre-commit
+
+# Refresh the bundled offline Gogh terminal themes catalog
+update-gogh:
+    @tools/update-gogh-themes.py
 
 # Set the version and rewrite CHANGELOG.md
 bump VERSION:

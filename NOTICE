@@ -159,10 +159,16 @@ TextMate grammars and themes (module :app)
     https://github.com/tamasfe/taplo
     Licence: MIT License
 
-  The MIT text below applies to the VS Code and toml entries above, reproduced once:
+  Gogh terminal colour themes (assets/gogh_themes.json), from the Gogh project
+    (dual-licensed MIT / Apache-2.0; redistributed under MIT, Copyright (c) 2024 Gogh)
+    https://github.com/Gogh-Co/Gogh
+    Licence: MIT License
+
+  The MIT text below applies to the VS Code, toml, and Gogh entries above, reproduced once:
 
     Copyright (c) 2015 - present Microsoft Corporation
     Copyright (c) 2020 Ferenc Tamás
+    Copyright (c) 2024 Gogh
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal

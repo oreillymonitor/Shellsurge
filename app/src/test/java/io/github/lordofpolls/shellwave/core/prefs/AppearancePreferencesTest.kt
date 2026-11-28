@@ -31,4 +31,13 @@ class AppearancePreferencesTest {
         AppearancePreferences.setColourTheme(context, ColourTheme.NOTHING)
         assertEquals(ColourTheme.NOTHING, AppearancePreferences.getColourTheme(context))
     }
+
+    @Test
+    fun `amber and phosphor themes persist cleanly`() {
+        AppearancePreferences.setColourTheme(context, ColourTheme.AMBER)
+        assertEquals(ColourTheme.AMBER, AppearancePreferences.getColourTheme(context))
+
+        AppearancePreferences.setColourTheme(context, ColourTheme.PHOSPHOR)
+        assertEquals(ColourTheme.PHOSPHOR, AppearancePreferences.getColourTheme(context))
+    }
 }

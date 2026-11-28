@@ -96,6 +96,14 @@ fun applyColorSchemeAsDefault(scheme: ColorSchemeEntity) {
 fun autoCursorColorFor(background: Int): Int =
     if (TerminalColors.getPerceivedBrightnessOfColor(background) < 130) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
 
+/** Pure JVM perceived-brightness check (0.299R + 0.587G + 0.114B >= 130). */
+fun isLightBackground(argb: Int): Boolean {
+    val r = (argb shr 16) and 0xFF
+    val g = (argb shr 8) and 0xFF
+    val b = argb and 0xFF
+    return (0.299 * r + 0.587 * g + 0.114 * b) >= 130.0
+}
+
 /**
  * The scheme used before the user has ever saved one. Derived from a fresh [TerminalColorScheme]'s
  * own `mDefaultColors` and not transcribed by hand, so it can never drift from the engine's actual
@@ -155,6 +163,74 @@ internal val BUILT_IN_SCHEME_FOREGROUND_BACKGROUND: Map<String, ForegroundBackgr
         "Campbell" to ForegroundBackground(
             foreground = 0xFFCCCCCC.toInt(),
             background = 0xFF0C0C0C.toInt()
+        ),
+        "Catppuccin Mocha" to ForegroundBackground(
+            foreground = 0xFFCDD6F4.toInt(),
+            background = 0xFF1E1E2E.toInt()
+        ),
+        "Catppuccin Latte" to ForegroundBackground(
+            foreground = 0xFF4C4F69.toInt(),
+            background = 0xFFEFF1F5.toInt()
+        ),
+        "Tokyo Night" to ForegroundBackground(
+            foreground = 0xFFC0CAF5.toInt(),
+            background = 0xFF1A1B26.toInt()
+        ),
+        "Tokyo Night Storm" to ForegroundBackground(
+            foreground = 0xFFC0CAF5.toInt(),
+            background = 0xFF24283B.toInt()
+        ),
+        "One Dark" to ForegroundBackground(
+            foreground = 0xFFABB2BF.toInt(),
+            background = 0xFF282C34.toInt()
+        ),
+        "Kanagawa" to ForegroundBackground(
+            foreground = 0xFFDCD7BA.toInt(),
+            background = 0xFF1F1F28.toInt()
+        ),
+        "Rosé Pine" to ForegroundBackground(
+            foreground = 0xFFE0DEF4.toInt(),
+            background = 0xFF191724.toInt()
+        ),
+        "Rosé Pine Dawn" to ForegroundBackground(
+            foreground = 0xFF575279.toInt(),
+            background = 0xFFFAF4ED.toInt()
+        ),
+        "Everforest Dark" to ForegroundBackground(
+            foreground = 0xFFD3C6AA.toInt(),
+            background = 0xFF2D353B.toInt()
+        ),
+        "Monokai Pro" to ForegroundBackground(
+            foreground = 0xFFFCFCFA.toInt(),
+            background = 0xFF2D2A2E.toInt()
+        ),
+        "GitHub Dark" to ForegroundBackground(
+            foreground = 0xFFE6EDF3.toInt(),
+            background = 0xFF0D1117.toInt()
+        ),
+        "GitHub Light" to ForegroundBackground(
+            foreground = 0xFF1F2328.toInt(),
+            background = 0xFFFFFFFF.toInt()
+        ),
+        "Gruvbox Light" to ForegroundBackground(
+            foreground = 0xFF3C3836.toInt(),
+            background = 0xFFFBF1C7.toInt()
+        ),
+        "Ayu Dark" to ForegroundBackground(
+            foreground = 0xFFBFBDB6.toInt(),
+            background = 0xFF0B0E14.toInt()
+        ),
+        "OLED Black" to ForegroundBackground(
+            foreground = 0xFFE6EDF3.toInt(),
+            background = 0xFF000000.toInt()
+        ),
+        "Amber CRT" to ForegroundBackground(
+            foreground = 0xFFFFB000.toInt(),
+            background = 0xFF0A0804.toInt()
+        ),
+        "Green CRT" to ForegroundBackground(
+            foreground = 0xFF33FF66.toInt(),
+            background = 0xFF040A06.toInt()
         ),
     )
 
@@ -315,8 +391,305 @@ object BuiltInColorSchemes {
                 ),
         )
 
+    val CATPPUCCIN_MOCHA =
+        buildScheme(
+            name = "Catppuccin Mocha",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Catppuccin Mocha").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Catppuccin Mocha").foreground,
+            cursor = 0xFFF5E0DC.toInt(),
+            selection = 0xFF585B70.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF45475A.toInt(), 0xFFF38BA8.toInt(), 0xFFA6E3A1.toInt(), 0xFFF9E2AF.toInt(),
+                    0xFF89B4FA.toInt(), 0xFFF5C2E7.toInt(), 0xFF94E2D5.toInt(), 0xFFBAC2DE.toInt(),
+                    0xFF585B70.toInt(), 0xFFF38BA8.toInt(), 0xFFA6E3A1.toInt(), 0xFFF9E2AF.toInt(),
+                    0xFF89B4FA.toInt(), 0xFFF5C2E7.toInt(), 0xFF94E2D5.toInt(), 0xFFA6ADC8.toInt(),
+                ),
+        )
+
+    val CATPPUCCIN_LATTE =
+        buildScheme(
+            name = "Catppuccin Latte",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Catppuccin Latte").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Catppuccin Latte").foreground,
+            cursor = 0xFFDC8A78.toInt(),
+            selection = 0xFFACB0BE.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF5C5F77.toInt(), 0xFFD20F39.toInt(), 0xFF40A02B.toInt(), 0xFFDF8E1D.toInt(),
+                    0xFF1E66F5.toInt(), 0xFFEA76CB.toInt(), 0xFF179299.toInt(), 0xFFACB0BE.toInt(),
+                    0xFF6C6F85.toInt(), 0xFFD20F39.toInt(), 0xFF40A02B.toInt(), 0xFFDF8E1D.toInt(),
+                    0xFF1E66F5.toInt(), 0xFFEA76CB.toInt(), 0xFF179299.toInt(), 0xFFBCC0CC.toInt(),
+                ),
+        )
+
+    val TOKYO_NIGHT =
+        buildScheme(
+            name = "Tokyo Night",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Tokyo Night").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Tokyo Night").foreground,
+            cursor = 0xFFC0CAF5.toInt(),
+            selection = 0xFF33467C.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF15161E.toInt(), 0xFFF7768E.toInt(), 0xFF9ECE6A.toInt(), 0xFFE0AF68.toInt(),
+                    0xFF7AA2F7.toInt(), 0xFFBB9AF7.toInt(), 0xFF7DCFFF.toInt(), 0xFFA9B1D6.toInt(),
+                    0xFF414868.toInt(), 0xFFF7768E.toInt(), 0xFF9ECE6A.toInt(), 0xFFE0AF68.toInt(),
+                    0xFF7AA2F7.toInt(), 0xFFBB9AF7.toInt(), 0xFF7DCFFF.toInt(), 0xFFC0CAF5.toInt(),
+                ),
+        )
+
+    val TOKYO_NIGHT_STORM =
+        buildScheme(
+            name = "Tokyo Night Storm",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Tokyo Night Storm").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Tokyo Night Storm").foreground,
+            cursor = 0xFFC0CAF5.toInt(),
+            selection = 0xFF364A82.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF1D202F.toInt(), 0xFFF7768E.toInt(), 0xFF9ECE6A.toInt(), 0xFFE0AF68.toInt(),
+                    0xFF7AA2F7.toInt(), 0xFFBB9AF7.toInt(), 0xFF7DCFFF.toInt(), 0xFFA9B1D6.toInt(),
+                    0xFF414868.toInt(), 0xFFF7768E.toInt(), 0xFF9ECE6A.toInt(), 0xFFE0AF68.toInt(),
+                    0xFF7AA2F7.toInt(), 0xFFBB9AF7.toInt(), 0xFF7DCFFF.toInt(), 0xFFC0CAF5.toInt(),
+                ),
+        )
+
+    val ONE_DARK =
+        buildScheme(
+            name = "One Dark",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("One Dark").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("One Dark").foreground,
+            cursor = 0xFF528BFF.toInt(),
+            selection = 0xFF3E4451.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF282C34.toInt(), 0xFFE06C75.toInt(), 0xFF98C379.toInt(), 0xFFE5C07B.toInt(),
+                    0xFF61AFEF.toInt(), 0xFFC678DD.toInt(), 0xFF56B6C2.toInt(), 0xFFABB2BF.toInt(),
+                    0xFF5C6370.toInt(), 0xFFE06C75.toInt(), 0xFF98C379.toInt(), 0xFFE5C07B.toInt(),
+                    0xFF61AFEF.toInt(), 0xFFC678DD.toInt(), 0xFF56B6C2.toInt(), 0xFFFFFFFF.toInt(),
+                ),
+        )
+
+    val KANAGAWA =
+        buildScheme(
+            name = "Kanagawa",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Kanagawa").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Kanagawa").foreground,
+            cursor = 0xFFC8C093.toInt(),
+            selection = 0xFF2D4F67.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF090618.toInt(), 0xFFC34043.toInt(), 0xFF76946A.toInt(), 0xFFC0A36E.toInt(),
+                    0xFF7E9CD8.toInt(), 0xFF957FB8.toInt(), 0xFF6A9589.toInt(), 0xFFC8C093.toInt(),
+                    0xFF727169.toInt(), 0xFFE82424.toInt(), 0xFF98BB6C.toInt(), 0xFFE6C384.toInt(),
+                    0xFF7FB4CA.toInt(), 0xFF938AA9.toInt(), 0xFF7AA89F.toInt(), 0xFFDCD7BA.toInt(),
+                ),
+        )
+
+    val ROSE_PINE =
+        buildScheme(
+            name = "Rosé Pine",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Rosé Pine").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Rosé Pine").foreground,
+            cursor = 0xFF524F67.toInt(),
+            selection = 0xFF403D52.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF26233A.toInt(), 0xFFEB6F92.toInt(), 0xFF31748F.toInt(), 0xFFF6C177.toInt(),
+                    0xFF9CCFD8.toInt(), 0xFFC4A7E7.toInt(), 0xFFEBBCBA.toInt(), 0xFFE0DEF4.toInt(),
+                    0xFF6E6A86.toInt(), 0xFFEB6F92.toInt(), 0xFF31748F.toInt(), 0xFFF6C177.toInt(),
+                    0xFF9CCFD8.toInt(), 0xFFC4A7E7.toInt(), 0xFFEBBCBA.toInt(), 0xFFE0DEF4.toInt(),
+                ),
+        )
+
+    val ROSE_PINE_DAWN =
+        buildScheme(
+            name = "Rosé Pine Dawn",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Rosé Pine Dawn").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Rosé Pine Dawn").foreground,
+            cursor = 0xFFCECACD.toInt(),
+            selection = 0xFFDFDAD9.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFFF2E9E1.toInt(), 0xFFB4637A.toInt(), 0xFF286983.toInt(), 0xFFEA9D34.toInt(),
+                    0xFF56949F.toInt(), 0xFF907AA9.toInt(), 0xFFD7827E.toInt(), 0xFF575279.toInt(),
+                    0xFF9893A5.toInt(), 0xFFB4637A.toInt(), 0xFF286983.toInt(), 0xFFEA9D34.toInt(),
+                    0xFF56949F.toInt(), 0xFF907AA9.toInt(), 0xFFD7827E.toInt(), 0xFF575279.toInt(),
+                ),
+        )
+
+    val EVERFOREST_DARK =
+        buildScheme(
+            name = "Everforest Dark",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Everforest Dark").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Everforest Dark").foreground,
+            cursor = 0xFFD3C6AA.toInt(),
+            selection = 0xFF543A48.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF475258.toInt(), 0xFFE67E80.toInt(), 0xFFA7C080.toInt(), 0xFFDBBC7F.toInt(),
+                    0xFF7FBBB3.toInt(), 0xFFD699B6.toInt(), 0xFF83C092.toInt(), 0xFFD3C6AA.toInt(),
+                    0xFF475258.toInt(), 0xFFE67E80.toInt(), 0xFFA7C080.toInt(), 0xFFDBBC7F.toInt(),
+                    0xFF7FBBB3.toInt(), 0xFFD699B6.toInt(), 0xFF83C092.toInt(), 0xFFD3C6AA.toInt(),
+                ),
+        )
+
+    val MONOKAI_PRO =
+        buildScheme(
+            name = "Monokai Pro",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Monokai Pro").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Monokai Pro").foreground,
+            cursor = 0xFFFCFCFA.toInt(),
+            selection = 0xFF5B595C.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF403E41.toInt(), 0xFFFF6188.toInt(), 0xFFA9DC76.toInt(), 0xFFFFD866.toInt(),
+                    0xFFFC9867.toInt(), 0xFFAB9DF2.toInt(), 0xFF78DCE8.toInt(), 0xFFFCFCFA.toInt(),
+                    0xFF727072.toInt(), 0xFFFF6188.toInt(), 0xFFA9DC76.toInt(), 0xFFFFD866.toInt(),
+                    0xFFFC9867.toInt(), 0xFFAB9DF2.toInt(), 0xFF78DCE8.toInt(), 0xFFFCFCFA.toInt(),
+                ),
+        )
+
+    val GITHUB_DARK =
+        buildScheme(
+            name = "GitHub Dark",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("GitHub Dark").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("GitHub Dark").foreground,
+            cursor = 0xFF58A6FF.toInt(),
+            selection = 0xFF264F78.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF484F58.toInt(), 0xFFFF7B72.toInt(), 0xFF3FB950.toInt(), 0xFFD29922.toInt(),
+                    0xFF58A6FF.toInt(), 0xFFBC8CFF.toInt(), 0xFF39C5CF.toInt(), 0xFFB1BAC4.toInt(),
+                    0xFF6E7681.toInt(), 0xFFFFA198.toInt(), 0xFF56D364.toInt(), 0xFFE3B341.toInt(),
+                    0xFF79C0FF.toInt(), 0xFFD2A8FF.toInt(), 0xFF56D4DD.toInt(), 0xFFF0F6FC.toInt(),
+                ),
+        )
+
+    val GITHUB_LIGHT =
+        buildScheme(
+            name = "GitHub Light",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("GitHub Light").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("GitHub Light").foreground,
+            cursor = 0xFF0969DA.toInt(),
+            selection = 0xFFB6E3FF.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF24292F.toInt(), 0xFFCF222E.toInt(), 0xFF116329.toInt(), 0xFF4D2D00.toInt(),
+                    0xFF0969DA.toInt(), 0xFF8250DF.toInt(), 0xFF1B7C83.toInt(), 0xFF6E7781.toInt(),
+                    0xFF57606A.toInt(), 0xFFA40E26.toInt(), 0xFF1A7F37.toInt(), 0xFF633C01.toInt(),
+                    0xFF218BFF.toInt(), 0xFFA475F9.toInt(), 0xFF3192AA.toInt(), 0xFF8C959F.toInt(),
+                ),
+        )
+
+    val GRUVBOX_LIGHT =
+        buildScheme(
+            name = "Gruvbox Light",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Gruvbox Light").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Gruvbox Light").foreground,
+            cursor = 0xFF3C3836.toInt(),
+            selection = 0xFFD5C4A1.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFFFBF1C7.toInt(), 0xFFCC241D.toInt(), 0xFF98971A.toInt(), 0xFFD79921.toInt(),
+                    0xFF458588.toInt(), 0xFFB16286.toInt(), 0xFF689D6A.toInt(), 0xFF7C6F64.toInt(),
+                    0xFF928374.toInt(), 0xFF9D0006.toInt(), 0xFF79740E.toInt(), 0xFFB57614.toInt(),
+                    0xFF076678.toInt(), 0xFF8F3F71.toInt(), 0xFF427B58.toInt(), 0xFF3C3836.toInt(),
+                ),
+        )
+
+    val AYU_DARK =
+        buildScheme(
+            name = "Ayu Dark",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Ayu Dark").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Ayu Dark").foreground,
+            cursor = 0xFFE6B450.toInt(),
+            selection = 0xFF273747.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF1E232B.toInt(), 0xFFEA6C73.toInt(), 0xFF7FD962.toInt(), 0xFFF9AF4F.toInt(),
+                    0xFF53BDFA.toInt(), 0xFFCDA1FA.toInt(), 0xFF90E1C6.toInt(), 0xFFC7C7C7.toInt(),
+                    0xFF686868.toInt(), 0xFFF07178.toInt(), 0xFFAAD94C.toInt(), 0xFFFFB454.toInt(),
+                    0xFF59C2FF.toInt(), 0xFFD2A6FF.toInt(), 0xFF95E6CB.toInt(), 0xFFFFFFFF.toInt(),
+                ),
+        )
+
+    val OLED_BLACK =
+        buildScheme(
+            name = "OLED Black",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("OLED Black").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("OLED Black").foreground,
+            cursor = 0xFFFFFFFF.toInt(),
+            selection = 0xFF264F78.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF1C2128.toInt(), 0xFFFF7B72.toInt(), 0xFF3FB950.toInt(), 0xFFD29922.toInt(),
+                    0xFF58A6FF.toInt(), 0xFFBC8CFF.toInt(), 0xFF39C5CF.toInt(), 0xFFB1BAC4.toInt(),
+                    0xFF6E7681.toInt(), 0xFFFFA198.toInt(), 0xFF56D364.toInt(), 0xFFE3B341.toInt(),
+                    0xFF79C0FF.toInt(), 0xFFD2A8FF.toInt(), 0xFF56D4DD.toInt(), 0xFFFFFFFF.toInt(),
+                ),
+        )
+
+    val AMBER_CRT =
+        buildScheme(
+            name = "Amber CRT",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Amber CRT").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Amber CRT").foreground,
+            cursor = 0xFFFFCC4D.toInt(),
+            selection = 0xFF4A3200.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF1C1508.toInt(), 0xFFE06224.toInt(), 0xFFC9A428.toInt(), 0xFFFFB000.toInt(),
+                    0xFFB37722.toInt(), 0xFFD97B38.toInt(), 0xFFE6B84C.toInt(), 0xFFFFD580.toInt(),
+                    0xFF6E5322.toInt(), 0xFFFF8243.toInt(), 0xFFE5C145.toInt(), 0xFFFFC940.toInt(),
+                    0xFFD4963B.toInt(), 0xFFF29B52.toInt(), 0xFFFFDA75.toInt(), 0xFFFFF0CC.toInt(),
+                ),
+        )
+
+    val GREEN_CRT =
+        buildScheme(
+            name = "Green CRT",
+            background = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Green CRT").background,
+            foreground = BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.getValue("Green CRT").foreground,
+            cursor = 0xFF80FF9E.toInt(),
+            selection = 0xFF0F451E.toInt(),
+            ansi =
+                intArrayOf(
+                    0xFF0B1C10.toInt(), 0xFF9EE632.toInt(), 0xFF33FF66.toInt(), 0xFF7CFF4D.toInt(),
+                    0xFF1EB86A.toInt(), 0xFF38D996.toInt(), 0xFF5CFFBA.toInt(), 0xFFA8FFBE.toInt(),
+                    0xFF2B663D.toInt(), 0xFFBFFF5C.toInt(), 0xFF66FF8C.toInt(), 0xFFA3FF7A.toInt(),
+                    0xFF45D98E.toInt(), 0xFF66F0B4.toInt(), 0xFF8CFFD0.toInt(), 0xFFDEFFE6.toInt(),
+                ),
+        )
+
     val ALL: List<ColorSchemeEntity> =
-        listOf(SOLARIZED_DARK, SOLARIZED_LIGHT, GRUVBOX, NORD, DRACULA, TANGO, CAMPBELL)
+        listOf(
+            SOLARIZED_DARK,
+            SOLARIZED_LIGHT,
+            GRUVBOX,
+            GRUVBOX_LIGHT,
+            NORD,
+            DRACULA,
+            CATPPUCCIN_MOCHA,
+            CATPPUCCIN_LATTE,
+            TOKYO_NIGHT,
+            TOKYO_NIGHT_STORM,
+            ONE_DARK,
+            KANAGAWA,
+            ROSE_PINE,
+            ROSE_PINE_DAWN,
+            EVERFOREST_DARK,
+            MONOKAI_PRO,
+            GITHUB_DARK,
+            GITHUB_LIGHT,
+            AYU_DARK,
+            OLED_BLACK,
+            AMBER_CRT,
+            GREEN_CRT,
+            TANGO,
+            CAMPBELL,
+        )
 
     private fun buildScheme(
         name: String,

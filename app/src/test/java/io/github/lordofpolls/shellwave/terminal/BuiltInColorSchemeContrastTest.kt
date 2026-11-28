@@ -79,6 +79,16 @@ class BuiltInColorSchemeContrastTest {
         assertTrue("Campbell ratio was $ratio", ratio >= WCAG_AA_NORMAL_TEXT_RATIO)
     }
 
+    @Test
+    fun `all 24 built-in schemes except Solarized Light pass AA contrast`() {
+        assertEquals(24, BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.size)
+        BUILT_IN_SCHEME_FOREGROUND_BACKGROUND.forEach { (name, pair) ->
+            if (name == "Solarized Light") return@forEach
+            val ratio = contrastRatio(pair.foreground, pair.background)
+            assertTrue("$name ratio was $ratio (< $WCAG_AA_NORMAL_TEXT_RATIO)", ratio >= WCAG_AA_NORMAL_TEXT_RATIO)
+        }
+    }
+
     /**
      * Unlike the built-ins above, [DEFAULT_COLOR_SCHEME] is safe to reference directly: it's a plain
      * top-level `val` outside the `BuiltInColorSchemes` object, and its initializer only copies

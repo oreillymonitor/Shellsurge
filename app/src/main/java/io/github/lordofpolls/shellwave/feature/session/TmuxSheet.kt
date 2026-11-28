@@ -54,7 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -487,7 +487,7 @@ private fun TmuxSessionCard(
             Text(
                 text = session.name,
                 style = MaterialTheme.typography.titleSmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = ChromeMonoFontFamily,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -586,7 +586,7 @@ private fun TmuxSessionCard(
                         Text(
                             text = "#${window.index} ${window.name}",
                             style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = ChromeMonoFontFamily,
                             fontWeight = if (window.active) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

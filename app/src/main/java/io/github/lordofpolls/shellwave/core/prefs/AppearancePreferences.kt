@@ -4,7 +4,7 @@ import android.content.Context
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
-enum class ColourTheme { DYNAMIC, SCHEMATIC, NOTHING }
+enum class ColourTheme { DYNAMIC, SCHEMATIC, NOTHING, AMBER, PHOSPHOR }
 
 private const val PREFS_NAME = "shellwave_prefs"
 

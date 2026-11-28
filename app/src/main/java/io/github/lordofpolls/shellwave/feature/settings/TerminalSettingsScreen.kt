@@ -37,6 +37,7 @@ import io.github.lordofpolls.shellwave.core.db.entities.ColorSchemeEntity
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
 import io.github.lordofpolls.shellwave.core.prefs.BellMode
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
+import io.github.lordofpolls.shellwave.core.prefs.DefaultKeyBarDeck
 import io.github.lordofpolls.shellwave.core.prefs.SessionLayoutPreferences
 import io.github.lordofpolls.shellwave.core.prefs.TerminalInputPreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
@@ -72,6 +73,7 @@ fun TerminalSettingsScreen(
     val fullWidthTerminal by rememberPrefState { SessionLayoutPreferences.getFullWidthTerminal(it) }
     val keyboardEnhancedInput by rememberPrefState { TerminalInputPreferences.getKeyboardEnhancedInput(it) }
     val hideKeyBarWithKeyboard by rememberPrefState { SessionLayoutPreferences.getHideKeyBarWithKeyboard(it) }
+    val defaultKeyBarDeck by rememberPrefState { SessionLayoutPreferences.getDefaultKeyBarDeck(it) }
     var selectedTab by rememberSaveable { mutableStateOf(TerminalSettingsTab.BEHAVIOR_INPUT) }
 
     var profile by remember { mutableStateOf(DEFAULT_TERMINAL_PROFILE) }
@@ -153,9 +155,20 @@ fun TerminalSettingsScreen(
             when (selectedTab) {
                 TerminalSettingsTab.BEHAVIOR_INPUT -> {
                     SettingsGroupCard(title = "Key bar", icon = Icons.Outlined.Terminal) {
+                        SettingsSegmentedGroup(
+                            label = "Default deck",
+                            description = "Opens first in new sessions. Hosts with a custom layout start on Shell. Tap ⇄ anytime to flip.",
+                            options = DefaultKeyBarDeck.entries,
+                            selected = defaultKeyBarDeck,
+                            labelOf = { it.label },
+                            onSelect = { SessionLayoutPreferences.setDefaultKeyBarDeck(context, it) },
+                        )
+
+                        SettingsCardDivider()
+
                         SettingsRow(
                             title = "Manage key bar layouts",
-                            description = "Custom keys, macros, one or two rows. A layout is assigned per host.",
+                            description = "Custom Shell deck keys and macros. Assigned per host.",
                             icon = Icons.Outlined.Terminal,
                             chevron = true,
                             onClick = onOpenKeyBarLayouts,

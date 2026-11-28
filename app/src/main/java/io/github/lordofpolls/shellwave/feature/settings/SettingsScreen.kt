@@ -292,6 +292,8 @@ fun SettingsScreen(
                         ColourTheme.DYNAMIC -> "Dynamic"
                         ColourTheme.SCHEMATIC -> "Schematic"
                         ColourTheme.NOTHING -> "Nothing"
+                        ColourTheme.AMBER -> "Amber"
+                        ColourTheme.PHOSPHOR -> "Phosphor"
                     }
                     val themeModeLabel = themeMode.name.lowercase().replaceFirstChar(Char::uppercase)
                     SettingsGroupCard(
@@ -1013,79 +1015,94 @@ private fun ColourThemeSelector(
             text = "Colour palette",
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ColourTheme.entries.forEach { option ->
-                val isSelected = option == selected
-                val (title, subtitle, dotColor) = when (option) {
-                    ColourTheme.DYNAMIC -> Triple(
-                        "Dynamic",
-                        "Material You",
-                        MaterialTheme.colorScheme.primary,
-                    )
-                    ColourTheme.SCHEMATIC -> Triple(
-                        "Schematic",
-                        "Lime accent",
-                        Color(0xFFA3E635),
-                    )
-                    ColourTheme.NOTHING -> Triple(
-                        "Nothing",
-                        "Dot-matrix",
-                        Color(0xFFD71921),
-                    )
-                }
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(role = Role.RadioButton) { onSelect(option) },
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f)
-                    },
-                    border = BorderStroke(
-                        width = if (isSelected) 1.5.dp else 1.dp,
+        ColourTheme.entries.chunked(2).forEach { pair ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                pair.forEach { option ->
+                    val isSelected = option == selected
+                    val (title, subtitle, dotColor) = when (option) {
+                        ColourTheme.DYNAMIC -> Triple(
+                            "Dynamic",
+                            "Material You",
+                            MaterialTheme.colorScheme.primary,
+                        )
+                        ColourTheme.SCHEMATIC -> Triple(
+                            "Schematic",
+                            "Lime accent",
+                            Color(0xFFA3E635),
+                        )
+                        ColourTheme.NOTHING -> Triple(
+                            "Nothing",
+                            "Dot-matrix",
+                            Color(0xFFD71921),
+                        )
+                        ColourTheme.AMBER -> Triple(
+                            "Amber",
+                            "P3 retro CRT",
+                            Color(0xFFFFB000),
+                        )
+                        ColourTheme.PHOSPHOR -> Triple(
+                            "Phosphor",
+                            "P1 green CRT",
+                            Color(0xFF33FF66),
+                        )
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(role = Role.RadioButton) { onSelect(option) },
+                        shape = RoundedCornerShape(12.dp),
                         color = if (isSelected) {
-                            MaterialTheme.colorScheme.primary
+                            MaterialTheme.colorScheme.secondaryContainer
                         } else {
-                            MaterialTheme.colorScheme.outlineVariant
+                            MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f)
                         },
-                    ),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        border = BorderStroke(
+                            width = if (isSelected) 1.5.dp else 1.dp,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant
+                            },
+                        ),
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(dotColor, CircleShape),
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(dotColor, CircleShape),
+                                )
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                             Text(
-                                text = title,
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                ),
+                                text = subtitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                     }
+                }
+                if (pair.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }

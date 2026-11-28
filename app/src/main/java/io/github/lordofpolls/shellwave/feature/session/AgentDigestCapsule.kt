@@ -46,7 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -198,7 +198,7 @@ internal fun AgentDigestCapsule(
                         Text(
                             text = errLine,
                             style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = ChromeMonoFontFamily,
                             fontSize = 11.sp,
                             maxLines = if (expanded) 5 else 2,
                             overflow = TextOverflow.Ellipsis,
@@ -234,7 +234,7 @@ internal fun AgentDigestCapsule(
                                 Text(
                                     text = shortName,
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = ChromeMonoFontFamily,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),

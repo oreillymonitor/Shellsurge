@@ -8,14 +8,15 @@ internal enum class SettingsSection(
         title = "Appearance",
         keywords = listOf(
             "theme", "mode", "light", "dark", "system", "colour", "color",
-            "accent", "palette", "exact", "scheme",
+            "accent", "palette", "exact", "scheme", "amber", "phosphor",
+            "green", "crt", "retro",
         ),
     ),
     TERMINAL(
         title = "Terminal & Input",
         keywords = listOf(
             "font", "size", "cursor", "scrollback", "key", "bar", "layout",
-            "bell", "full-width", "configuration", "keyboard",
+            "bell", "full-width", "configuration", "keyboard", "deck", "agent", "shell",
         ),
     ),
     NOTIFICATIONS(

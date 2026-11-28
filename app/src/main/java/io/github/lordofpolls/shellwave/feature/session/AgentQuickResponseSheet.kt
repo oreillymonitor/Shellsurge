@@ -52,7 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -357,7 +357,7 @@ internal fun AgentQuickResponseSheet(
                                         .height(34.dp),
                                     contentPadding = PaddingValues(0.dp),
                                 ) {
-                                    Text("$num", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+                                    Text("$num", fontWeight = FontWeight.Bold, fontFamily = ChromeMonoFontFamily, fontSize = 13.sp)
                                 }
                             }
 

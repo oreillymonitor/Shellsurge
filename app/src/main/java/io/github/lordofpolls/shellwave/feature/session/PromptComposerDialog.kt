@@ -101,6 +101,8 @@ internal fun InlinePromptComposer(
     modifier: Modifier = Modifier,
     onUploadImage: (suspend (Uri) -> Result<String>)? = null,
     onUploadFile: (suspend (Uri) -> Result<String>)? = null,
+    showRawTypingTip: Boolean = false,
+    onDismissRawTypingTip: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -393,7 +395,7 @@ internal fun InlinePromptComposer(
                     decorationBox = { innerTextField ->
                         if (text.isEmpty()) {
                             Text(
-                                text = "Type or speak your prompt…",
+                                text = "Message agent or draft a command…",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -412,6 +414,41 @@ internal fun InlinePromptComposer(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 4.dp),
                 )
+            }
+
+            if (showRawTypingTip && statusMessage == null) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = "Tip: Tap ⇄ on the bar (or hold ⌨) for raw terminal typing",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (onDismissRawTypingTip != null) {
+                            IconButton(
+                                onClick = onDismissRawTypingTip,
+                                modifier = Modifier.size(24.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = "Dismiss tip",
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             Row(

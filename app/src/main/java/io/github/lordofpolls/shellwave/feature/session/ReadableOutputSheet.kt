@@ -51,7 +51,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -228,7 +228,7 @@ internal fun ReadableOutputSheet(
                                 Text(
                                     text = activeText,
                                     style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = ChromeMonoFontFamily,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                             }
@@ -304,7 +304,7 @@ private fun rememberFormattedText(
                         }
                         is ReadableInlineSpan.InlineCode -> withStyle(
                             SpanStyle(
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = ChromeMonoFontFamily,
                                 background = codeBackground,
                             ),
                         ) {
@@ -388,7 +388,7 @@ private fun ReadableCommandBlock(
             Text(
                 text = styled,
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = ChromeMonoFontFamily,
             )
         }
     }
@@ -525,7 +525,7 @@ private fun ReadableCodeBlock(
         Text(
             text = code,
             style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ChromeMonoFontFamily,
             color = MaterialTheme.colorScheme.onSurface,
         )
     }
@@ -573,7 +573,7 @@ private fun ReadableDiffBlock(
         Text(
             text = styled,
             style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ChromeMonoFontFamily,
         )
     }
 }
@@ -602,7 +602,7 @@ private fun ReadableMonospaceCard(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = ChromeMonoFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

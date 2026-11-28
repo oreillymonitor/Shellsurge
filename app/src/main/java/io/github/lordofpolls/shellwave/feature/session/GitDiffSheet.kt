@@ -50,7 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -342,7 +342,7 @@ internal fun GitDiffSheet(
                     label = { Text("Repository path") },
                     placeholder = { Text("Auto-detected from tmux / prompt") },
                     singleLine = true,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = ChromeMonoFontFamily),
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -432,7 +432,7 @@ internal fun GitDiffSheet(
                                             Text(
                                                 text = file.status,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                fontFamily = FontFamily.Monospace,
+                                                fontFamily = ChromeMonoFontFamily,
                                                 fontWeight = FontWeight.Bold,
                                                 color = statusColor,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -441,7 +441,7 @@ internal fun GitDiffSheet(
                                         Text(
                                             text = file.path,
                                             style = MaterialTheme.typography.bodySmall,
-                                            fontFamily = FontFamily.Monospace,
+                                            fontFamily = ChromeMonoFontFamily,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f),
@@ -516,7 +516,7 @@ internal fun GitDiffSheet(
                                                     }
                                                     Text(
                                                         text = diffLine,
-                                                        fontFamily = FontFamily.Monospace,
+                                                        fontFamily = ChromeMonoFontFamily,
                                                         fontSize = 11.sp,
                                                         lineHeight = 15.sp,
                                                         color = lineColor,

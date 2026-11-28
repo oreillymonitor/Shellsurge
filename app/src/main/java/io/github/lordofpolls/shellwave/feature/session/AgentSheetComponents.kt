@@ -33,7 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
+import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -96,7 +96,7 @@ internal fun AgentCliTogglePill(
                         Text(
                             text = agent.shortName,
                             style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = ChromeMonoFontFamily,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = if (isSelected) {
                                 MaterialTheme.colorScheme.onPrimary
@@ -161,7 +161,7 @@ internal fun AgentSheetHeader(
                     Text(
                         text = activeAgent.shortName,
                         style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ChromeMonoFontFamily,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -250,7 +250,7 @@ internal fun AgentTabPill(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = if (isMonospace) FontFamily.Monospace else null,
+                fontFamily = if (isMonospace) ChromeMonoFontFamily else null,
                 fontWeight = FontWeight.SemiBold,
                 color = if (selected) {
                     MaterialTheme.colorScheme.onPrimaryContainer
@@ -311,7 +311,7 @@ internal fun AgentUtilityPill(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = if (isMonospace) FontFamily.Monospace else null,
+                fontFamily = if (isMonospace) ChromeMonoFontFamily else null,
                 fontWeight = if (highlighted || active || isMonospace) FontWeight.SemiBold else FontWeight.Medium,
                 color = contentColor,
                 maxLines = 1,
@@ -368,7 +368,7 @@ internal fun AgentChip(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = if (isMonospace) FontFamily.Monospace else null,
+                    fontFamily = if (isMonospace) ChromeMonoFontFamily else null,
                     fontWeight = if (isMonospace || highlighted) FontWeight.SemiBold else FontWeight.Medium,
                     color = contentColor,
                     maxLines = 1,
@@ -473,7 +473,7 @@ internal fun SessionSheetHeader(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ChromeMonoFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

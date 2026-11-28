@@ -225,7 +225,21 @@ object TerminalTextSanitizer {
             j++
         }
         val lookahead = lines.getOrNull(j)?.trim() ?: return false
-        return AGENT_ACTIVITY_LINE.matches(lookahead)
+        if (AGENT_ACTIVITY_LINE.matches(lookahead)) return true
+
+        if (lines.getOrNull(idx + 1)?.trim().isNullOrEmpty()) {
+            val prevNonEmpty = ((idx - 1) downTo 0).firstNotNullOfOrNull { prevIdx ->
+                lines[prevIdx].trim().takeIf { it.isNotEmpty() }
+            }
+            val afterBlank = ((idx + 2) until lines.size).any { afterIdx ->
+                val t = lines[afterIdx].trim()
+                t.isNotEmpty() && !BARE_PROMPT_LINE.matches(t)
+            }
+            if (afterBlank && prevNonEmpty?.endsWith(":") != true) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun sliceToLatestTurn(normalized: List<String>): List<String> {

@@ -262,4 +262,46 @@ class AgentDigestModelTest {
         val editBody = AgentDigestModel.formatNotificationBody(editDigest, "fallback")
         assertTrue(editBody.contains("Files: IncomingShare.kt, MainActivity.kt"))
     }
+
+    @Test
+    fun `normalizes wrapped push headlines, ignores stale questions from prior turn, and avoids chopped prose`() {
+        val rawScrollback = """
+            Would you like to test this locally via ./gradlew :app:installFossDebug, or push and cut 1.16.10?
+
+            > Push and cut.
+
+            Committed 9a4d1bf (fix(reader): handle angle-bracket multi-line prompts, open-circle thoughts,
+            and scrollback scope) and pushed to origin/master.
+        """.trimIndent()
+        val cleaned = io.github.lordofpolls.shellwave.terminal.TerminalTextSanitizer.cleanForDigest(rawScrollback)
+        val digest = AgentDigestModel.fallbackAnalyze(cleaned)
+
+        assertFalse(digest.hasQuestion)
+        assertEquals("Changes pushed", digest.headlineFact)
+        assertEquals("Changes pushed", AgentDigestModel.formatNotificationTitle(isResponseNeeded = false, digest))
+        assertFalse(digest.spokenSummary.contains("installFossDebug"))
+
+        val withProseFiles = AgentDigestModel.fallbackAnalyze(
+            """
+            Fixed Read Mode multi-line user prompts and scrollback scope.
+            Verified in ci.yml and check-invariants.sh with BUILD SUCCESSFUL in 14s.
+            Would you like to test locally or push and cut 1.16.10?
+            """.trimIndent(),
+        )
+        assertTrue(withProseFiles.hasQuestion)
+        assertEquals("Input needed", AgentDigestModel.formatNotificationTitle(isResponseNeeded = true, withProseFiles))
+        val body = AgentDigestModel.formatNotificationBody(withProseFiles, "fallback")
+        assertTrue(body.contains("Fixed Read Mode multi-line user prompts"))
+        assertTrue(body.contains("push and cut 1.16.10?"))
+        assertFalse(body.contains("Waiting for your confirmation:"))
+        assertFalse(body.contains("Files:"))
+
+        val plainRunning = AgentDigestModel.fallbackAnalyze(
+            "Running ./gradlew --no-daemon\n:app:testFossDebugUnitTest cleanly.",
+        )
+        assertTrue(plainRunning.spokenSummary.startsWith("Running ./gradlew --no-daemon"))
+
+        val readyDigest = AgentDigestResult(spokenSummary = "Reviewed session logs.")
+        assertEquals("Ready for next prompt", AgentDigestModel.formatNotificationTitle(isResponseNeeded = false, readyDigest))
+    }
 }

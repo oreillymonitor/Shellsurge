@@ -24,8 +24,11 @@ private val QUESTION_REGEX = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes
 private val SPINNER_ONLY_REGEX = Regex("^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◐◓◑◒\\s]+$")
 private val INLINE_SPINNER_REGEX = Regex("^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◐◓◑◒✳✻✶✢✽]\\s+\\S.*")
 private val AGENT_TOOL_ACTIVITY_REGEX = Regex(
-    "^(?:[●•*◦▸▹]\\s*)?(?:Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling)\\b.*",
+    "^(?:[○●•*◦▸▹]\\s+)(?:Thought|Thinking|Planned|Planning|Analyzed|Analyzing|Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Creating|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling|Updated|Updating|Deleted|Deleting|Verified|Verifying|Fetched|Fetching|Built|Building|Tested|Testing)\\b.*",
     RegexOption.IGNORE_CASE,
+)
+private val BACKGROUND_WAIT_REGEX = Regex(
+    "(?i)(?:\\bin the background(?:\\b|;)|waiting for (?:completion|it to (?:complete|finish)|the (?:build|test|run|ci|watch|task))|(?:watching|monitoring)\\b.*\\b(?:in the background|until it finishes)|once (?:ci|it) (?:passes|finishes|completes)|still running\\b)",
 )
 
 private val IN_PROGRESS_MARKERS = listOf(
@@ -297,6 +300,16 @@ private fun isActivelyRunning(sanitizedTail: String): Boolean {
         }
     ) {
         return true
+    }
+
+    if (!isHardBlockingPrompt(sanitizedTail)) {
+        val strippedMeaningful = TerminalTextSanitizer.stripTuiChrome(sanitizedTail)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) && !PROMPT_LINE_REGEX.matches(it) }
+        val reflowedTail = AgentDigestModel.reflowWrappedLines(strippedMeaningful.takeLast(6))
+        if (reflowedTail.takeLast(2).any { BACKGROUND_WAIT_REGEX.containsMatchIn(it) }) {
+            return true
+        }
     }
 
     val hasIdlePrompt = rawLines.takeLast(4).any { line ->

@@ -21,6 +21,7 @@ data class AgentDigestResult(
     val usedAi: Boolean = false,
     val headlineFact: String? = null,
     val touchedFiles: List<String> = emptyList(),
+    val editedFiles: List<String> = emptyList(),
     val firstError: String? = null,
 )
 
@@ -28,6 +29,7 @@ internal data class TerminalFacts(
     val headlineFact: String? = null,
     val firstError: String? = null,
     val touchedFiles: List<String> = emptyList(),
+    val editedFiles: List<String> = emptyList(),
     val pendingQuestion: String? = null,
     val quickActions: List<DigestQuickAction> = emptyList(),
     val isYesNoPrompt: Boolean = false,
@@ -132,13 +134,19 @@ internal object AgentDigestModel {
         "(?i)(BUILD SUCCESSFUL[^\\n]*|BUILD FAILED[^\\n]*|\\d+\\s+tests?\\s+(?:completed|passed|failed)[^\\n]*|All\\s+\\d+\\s+tests\\s+passed[^\\n]*|\\d+\\s+passed(?:,\\s*\\d+\\s+failed)?[^\\n]*|Tests run:[^\\n]*)"
     )
     private val TOOL_ACTIVITY_SUMMARY_REGEX = Regex(
-        "^(?:[●•*◦▸▹]\\s*)?(?:Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling)\\b.*|\\(ctrl\\+o to expand\\)",
+        "^(?:[○●•*◦▸▹]\\s+(?:Thought|Thinking|Planned|Planning|Analyzed|Analyzing|Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Creating|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling|Updated|Updating|Deleted|Deleting|Verified|Verifying|Fetched|Fetching|Built|Building|Tested|Testing)\\b.*|(?:Read|Glob|Grep|Search|Edit|Write|Bash|Task|WebFetch|WebSearch)\\([^)]*\\)\\s*$|\\(ctrl\\+o to expand\\))$",
         RegexOption.IGNORE_CASE,
     )
     private val STRUCTURAL_LINE_START_REGEX = Regex(
         "^(?:[-*•●◦▸▹]|\\d+[.)\\]]\\s+|#+\\s+|Diff\\s+|e:\\s+|(?:error|failure|fatal|exception|traceback|build failed|build successful)\\b[:\\s]).*",
         RegexOption.IGNORE_CASE,
     )
+
+    private fun cleanDigestLine(line: String): String =
+        line.replace(Regex("^#+\\s+"), "")
+            .replace("**", "")
+            .replace("`", "")
+            .trim()
 
     internal fun reflowWrappedLines(lines: List<String>): List<String> {
         val result = mutableListOf<String>()
@@ -177,9 +185,12 @@ internal object AgentDigestModel {
     ): String {
         val headline = digest.headlineFact?.trim()?.takeIf { it.isNotEmpty() }
         return when {
-            isResponseNeeded -> headline ?: "Response needed"
+            isResponseNeeded -> headline?.takeIf {
+                it in setOf("Approval needed", "Action needed", "Input needed")
+            } ?: "Input needed"
             digest.isError -> (headline ?: "Command failed").take(48)
-            else -> (headline ?: "Turn complete").take(48)
+            digest.hasQuestion -> (headline ?: "Input needed").take(48)
+            else -> (headline ?: "Ready for next prompt").take(48)
         }
     }
 
@@ -188,13 +199,18 @@ internal object AgentDigestModel {
         fallbackBody: String,
         maxChars: Int = 360,
     ): String {
-        val base = digest.spokenSummary.trim().ifBlank { fallbackBody.trim() }.ifBlank { "Turn finished." }
+        val base = digest.spokenSummary.trim().ifBlank { fallbackBody.trim() }.ifBlank { "Ready for next prompt." }
         val extras = mutableListOf<String>()
         val err = digest.firstError?.trim()?.takeIf { it.isNotEmpty() }
+        val filesForFooter = when {
+            digest.editedFiles.isNotEmpty() -> digest.editedFiles
+            digest.headlineFact?.startsWith("Updated ") == true -> digest.touchedFiles
+            else -> emptyList()
+        }
         if (digest.isError && err != null && !base.contains(err.take(28), ignoreCase = true)) {
             extras += "Error: $err"
-        } else if (digest.touchedFiles.isNotEmpty()) {
-            val shortFiles = digest.touchedFiles.take(3).map { path ->
+        } else if (filesForFooter.isNotEmpty()) {
+            val shortFiles = filesForFooter.take(3).map { path ->
                 path.trimEnd('/').substringAfterLast('/').ifBlank { path }
             }.distinct()
             val unseenFiles = shortFiles.filterNot { name -> base.contains(name, ignoreCase = true) }
@@ -216,6 +232,10 @@ internal object AgentDigestModel {
 
         val meaningful = allLines.filter { !PROMPT_LINE_REGEX.matches(it) }
         val pool = if (meaningful.isNotEmpty()) meaningful else allLines
+        val reflowedPool = reflowWrappedLines(pool)
+        val nonToolReflowed = reflowedPool
+            .filterNot { TOOL_ACTIVITY_SUMMARY_REGEX.containsMatchIn(it) || it.startsWith("> ") || it.startsWith("❯ ") }
+            .ifEmpty { reflowedPool }
 
         val numberedActions = extractNumberedOptions(cleanedTurn)
         val tail8 = pool.takeLast(8)
@@ -241,7 +261,7 @@ internal object AgentDigestModel {
                 YES_NO_REGEX.replace(yesNoLine, "").trim().removeSuffix("?") + "?"
             }
             else -> {
-                pool.takeLast(2).lastOrNull { line ->
+                nonToolReflowed.takeLast(2).lastOrNull { line ->
                     line.endsWith("?") ||
                         line.contains("confirm", ignoreCase = true) ||
                         line.contains("approve", ignoreCase = true) ||
@@ -270,7 +290,7 @@ internal object AgentDigestModel {
         val firstError = specificError?.removePrefix("e: ")?.trim()?.take(140)
 
         var outcomeFact: String? = null
-        for (line in pool.takeLast(12).reversed()) {
+        for (line in reflowedPool.takeLast(8).reversed()) {
             val match = OUTCOME_FACT_REGEX.find(line)
             if (match != null) {
                 outcomeFact = match.groupValues[1].trim()
@@ -278,11 +298,13 @@ internal object AgentDigestModel {
             }
         }
         if (outcomeFact == null) {
-            outcomeFact = pool.takeLast(6).lastOrNull { line ->
-                line.contains("committed", ignoreCase = true) ||
-                    line.contains("pushed", ignoreCase = true) ||
-                    line.contains("up to date", ignoreCase = true)
-            }?.take(80)
+            val tailText = nonToolReflowed.takeLast(4).joinToString(" ")
+            outcomeFact = when {
+                tailText.contains("pushed", ignoreCase = true) -> "Changes pushed"
+                tailText.contains("committed", ignoreCase = true) -> "Changes committed"
+                tailText.contains("up to date", ignoreCase = true) -> "Already up to date"
+                else -> null
+            }
         }
 
         val files = LinkedHashSet<String>()
@@ -314,8 +336,9 @@ internal object AgentDigestModel {
             )
         val headlineFact = when {
             isApprovalMenu -> "Approval needed"
-            pendingQuestion != null -> "Waiting for input"
-            outcomeFact != null -> outcomeFact.take(80)
+            isYesNoPrompt -> "Action needed"
+            pendingQuestion != null -> "Input needed"
+            outcomeFact != null -> outcomeFact.take(64)
             isError -> "Command failed"
             editedFiles.isNotEmpty() -> "Updated ${editedFiles.size} file${if (editedFiles.size == 1) "" else "s"}"
             else -> null
@@ -325,6 +348,7 @@ internal object AgentDigestModel {
             headlineFact = headlineFact,
             firstError = firstError,
             touchedFiles = touchedFiles,
+            editedFiles = editedFiles.take(4),
             pendingQuestion = pendingQuestion,
             quickActions = numberedActions,
             isYesNoPrompt = isYesNoPrompt,
@@ -392,6 +416,7 @@ internal object AgentDigestModel {
                     usedAi = true,
                     headlineFact = facts.headlineFact,
                     touchedFiles = facts.touchedFiles,
+                    editedFiles = facts.editedFiles,
                     firstError = facts.firstError,
                 )
             }
@@ -588,6 +613,7 @@ internal object AgentDigestModel {
                 usedAi = false,
                 headlineFact = facts.headlineFact ?: "Approval needed",
                 touchedFiles = facts.touchedFiles,
+                editedFiles = facts.editedFiles,
                 firstError = facts.firstError,
             )
         }
@@ -598,26 +624,48 @@ internal object AgentDigestModel {
 
         val analysisPool = if (meaningfulLines.isNotEmpty()) meaningfulLines else allLines
         val reflowedPool = reflowWrappedLines(analysisPool)
-        val lastFew = reflowedPool.takeLast(10)
+        val nonToolParagraphs = reflowedPool
+            .filterNot { TOOL_ACTIVITY_SUMMARY_REGEX.containsMatchIn(it) || it.startsWith("> ") || it.startsWith("❯ ") }
+            .ifEmpty { reflowedPool }
 
-        // 1. Detect pending yes/no or approval prompts (not arbitrary open-ended prose questions).
-        val questionLine = lastFew.lastOrNull { line ->
+        // 1. Detect pending yes/no or approval prompts (only at the tail of the latest turn).
+        val questionCandidate = nonToolParagraphs.takeLast(2).lastOrNull { line ->
             YES_NO_REGEX.containsMatchIn(line) ||
                 (line.endsWith("?") && YES_NO_CONFIRMATION_CUES.any { cue -> line.contains(cue, ignoreCase = true) }) ||
                 line.contains("confirm", ignoreCase = true)
         }
 
-        if (questionLine != null) {
-            val cleanQuestion = YES_NO_REGEX.replace(questionLine, "").trim().removeSuffix("?") + "?"
+        if (questionCandidate != null) {
+            val cleanQuestion = cleanDigestLine(
+                YES_NO_REGEX.replace(questionCandidate, "").trim().removeSuffix("?") + "?",
+            )
+            val questionIdx = nonToolParagraphs.lastIndexOf(questionCandidate)
+            val earlier = if (questionIdx > 0) nonToolParagraphs.subList(0, questionIdx) else emptyList()
+            val lead = earlier.firstOrNull { line ->
+                val cleaned = cleanDigestLine(line)
+                !line.trimStart().startsWith("#") &&
+                    !line.trimStart().startsWith("-") &&
+                    !line.trimStart().startsWith("•") &&
+                    !line.trimStart().startsWith("```") &&
+                    cleaned.length in 12..140
+            }?.let { cleanDigestLine(it) } ?: earlier.firstOrNull { line ->
+                OUTCOME_FACT_REGEX.containsMatchIn(line)
+            }?.let { cleanDigestLine(it) }
+            val spoken = if (lead != null && !cleanQuestion.contains(lead.take(24), ignoreCase = true)) {
+                "$lead\n$cleanQuestion"
+            } else {
+                cleanQuestion
+            }
             return AgentDigestResult(
-                spokenSummary = "Waiting for your confirmation: $cleanQuestion",
+                spokenSummary = spoken,
                 hasQuestion = true,
                 question = cleanQuestion,
                 quickOptions = listOf("Yes", "No"),
                 isError = facts.isError,
                 usedAi = false,
-                headlineFact = facts.headlineFact ?: "Waiting for input",
+                headlineFact = facts.headlineFact ?: if (facts.isYesNoPrompt) "Action needed" else "Input needed",
                 touchedFiles = facts.touchedFiles,
+                editedFiles = facts.editedFiles,
                 firstError = facts.firstError,
             )
         }
@@ -632,12 +680,13 @@ internal object AgentDigestModel {
                 usedAi = false,
                 headlineFact = facts.headlineFact ?: "Command failed",
                 touchedFiles = facts.touchedFiles,
+                editedFiles = facts.editedFiles,
                 firstError = cleanError,
             )
         }
 
         // 3. Detect build success or completed task
-        val successLine = lastFew.lastOrNull { line ->
+        val successLine = nonToolParagraphs.takeLast(4).lastOrNull { line ->
             line.contains("BUILD SUCCESSFUL", ignoreCase = true) ||
                 line.contains("Tests run:", ignoreCase = true) ||
                 line.contains("passed in", ignoreCase = true) ||
@@ -649,7 +698,7 @@ internal object AgentDigestModel {
                 line.contains("pushed", ignoreCase = true)
         }
         if (successLine != null) {
-            val cleanSuccess = successLine.trim().trimEnd('.')
+            val cleanSuccess = cleanDigestLine(successLine).trim().trimEnd('.')
             val alreadyStatesOutcome =
                 Regex("(?i)\\b(?:completed|committed|pushed|success)\\b").containsMatchIn(cleanSuccess) &&
                     !cleanSuccess.contains("BUILD SUCCESSFUL", ignoreCase = true)
@@ -665,17 +714,22 @@ internal object AgentDigestModel {
                 usedAi = false,
                 headlineFact = facts.headlineFact,
                 touchedFiles = facts.touchedFiles,
+                editedFiles = facts.editedFiles,
                 firstError = null,
             )
         }
 
         // 4. Summarize the last meaningful command or agent outputs
         if (meaningfulLines.isNotEmpty()) {
-            val reflowedMeaningful = reflowWrappedLines(meaningfulLines)
-            val nonToolParagraphs = reflowedMeaningful
-                .filterNot { TOOL_ACTIVITY_SUMMARY_REGEX.containsMatchIn(it) }
-                .ifEmpty { reflowedMeaningful }
-            val joined = nonToolParagraphs.takeLast(2).joinToString(" ").trim()
+            val cleanedNonTool = nonToolParagraphs.map { cleanDigestLine(it) }.filter { it.isNotEmpty() }
+            val nonHeading = cleanedNonTool.filterNot { it.endsWith(":") }
+                .ifEmpty { cleanedNonTool }
+            val picked = if (nonHeading.size >= 2 && nonHeading.first().length in 16..140) {
+                listOf(nonHeading.first(), nonHeading.last()).distinct()
+            } else {
+                nonHeading.takeLast(2)
+            }
+            val joined = picked.joinToString(" ").trim()
             val cleanSummary = if (joined.length <= 240) {
                 joined
             } else {
@@ -689,6 +743,7 @@ internal object AgentDigestModel {
                 usedAi = false,
                 headlineFact = facts.headlineFact,
                 touchedFiles = facts.touchedFiles,
+                editedFiles = facts.editedFiles,
                 firstError = null,
             )
         }

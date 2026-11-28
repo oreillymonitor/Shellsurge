@@ -739,4 +739,26 @@ class TerminalOutputWatcherTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun `suppresses notifications while status states background work is still running`() {
+        assertNull(
+            classifyPromptKind(
+                "Running ./gradlew --no-daemon :app:testFossDebugUnitTest in the background; waiting for completion.\n> Type a message",
+                settledAfterIdle = true,
+            ),
+        )
+        assertNull(
+            classifyPromptKind(
+                "Committed 9a4d1bf and pushed to origin/master. Watching .github/workflows/ci.yml in the background;\nI will bump and cut 1.16.10 once CI passes.\n> Type a message",
+                settledAfterIdle = true,
+            ),
+        )
+        assertNull(
+            classifyPromptKind(
+                "○ Thought for 12.4s (Checking build status...)",
+                settledAfterIdle = true,
+            ),
+        )
+    }
 }

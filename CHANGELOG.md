@@ -1,6 +1,16 @@
 # Changelog
 
 
+## 1.16.6 - 2026-11-27
+
+### Improved
+- Replace terminal `⋮` menu with an expanding `⌄`/`⌃` overlay tray directly beneath the session strip (zero PTY resize)
+- Replace `⋮` popovers on Host cards, Script cards, and SFTP file rows with expanding inline action trays
+- Replace small top-bar dropdowns with direct icons on Hosts (Sort + Import), Keys (Import + Generate), and Remote Editor (Reload), plus an inline sort strip on Hosts
+- Replace the Script templates popup dialog with an inline `My scripts | Templates` tab view on Scripts
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.5...1.16.6)
+
 ## 1.16.5 - 2026-11-27
 
 ### Fixed

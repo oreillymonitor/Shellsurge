@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 1.16.11 - 2026-11-28
+
+### Fixed
+- Stabilize Read Mode scrolling and surface notification quick replies on agent questions
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.10...1.16.11)
+
 ## 1.16.10 - 2026-11-28
 
 ### Fixed

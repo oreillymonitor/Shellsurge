@@ -1,75 +1,59 @@
 # Changelog
 
 
+## 1.16.9 - 2026-11-28
+
+### New
+- Add Android Share Sheet drop, Tailscale subnet/preview/diagnostics, smarter notifications, and readable output polish
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.8...1.16.9)
+
 ## 1.16.8 - 2026-11-28
 
-### Added
-- Retro **Amber** (P3 amber CRT) and **Phosphor** (P1 green CRT) app-wide themes with monospace chrome headings/labels and matching **Amber CRT** and **Green CRT** terminal palettes
-- Offline **Gogh theme library** browser (1,257 MIT-licensed themes with All/Dark/Light filters, search, and 1-tap apply) plus `tools/update-gogh-themes.py` (`just update-gogh`)
-- Universal terminal theme importer supporting Ghostty, Alacritty (TOML/YAML), Warp YAML, iTerm2 (`.itermcolors`), Kitty, Termux `.properties`, Gogh (YAML/JSON), Xresources, and Windows Terminal JSON
-- 17 new built-in terminal colour schemes (24 total) with All/Dark/Light filters and search
-- **Default deck** (`Agent` / `Shell`) setting under Terminal & Input
-
-### Improved
-- Unified app-wide monospace typography on bundled variable JetBrains Mono (`ChromeMonoFontFamily`) and aligned KeyBar keycap fonts
-- Improved Inline Prompt Composer discoverability with deck-distinct keyboard icon, draft indicator badge, and one-time raw-typing tip
-- Cleaned up obsolete two-row switch from custom KeyBar layout editor and switched Colour palette picker to a 2-column grid
+### New
+- Retro CRT themes, Gogh catalog, theme importer, default deck, and typography polish
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.7...1.16.8)
 
 ## 1.16.7 - 2026-11-28
 
-### Added
-- Agent-first KeyBar with a live context-aware top row (auto-detecting numbered menus, `[Y/n]` prompts, password prompts, and active runs) and 1-tap `⇄` flip to the Shell deck
-- Lean, scrollable, and expandable `InlinePromptComposer` docked inside the KeyBar when tapping `⌨` in Agent Deck (keeping the terminal live and scrollable above)
-
-### Improved
-- Collapsible `SettingsGroupCard` sections with live summaries and status badges (`Appearance` open by default, search auto-expands matches, and direct 1-tap `Terminal & Input` card)
-- Permanently pinned `↵ Enter` and `🎙 Speak` keys in the right 2×2 KeyBar grid, `📋 Paste` on Row 2, and removal of redundant `PgUp`/`PgDn` cluster keys and dedicated Nano Summary button
+### New
+- Collapsible settings, agent-first keybar, and inline prompt composer
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.6...1.16.7)
 
-## 1.16.6 - 2026-11-27
+## 1.16.6 - 2026-11-28
 
-### Improved
-- Replace terminal `⋮` menu with an expanding `⌄`/`⌃` overlay tray directly beneath the session strip (zero PTY resize)
-- Replace `⋮` popovers on Host cards, Script cards, and SFTP file rows with expanding inline action trays
-- Replace small top-bar dropdowns with direct icons on Hosts (Sort + Import), Keys (Import + Generate), and Remote Editor (Reload), plus an inline sort strip on Hosts
-- Replace the Script templates popup dialog with an inline `My scripts | Templates` tab view on Scripts
+### New
+- Replace popover menus with expanding inline trays, direct icons, and inline script templates
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.5...1.16.6)
 
-## 1.16.5 - 2026-11-27
+## 1.16.5 - 2026-11-28
 
 ### Fixed
-- Restore standard Material 3 dropdown menus for all `⋮` overflow buttons across Hosts and Terminal sessions
+- Restore standard Material 3 dropdowns for overflow menus
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.4...1.16.5)
 
-## 1.16.4 - 2026-11-27
+## 1.16.4 - 2026-11-28
 
-### Improved
-- Switch terminal overflow (`⋮`) menu to a styled top-right anchored dropdown popover
-- Upgrade Readable Output formatting with structured Markdown blocks, reflowed prose, inline styles, diff/table cards, and a Formatted/Raw toggle
-- Separate and group `http(s)://` web links vs `file://` links in Links sheet with filter pills and direct remote file editing
+### New
+- Anchor overflow menu, enrich readable output, and group links
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.3...1.16.4)
 
-## 1.16.3 - 2026-11-27
+## 1.16.3 - 2026-11-28
 
 ### New
-- Add complementary File attachment upload to Prompt Composer alongside Image
-- Add remote `tmux` session, window, and pane management drawer with bell/activity indicators
-- Add Listening Ports scanner drawer with 1-tap SSH local forwarding and browser preview
-- Add optional app-wide biometric/PIN lock, timeout selector, and `FLAG_SECURE` Recents privacy toggle
-- Add pinned Settings search bar to filter preference sections
+- Add composer file attach, tmux/ports drawers, app lock, and settings search
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.2...1.16.3)
 
 ## 1.16.2 - 2026-11-27
 
 ### New
-- Add automatic rate-limited GitHub update banner on Hosts with a Settings toggle and per-version dismiss
+- Add automatic rate-limited GitHub update banner
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.1...1.16.2)
 
@@ -86,190 +70,230 @@
 ## 1.16.0 - 2026-11-27
 
 ### New
-- **Wrapped URLs, OSC 8 links, Links sheet, and OAuth localhost tunneling**: join soft-wrapped and TUI-boxed multi-line URLs across rows, capture OSC 8 hyperlinks, add subtle link underlines and selection **Open** support (including in mouse-tracking mode), list session URLs in a **Links…** bottom sheet, and offer one-tap SSH local port forwarding (`Tunnel :<port> & Open`) for OAuth `localhost` callbacks
+- Support wrapped URLs, OSC 8 links, Links sheet, and OAuth localhost tunneling
 
 ### Documentation
 - Highlight full Android keyboard support in README
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.15.2...1.16.0)
 
-## 1.15.2 - 2026-11-24
+## 1.15.2 - 2026-11-25
 
-### Improved
-- **Unified Prompt Composer and Quick Response bottom sheets**: extract shared design tokens and composables (`AgentSheetComponents.kt`) so both sheets share a pinned header with top-right CLI agent switcher and close button, matching `36dp`/`10dp` top action strips, uniform `8dp`/`30dp` slash-command chips and launch pills, and a consistent pinned footer
+### Fixed
+- Place modifier as first optional parameter in AgentSectionHeader
+
+### Other changes
+- Unify Prompt Composer and Quick Response bottom sheet design
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.15.1...1.15.2)
 
-## 1.15.1 - 2026-11-24
-
-### Improved
-- **Unified single-shot Gemini Nano notification & digest pipeline**: compute one timeout-bounded digest per settled turn (`CachedTurnDigest`) to populate both background notifications and the in-tab digest capsule, skipping background Nano passes while actively watching a normal foreground turn complete
+## 1.15.1 - 2026-11-25
 
 ### Fixed
-- **Notification & Nano re-alert loops**: remove the duplicate ambient `outputTick` Nano polling loop in `SessionsScreen`, disarm `TerminalOutputWatcher` after both `COMPLETED` and `RESPONSE_NEEDED` alerts, normalize `HH:MM(:SS)` clocks and `tmux` date/clock status bars in `screenContentSignature`, and acknowledge alerts cleanly on notification swipe-dismiss or tab focus (`ACTION_NOTIFICATION_DISMISSED` / `acknowledgeCurrentOutput`)
-- **Blocking prompt classification**: prioritize `[y/N]`, `password:`, and real interactive approval selectors over idle TUI input boxes and shell prompts so numbered markdown lists and conversational sign-off questions classify as `COMPLETED` without false `Yes / No` notification buttons
+- Unify single-shot Nano notification pipeline and prevent re-alert loops
+
+### Documentation
+- Add redacted app screenshots to README
+- Replace old Settings screenshot with 1.15.0 Settings pages
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.15.0...1.15.1)
 
-## 1.15.0 - 2026-11-24
-
-### Improved
-- **UI, copy, and ergonomics polish**:
-  - **Settings**: reorder cards cleanly (`Appearance`, `Terminal & Input`, `Notifications`, `Coding Agents`, `On-Device AI`, `Tailscale`, `Hosts & Security`, …), remove the duplicate Tailscale enable switch so **Connect / Disconnect** works directly, add a **Sponsor Shellwave on GitHub** row, and tighten card descriptions
-  - **Terminal menu**: group actions into labeled sections with dividers and place **Close session** at the bottom in error tint
-  - **Quick Response & Digest Capsule**: replace `"vibe directives"` / `"Gemini is summarizing…"` copy with clear neutral labels, replace horizontal scrolling in `AgentDigestCapsule` with wrapping `FlowRow` chips/actions, use compact sheet drag handles, and enlarge touch targets to `32dp`–`34dp`
-  - **Host & Tailnet screens**: split **Session & Startup** out of **Connection & Routing** in Host Settings, add `.imePadding()` and larger icons to Git Diff, and pair **Save** + **Connect** actions in the Tailnet device dialog
-
-[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.9...1.15.0)
-
-## 1.14.9 - 2026-11-24
+## 1.14.9 - 2026-11-25
 
 ### Fixed
-- **Custom home-tilde shell prompts in notifications**: match `~/...` path prefixes in `PROMPT_LINE_REGEX` for Starship/Oh-My-Zsh/Fish prompt detection
+- Match home-tilde paths in PROMPT_LINE_REGEX
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.8...1.14.9)
 
-## 1.14.8 - 2026-11-24
+## 1.14.8 - 2026-11-25
 
-### Improved
-- **Consistent command & agent notifications**: replace packet-cancelling idle timers in `TerminalOutputWatcher` with a content-stability loop (`screenContentSignature`) so full `tmux` status bar redraws never starve alerts; detect plain agent prose above idle TUI input boxes and custom Starship/Oh-My-Zsh prompts; reset notification deduplication on each new user turn so repeated builds/approvals alert every time; lower passive prompt thresholds (`12`/`16` bytes); and ensure fresh heads-up/sound re-alerting in `SessionAlerts`
+### Fixed
+- Stabilize output settling across TUI prose, tmux redraws, and repeated turns
+
+### Documentation
+- Refresh README, PRIVACY, and upstream Shellwave sponsorship links
+- Highlight agentic coding harness support and notification improvements
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.7...1.14.8)
 
 ## 1.14.7 - 2026-11-24
 
 ### Fixed
-- **Persistent `known_hosts` trust over Embedded Tailscale**: override `getPort()` and `getRemoteSocketAddress()` on `TailscaleSocks5Socket` to report the actual SSH target port (e.g., `22`) instead of the ephemeral local SOCKS5 proxy port, so trusted hosts are not re-prompted after every app restart or update
+- Report remote SSH target port on TailscaleSocks5Socket so known_hosts persists across restarts
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.6...1.14.7)
 
 ## 1.14.6 - 2026-11-24
 
 ### Fixed
-- **Gemini Nano `Int.MAX_VALUE` token-limit overflow**: sanitize unbounded context-window reports (such as `2147483647` on `nano-v4-fast`) and compute token/character budgets in 64-bit `Long` arithmetic so `trimTailLinesToCharBudget` never wraps negative and wipes user prompts before inference
-- **Nano Polish editing scope**: clarify `REFINE_SYSTEM_INSTRUCTION` so Nano Polish refines grammar, phrasing, structure, and bullet points across any rough draft rather than only stripping spoken filler words
+- Prevent Int.MAX_VALUE token-limit overflow wiping Gemini Nano prompts
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.5...1.14.6)
 
 ## 1.14.5 - 2026-11-24
 
 ### Fixed
-- **Gemini Nano Polish prompt echoes**: tighten `PromptRefiner` editor/command instructions and add `isPromptEcho` + `Original:`/`Rewritten:` label extraction so Gemini Nano never overwrites the draft with instruction prompt text, falling back safely to `smartClean` when output is filtered
-
-### Improved
-- **Prompt Composer bottom sheet**: replace the narrow `AlertDialog` and horizontal scrolling option bars with a full-width `ModalBottomSheet`, a larger editor, a pinned Send/Enter footer, full-width primary Voice / Nano Polish / Shell cmd controls, and wrapping `FlowRow` tabs for utility pills, prompt templates, and agent slash commands
+- Prevent Nano polish prompt echoes and redesign Prompt Composer layout
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.4...1.14.5)
 
 ## 1.14.4 - 2026-11-24
 
 ### Fixed
-- **Embedded Tailscale MagicDNS & short hostnames**: bypass Android's system DNS in `sshj` (`ShellwaveSshClient`) when dialing via `TailscaleSocketFactory` so MagicDNS FQDNs and short hostnames go unresolved straight to `tsnet`; auto-route matching known Tailnet peer names when connected and honor Auto-start for `*.ts.net` addresses; add peer-directory IP fallback in the Go bridge when a tailnet has MagicDNS disabled
+- Bypass Android DNS in sshj and resolve MagicDNS/peer hostnames
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.3...1.14.4)
 
 ## 1.14.3 - 2026-11-24
 
 ### Fixed
-- **Embedded Tailscale startup panic on Android**: configure sandboxed `TS_LOGS_DIR`, `TMPDIR`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, and `HOME` directories inside app storage before `tsnet.Server.Start()`, fixing the `logpolicy.LogsDir` panic (`"no safe place found to store log state"`) when connecting on Android
+- Set TS_LOGS_DIR and sandbox env dirs before tsnet.Start
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.2...1.14.3)
 
 ## 1.14.2 - 2026-11-24
 
-### Improved
-- **Embedded Tailscale crash diagnostics & JNI safety**: capture Android `ApplicationExitInfo` native crash reports, uncaught JVM exceptions, Go panic recovery traces, and granular startup stage breadcrumbs (`go.Seq.setContext` + `tsnet` startup stages), with a **Previous crash log** card (**Copy crash log** / **Dismiss**) right inside **Settings → Tailscale (Embedded)**
+### New
+- Add on-device crash diagnostics, panic recovery, and Seq.setContext
+
+### Fixed
+- Guard null Build.SUPPORTED_ABIS in JVM unit test
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.1...1.14.2)
 
 ## 1.14.1 - 2026-11-24
 
 ### Fixed
-- **Embedded Tailscale browser sign-in**: feed Android `ConnectivityManager` default route and `NetworkInterface` snapshots into Go `netmon` (fixing Android 11+ `getifaddrs` missing `IFF_UP` flags), poll `StatusWithoutPeers` alongside `WatchIPNBus` for `AuthURL` & health diagnostics, add `http`/`https` `ACTION_VIEW` manifest `<queries>`, auto-open the browser when a sign-in URL arrives on connect, and show an explicit sign-in card with **Open browser** and **Copy link** buttons
+- Feed Android network interfaces to netmon and auto-open auth browser
+- Use KTX String.toUri in SettingsScreen browser launcher
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.14.0...1.14.1)
 
 ## 1.14.0 - 2026-11-24
 
 ### New
-- **Embedded Tailscale (`tsnet`)**: run a userspace Tailscale node directly inside ShellSurge without occupying Android's VPN slot — includes interactive OAuth sign-in, optional pre-auth key and Headscale Control URL, MagicDNS resolution, a Tailnet Devices browser (1-tap Connect or Save Host), and per-host Embedded Tailscale & keyless Tailscale SSH (`AuthNone`) options
-- **Per-host startup directory & auto-launch options**: configure a startup directory (`cd`) and auto-launch CLI agent preset (`claude`, `claude -c`, `opencode`, `codex`, `aider`, `agy`, `agy -c`, or custom command) per host, safely preserving existing resilient `tmux` sessions on reattach
-- **Instant Wi-Fi ↔ 5G handoff**: monitor Android default network transitions to immediately wake reconnecting sessions, proactively refresh stale non-Tailscale sessions on network switches, and notify embedded Tailscale on link changes
-
-### Improved
-- **Settings Support card**: clarify that ShellSurge is a fork of Shellwave and link directly to the original Shellwave repository
+- Add per-host startup directory and auto-launch options; credit Shellwave in Support
+- Add instant Wi-Fi to 5G network handoff reconnect
+- Embed userspace tsnet node, SOCKS5 dialer, Tailnet peer browser, and Tailscale SSH
 
 ### Fixed
-- **Gemini Nano digests & TUI sanitizer**: replace XML prompt tags (`<facts>`, `<turn>`, `<draft>`, `<request>`) with plain labeled prompts and add a meta-refusal fallback guard so digests never emit `"the user provided no facts or turn."`; preserve `"Follow-Ups"` prose and strip TUI ghost prompts in `TerminalTextSanitizer`
+- Replace XML tags with plain Nano prompts and guard against meta-refusals
+- Avoid K2 safe-call DFA OOM in AddEditHostScreen and raise Gradle heap
+- Replace anet with Cgo getifaddrs for Go 1.26 gomobile compatibility
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.13.2...1.14.0)
 
 ## 1.13.2 - 2026-11-24
 
-### Improved
-- On-device AI digest: add turn-aware TUI sanitization, diff collapsing, bottom-up smart block packing (cruft filtering + compiler/runtime error anchoring), deterministic fact extraction, and an expandable structured capsule with error callouts and tappable touched-file chips
-- Notifications: strip TUI box borders, input boxes, shortcut footers, and tmux status bars before classifying prompts; detect conversational agent questions and numbered approval menus reliably; passively alert on background-resumed turns; prevent tmux clock ticks from starving the idle timer; attach contextual quick-action buttons (`Yes`/`No` or top numbered options + `Reply`) with raw-mode TUI Enter timing
+### Other changes
+- Upgrade on-device digest with turn-aware sanitizer, fact extraction, and structured capsule
+- Pack digest terminal input bottom-up with cruft filtering and error anchoring
+- Make agent notifications and quick replies reliable across TUI chrome and passive turns
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.13.1...1.13.2)
 
 ## 1.13.1 - 2026-11-24
 
-### Fixed
-- Gemini Nano: eliminate few-shot prompt bleed in Prompt Polish, Shell cmd, and Terminal Digest by switching to zero-shot tag-delimited prompts and removing shared prefix caching across tasks
+### Other changes
+- Eliminate few-shot prompt bleed in Gemini Nano prompts
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.13.0...1.13.1)
 
-## 1.13.0 - 2026-11-23
+## 1.13.0 - 2026-11-24
 
-### New
-- Notifications: add inline **Yes** / **No** quick actions and **Reply** (`RemoteInput`) direct input to command/agent notifications
-- Terminal tabs: show live `RUNNING`, `COMPLETED`, and `RESPONSE_NEEDED` status badges on `SessionChipRail`
-- Auto-digest: automatically summarize tabs that finish while away when returning to them (with a toggle in Settings)
-- Agent Digest: detect numbered CLI approval menus (`1. Allow once`, `2. Allow for session`, etc.) beyond `[y/N]` and stream live Gemini Nano summaries
-- Prompt Composer: add **Shell cmd** mode (natural language → POSIX command), **Undo** transform restore, **Image** photo-picker SFTP upload (`/tmp/shellsurge-*`), and agent-aware voice slash macros (`/model` vs `/models`, `/diff`, `/review`, `/clear`, `/undo`)
-- Mobile Git Diff & Status sheet: inspect branch, changed files, color-coded diff hunks, jump to SFTP edit, or ask your agent to review changes
-- Terminal links: tap compiler/stacktrace file paths (`path/to/File.kt:142`) to **Ask Agent** to fix, **Edit** in the remote text editor, **Download**, or **Copy**
-- On-Device AI (Gemini Nano): add Settings card showing active model name, context token limit, capabilities, **Download / Warm up / Refresh** actions, **Full vs Fast** preference, **Stable vs Preview** channel, **Thinking mode**, and **Pre-warm on session open**, backed by tuned sampling, few-shot prompts, prefix caching, and token-budget trimming
+### Other changes
+- Add hands-free notifications, smarter Nano prompt tools, image attach, git diff, and link actions
+- Fix NotificationCompat.Builder call in SessionAlerts
+- Avoid overlapping URL path matches in TerminalLinkDetector and use AutoMirrored icon
+- Upgrade Gemini Nano with ModelConfig tier/channel, request tuning, warmup, streaming, and Settings controls
+- Use positional booleans for PromptPrefix constructor
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.12.0...1.13.0)
 
-## 1.12.0 - 2026-11-23
+## 1.12.0 - 2026-11-24
 
 ### New
-- SFTP browser: move, copy, compress, multi-download, open-with, copy path, open folder in terminal, breadcrumb following, and back navigation through visited folders
-- Terminal: option to hide the key bar when a physical keyboard is attached (detected via `InputDevice` and configuration)
-- Terminal: show the server's pre-login SSH banner
+- Option to hide the key bar when a physical keyboard is attached
+- Show the server's pre-login banner
+- Detect physical keyboards through InputDevice
+- Back steps through visited folders
+- Copy path, open in terminal, breadcrumb follows current folder
+- Move, copy, compress, multi-download and open with
 
 ### Fixed
-- Physical keyboard: send `AltGr` characters properly
-- Navigation: leave the terminal screen when the last session closes
-- File transfer: report unverified uploads as failures and truncate on download
+- Report unverified uploads as failures and truncate on download (#14)
+- Leave the terminal when the last session closes
+- Send AltGr characters from physical keyboards
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.11.1...1.12.0)
 
-## 1.11.1 - 2026-11-23
+## 1.11.1 - 2026-11-24
 
 ### Fixed
-- Add R8 ProGuard keep rules for ML Kit GenAI Prompt / Android AICore so Gemini Nano works in minified release builds
-- Surface `checkStatus()` exceptions instead of masking them as uninitialized
+- Add R8 keep rules for ML Kit GenAI / AICore and surface checkStatus errors
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.11.0...1.11.1)
 
 ## 1.11.0 - 2026-11-23
 
 ### New
-- Rebrand fork to ShellSurge (`io.github.oreillymonitor.shellsurge`) for side-by-side install
-- Add on-device Gemini Nano terminal digest with TTS read-aloud, guarded voice reply, and rule-based fallback
-- Add AI Voice Prompt Composer with spoken macros and on-device Gemini Nano prompt refinement
-- Add Agent Quick Response sheet and KeyBar quick-response drawer with per-agent toggles in Settings (`Claude Code`, `OpenCode`, `Codex CLI`, `Aider`, `Antigravity CLI`)
-- Add command & output notifications (`Completed` / `Response needed`) with idle settle and `OSC 133` / `9` / `777` support
-- Add unified tmux mouse-tracking & local scrollback scrollbar with 10-line stepper pills
-- Modernize Settings, Terminal configuration, and Host editor UI with Material 3 cards and public GitHub Releases update check
+- Update GitHub support links and apply new app icon from assets/newicon.jpeg
+- On-device Gemini Nano terminal summary, TTS read-back, and voice response loop (v1.10.24)
 
 ### Fixed
-- Guard voice auto-listening with `RECORD_AUDIO` permission checks and prevent unconfirmed free-form speech execution
-- Prevent dismissed ambient `[y/N]` prompts from immediately re-opening on subsequent output ticks
-- Isolate Tasker automation intent actions/extras and remove committed debug keystore and store-only scaffolding
+- Eliminate accidental pinch magnification and restore always-visible scrollbar and stepper
+- Enable unified scrollbar and 10-line steppers for tmux mouse reporting and local scrollback
+- Add KeyEvent import for KeyBar double-arrow scroll handler
+- Remove unused brand_icon_mark resource
+- Fix TerminalBuffer dimension references and update README for ShellSurge (v1.10.25)
+- Align pinned AI & keyboard keys into a 2x2 grid of circular buttons (v1.10.26)
+- Fix idle output fallback & Nano handling, add /usage favorite, and calibrate 2-line scroll ramping (v1.10.27)
+- Align success phrasing in AgentDigestModel and test assertion (v1.10.28)
+- Strip chained spoken intro fillers in smartClean
+
+### Other changes
+- Add keyboard autocorrect/voice toggle, AI prompt composer, and CI APK artifact
+- Add gitleaksignore for upstream SSH key template false positive
+- Fix Compose lint ModifierParameter order in TerminalInputCapture
+- Use KTX SharedPreferences.edit in TerminalInputPreferences
+- Ignore APK files and build-artifacts directory
+- Change applicationId to io.github.lordofpolls.shellwave.fork for side-by-side install
+- Add password visibility toggle and disable autocorrect on password fields
+- Add voice dictation and on-device Gemini Nano prompt refiner
+- Fix DisposableEffect import and simplify generateContent prompt call
+- Fix FeatureStatus import path to com.google.mlkit.genai.common.FeatureStatus
+- Move genai-prompt dependency to versions.toml catalog to satisfy lint
+- Fix double sparkle icon, handle AICore download and add smart cleaner fallback
+- Fix DownloadFailed logging and exhaustive when branch
+- Configure static debug keystore to enable seamless in-place APK updates
+- Implement agent quick response menu and vibe coding QoL features
+- Fix TerminalOutput write argument type for raw control characters
+- Enforce Password keyboard type, disable auto-capitalization, and add singleLine to password fields
+- Stack Prompt Composer and Robot above regular keyboard icon in KeyBar
+- Position Prompt Composer and Robot above regular keyboard icon (v1.10.6)
+- Fix Compose lint ModifierParameter default value in KeyboardKey (v1.10.7)
+- Add quick launch buttons for agy, agy -c, and opencode (v1.10.8)
+- Add interactive terminal scrollbar with scrubbing and eliminate drag deadzone (v1.10.9)
+- Fix CircleShape in TerminalScrollbar (v1.10.10)
+- Calibrate scrollbar scrub speed and fix horizontal tooltip badge (v1.10.11)
+- Rebrand to ShellSurge, switch resilient tmux to shellsurge, add scroll steppers, and calibrate progressive scrollbar (v1.10.12)
+- Fix MachineText style font weight parameter (v1.10.13)
+- Modernize Settings and Terminal configuration UI with M3 cards, segmented selectors, and sticky preview (v1.10.14)
+- Fix literal prompt text in color scheme cards (v1.10.15)
+- Fix scrollbar edge touch delegation, state tracking, and thumb visibility (v1.10.16)
+- Fix ColumnScope DSL scope violation in SessionsScreen (v1.10.17)
+- Unify KeyBar keys into circular buttons and eliminate dead gap above keyboard (v1.10.23)
+- Redesign AddEditHostScreen with Material 3 SettingsGroupCards and QoL enhancements (v1.10.29)
+- Compact AgentQuickResponseSheet with unified directive pills and accessible slash commands (v1.10.30)
+- Add Gemini summary loading cue, increase summary verbosity to 3-4 sentences, and fix composer button padding (v1.10.31)
+- Fix syntax in AgentQuickResponseSheet and bump version to v1.10.32
+- Optimize Gemini Nano prompt to ultra-lean briefing and add zero-token preamble stripping (v1.10.33)
+- Compact PromptComposerDialog, add agy/opencode slash switcher, and add KeyBar quick-response drawer & Enter shortcuts (v1.10.34)
+- Fix Compose ModifierParameter and KTX lint issues (v1.10.35)
+- Add Settings self-update release flow and terminal output notifications (v1.10.36)
+- Limit output notifications to Completed and Response needed with deduplication (v1.10.37)
+- Keep turn armed during intermediate output before quick-echo check (v1.10.38)
+- Add optional GitHub token support for private repo updates (v1.10.39)
 
 [Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.10.0...1.11.0)
 
@@ -288,7 +312,7 @@
 ### Internal
 - Update AGP, Gradle and app dependencies
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.9.1...1.10.0)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.9.1...1.10.0)
 
 ## 1.9.1 - 2026-10-24
 
@@ -309,7 +333,7 @@
 - Caption and reorder the screenshots, add a feature graphic
 - Add feature graphic to readme
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.8.0...1.9.1)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.8.0...1.9.1)
 
 ## 1.8.0 - 2026-10-18
 
@@ -326,7 +350,7 @@
 - Link the Play Store and F-Droid listings from the README
 - Work search keywords and missing features into the store listing
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.7.1...1.8.0)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.7.1...1.8.0)
 
 ## 1.7.1 - 2026-09-13
 
@@ -335,7 +359,7 @@
 - Scroll mouse-aware apps with a drag instead of a button drag
 - Move PgUp and PgDn into the arrow cluster beside the up key
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.6.1...1.7.1)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.6.1...1.7.1)
 
 ## 1.6.1 - 2026-09-06
 
@@ -372,7 +396,7 @@
 ### Documentation
 - Tweak readme
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.5.0...1.6.1)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.5.0...1.6.1)
 
 ## 1.5.0 - 2026-08-29
 
@@ -391,7 +415,7 @@
 ### Internal
 - Drop unused connectionCount from SupportPromptDialog
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.4.2...1.5.0)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.4.2...1.5.0)
 
 ## 1.4.2 - 2026-08-28
 
@@ -402,7 +426,7 @@
 ### Internal
 - Update AGP version
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.4.1...1.4.2)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.4.1...1.4.2)
 
 ## 1.4.1 - 2026-08-26
 
@@ -414,7 +438,7 @@
 - Unblock a hung capture-mode command past the 120s timeout
 - Keep concurrent background script runs from killing each other
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.4.0...1.4.1)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.4.0...1.4.1)
 
 ## 1.4.0 - 2026-08-26
 
@@ -430,7 +454,7 @@
 ### Internal
 - A real top bar on every pushed screen
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.3.1...1.4.0)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.3.1...1.4.0)
 
 ## 1.3.1 - 2026-08-25
 
@@ -438,7 +462,7 @@
 - Drop the foojay-provisioned daemon JVM toolchain
 - Build the release on JDK 25
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.3.0...1.3.1)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.3.0...1.3.1)
 
 ## 1.3.0 - 2026-08-25
 
@@ -450,14 +474,14 @@
 ### Fixed
 - Refresh the widget when a script is pinned or unpinned
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.2.2...1.3.0)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.2.2...1.3.0)
 
 ## 1.2.2 - 2026-08-25
 
 ### Fixed
 - Keep the WorkManager InputMerger constructor R8 strips
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.2.1...1.2.2)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.2.1...1.2.2)
 
 ## 1.2.1 - 2026-08-25
 
@@ -467,7 +491,7 @@
 ### Documentation
 - Privacy.md
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.2.0...1.2.1)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.2.0...1.2.1)
 
 ## 1.2.0 - 2026-08-25
 
@@ -480,7 +504,7 @@
 ### Internal
 - Write release notes from the commit history
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.1.0...1.2.0)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.1.0...1.2.0)
 
 ## 1.1.0 - 2026-08-25
 
@@ -494,7 +518,7 @@
 ### Documentation
 - Point to release APKs
 
-[Every commit in this release](https://github.com/LordOfPolls/Shellwave/compare/1.0...1.1.0)
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.0...1.1.0)
 
 ## 1.0 - 2026-08-24
 

@@ -1,6 +1,14 @@
 # Changelog
 
 
+## 1.16.10 - 2026-11-28
+
+### Fixed
+- Handle angle-bracket multi-line prompts, open-circle thoughts, and scrollback scope
+- Focus alerts on action needed and idle completions while suppressing mid-turn waits
+
+[Every commit in this release](https://github.com/oreillymonitor/Shellsurge/compare/1.16.9...1.16.10)
+
 ## 1.16.9 - 2026-11-28
 
 ### New

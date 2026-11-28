@@ -104,6 +104,7 @@ internal fun ReadableOutputSheet(
     onOpenUrl: (String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    isAlternateScreen: Boolean = false,
     onOpenLinksSheet: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -118,6 +119,7 @@ internal fun ReadableOutputSheet(
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var fontSizeSp by remember { mutableIntStateOf(SessionLayoutPreferences.getReadableFontSizeSp(context)) }
+    val contentScrollState = rememberScrollState()
 
     LaunchedEffect(copiedAll) {
         if (copiedAll) {
@@ -126,6 +128,21 @@ internal fun ReadableOutputSheet(
         }
     }
 
+    LaunchedEffect(scope) {
+        contentScrollState.scrollTo(0)
+    }
+
+    val latestLineCount = remember(latestTurnText) {
+        if (latestTurnText.isBlank()) 0 else latestTurnText.lines().size
+    }
+    val fullLineCount = remember(fullScrollbackText) {
+        if (fullScrollbackText.isBlank()) 0 else fullScrollbackText.lines().size
+    }
+    val hasOlderScrollback = remember(latestTurnText, fullScrollbackText) {
+        fullScrollbackText.isNotBlank() &&
+            latestTurnText.isNotBlank() &&
+            fullScrollbackText != latestTurnText
+    }
     val activeText = when (scope) {
         ReadableScope.LATEST_TURN -> latestTurnText.ifBlank { fullScrollbackText }
         ReadableScope.SCROLLBACK -> fullScrollbackText
@@ -145,6 +162,12 @@ internal fun ReadableOutputSheet(
     val urls = remember(activeText) { findUrlsInReadableText(activeText) }
     val lineCount = remember(activeText) {
         if (activeText.isBlank()) 0 else activeText.lines().size
+    }
+    val headerSubtitle = when {
+        lineCount == 0 -> null
+        isAlternateScreen && !hasOlderScrollback -> "$lineCount lines · screen only (TUI alt buffer)"
+        !hasOlderScrollback -> "$lineCount lines · single turn in buffer"
+        else -> "$lineCount lines · long-press to select"
     }
 
     fun updateFontSize(delta: Int) {
@@ -171,7 +194,7 @@ internal fun ReadableOutputSheet(
             SessionSheetHeader(
                 icon = Icons.AutoMirrored.Outlined.Article,
                 title = "Readable Output",
-                subtitle = if (lineCount > 0) "$lineCount lines · long-press to select" else null,
+                subtitle = headerSubtitle,
                 trailing = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(
@@ -253,12 +276,12 @@ internal fun ReadableOutputSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 AgentTabPill(
-                    label = "Latest turn",
+                    label = if (hasOlderScrollback) "Latest turn ($latestLineCount)" else "Latest turn",
                     selected = scope == ReadableScope.LATEST_TURN,
                     onClick = { scope = ReadableScope.LATEST_TURN },
                 )
                 AgentTabPill(
-                    label = "Scrollback",
+                    label = if (hasOlderScrollback) "Scrollback ($fullLineCount)" else "Scrollback",
                     selected = scope == ReadableScope.SCROLLBACK,
                     onClick = { scope = ReadableScope.SCROLLBACK },
                 )
@@ -328,7 +351,7 @@ internal fun ReadableOutputSheet(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(contentScrollState)
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {

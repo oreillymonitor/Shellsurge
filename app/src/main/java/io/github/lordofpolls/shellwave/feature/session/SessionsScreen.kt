@@ -583,6 +583,9 @@ fun SessionsScreen(
                     TerminalTextSanitizer.extractReadableOutput(emu, latestTurnOnly = false)
                 }.orEmpty()
             }
+            val isAlternateScreen = remember(current.id, readableOutputOpen, readableRefreshTick) {
+                current.connection.emulatorOrNull?.isAlternateBufferActive() == true
+            }
             ReadableOutputSheet(
                 latestTurnText = latestText,
                 fullScrollbackText = fullText,
@@ -595,6 +598,7 @@ fun SessionsScreen(
                         Toast.makeText(readerContext, "No app found to open link", Toast.LENGTH_SHORT).show()
                     }
                 },
+                isAlternateScreen = isAlternateScreen,
                 onOpenLinksSheet = {
                     readableOutputOpen = false
                     linksSheetOpen = true
@@ -1964,6 +1968,9 @@ internal fun SessionTabBody(
                     TerminalTextSanitizer.extractReadableOutput(emu, latestTurnOnly = false)
                 }.orEmpty()
             }
+            val isAlternateScreen = remember(sessionId, tabReadableOutputOpen, tabReadableRefreshTick) {
+                terminalEmulator?.isAlternateBufferActive() == true
+            }
             ReadableOutputSheet(
                 latestTurnText = latestText,
                 fullScrollbackText = fullText,
@@ -1976,6 +1983,7 @@ internal fun SessionTabBody(
                         Toast.makeText(localContext, "No app found to open link", Toast.LENGTH_SHORT).show()
                     }
                 },
+                isAlternateScreen = isAlternateScreen,
                 onDismiss = {
                     tabReadableOutputOpen = false
                     focusRequester.requestFocus()

@@ -36,8 +36,14 @@ private val QUOTE_REGEX = Regex("""^\s*>\s?(.*)$""")
 private val USER_HOST_PROMPT_REGEX = Regex("""^([A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^$#%]*[$#%])\s+(\S.*)$""")
 private val SHELL_PROMPT_REGEX = Regex("""^([$%])\s+(\S.*)$""")
 private val AGENT_PROMPT_REGEX = Regex("""^([❯➜›])\s+(\S.*)$""")
+private val ANGLE_PROMPT_REGEX = Regex("""^(>)\s+(\S.*)$""")
+private val GRADLE_ANGLE_LINE_REGEX = Regex(
+    """^>\s+(?:Task\b|Configure\b|Run with\b|Get more help\b|What went wrong:|A problem occurred\b|Execution failed\b).*""",
+    RegexOption.IGNORE_CASE,
+)
+private val MARKDOWN_CALLOUT_REGEX = Regex("""^>\s+\[![A-Z]+].*""")
 private val AGENT_ACTIVITY_BULLET_REGEX = Regex(
-    """^[●•*◦▸▹]\s+(?:Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling|Updated|Deleted)\b.*""",
+    """^[○●•*◦▸▹]\s+(?:Thought|Thinking|Planned|Planning|Analyzed|Analyzing|Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Creating|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling|Updated|Updating|Deleted|Deleting|Verified|Verifying|Fetched|Fetching|Built|Building|Tested|Testing)\b.*""",
     RegexOption.IGNORE_CASE,
 )
 private val AGENT_ACTIVITY_CALL_REGEX = Regex(
@@ -155,42 +161,56 @@ fun parseReadableBlocks(text: String): List<ReadableBlock> {
         }
 
         // 6. Agent user prompt (supports wrapped & multi-line input without mixing into reply).
-        AGENT_PROMPT_REGEX.matchEntire(trimmed)?.let { promptMatch ->
-            val marker = promptMatch.groupValues[1]
-            val promptParagraphs = mutableListOf(promptMatch.groupValues[2].trim())
+        matchAgentUserPrompt(lines, i, allowTopLevelSingleLine = blocks.isEmpty())?.let { (marker, firstLine) ->
+            val promptParagraphs = mutableListOf(firstLine)
             i++
             while (i < lines.size) {
                 val nextRaw = lines[i]
                 val nextTrim = nextRaw.trim()
                 if (nextTrim.isEmpty()) break
-                if (startsSpecialBlock(nextTrim, lines.getOrNull(i + 1)?.trim()) ||
+                if (startsHardBlock(nextTrim, lines.getOrNull(i + 1)?.trim()) ||
                     isActivityLine(nextTrim) ||
-                    BULLET_ITEM_REGEX.matches(nextRaw) ||
-                    QUOTE_REGEX.matches(nextRaw) ||
-                    isLineBreakSensitive(nextTrim)
+                    AGENT_PROMPT_REGEX.matches(nextTrim) ||
+                    matchShellPrompt(nextTrim) != null ||
+                    nextRaw.startsWith("> ")
                 ) {
                     break
                 }
                 val prev = promptParagraphs.last()
-                val hasHangingIndent = nextRaw.startsWith("  ") || nextRaw.startsWith("\t")
+                val hasHangingIndent = nextRaw.startsWith("  ") ||
+                    nextRaw.startsWith("\t") ||
+                    (marker == ">" && nextRaw.startsWith(" ") && !BULLET_ITEM_REGEX.matches(nextRaw) && !QUOTE_REGEX.matches(nextRaw))
                 val backslashContinuation = prev.endsWith("\\")
-                val startsLowerOrPunct = nextTrim.firstOrNull()?.let { ch ->
-                    ch.isLowerCase() || ch in setOf('(', ',', '.', ')', ']', '/', '—', '–', ';', ':')
-                } == true
-                val softWrappedLongLine = !endsSentence(prev) &&
-                    prev.length >= 36 &&
-                    !AGENT_REPLY_OPENER_REGEX.matches(nextTrim)
 
-                if (!hasHangingIndent && !backslashContinuation && !startsLowerOrPunct && !softWrappedLongLine) {
-                    break
-                }
-
-                if (backslashContinuation) {
-                    promptParagraphs[promptParagraphs.lastIndex] = "${prev.dropLast(1).trimEnd()} $nextTrim".trim()
-                } else if (hasHangingIndent && endsSentence(prev)) {
-                    promptParagraphs += nextTrim
+                if (!hasHangingIndent) {
+                    if (BULLET_ITEM_REGEX.matches(nextRaw) ||
+                        QUOTE_REGEX.matches(nextRaw) ||
+                        isLineBreakSensitive(nextTrim)
+                    ) {
+                        break
+                    }
+                    val startsLowerOrPunct = nextTrim.firstOrNull()?.let { ch ->
+                        ch.isLowerCase() || ch in setOf('(', ',', '.', ')', ']', '/', '—', '–', ';', ':')
+                    } == true
+                    val softWrappedLongLine = !endsSentence(prev) &&
+                        prev.length >= 28 &&
+                        !AGENT_REPLY_OPENER_REGEX.matches(nextTrim)
+                    if (!backslashContinuation && !startsLowerOrPunct && !softWrappedLongLine) {
+                        break
+                    }
+                    if (backslashContinuation) {
+                        promptParagraphs[promptParagraphs.lastIndex] = "${prev.dropLast(1).trimEnd()} $nextTrim".trim()
+                    } else {
+                        promptParagraphs[promptParagraphs.lastIndex] = "$prev $nextTrim"
+                    }
                 } else {
-                    promptParagraphs[promptParagraphs.lastIndex] = "$prev $nextTrim"
+                    if (backslashContinuation) {
+                        promptParagraphs[promptParagraphs.lastIndex] = "${prev.dropLast(1).trimEnd()} $nextTrim".trim()
+                    } else if (isLineBreakSensitive(nextTrim) || (endsSentence(prev) && prev.length < 32)) {
+                        promptParagraphs += nextTrim
+                    } else {
+                        promptParagraphs[promptParagraphs.lastIndex] = "$prev $nextTrim"
+                    }
                 }
                 i++
             }
@@ -259,6 +279,7 @@ fun parseReadableBlocks(text: String): List<ReadableBlock> {
                 val itemTrim = itemLine.trim()
                 if (itemTrim.isEmpty()) break
                 if (isActivityLine(itemTrim)) break
+                if (matchAgentUserPrompt(lines, i, allowTopLevelSingleLine = false) != null) break
                 val match = BULLET_ITEM_REGEX.matchEntire(itemLine)
                 if (match != null) {
                     val indentWidth = match.groupValues[1].sumOf { ch -> if (ch == '\t') 2 else 1 }
@@ -313,6 +334,7 @@ fun parseReadableBlocks(text: String): List<ReadableBlock> {
             if (paragraphLines.isNotEmpty() &&
                 (startsSpecialBlock(pTrim, lines.getOrNull(i + 1)?.trim()) ||
                     isActivityLine(pTrim) ||
+                    matchAgentUserPrompt(lines, i, allowTopLevelSingleLine = false) != null ||
                     BULLET_ITEM_REGEX.matches(pRaw) ||
                     QUOTE_REGEX.matches(pRaw))
             ) {
@@ -377,13 +399,63 @@ private fun matchShellPrompt(trimmed: String): Pair<String, String>? {
     return null
 }
 
-private fun startsSpecialBlock(trimmed: String, nextTrimmed: String?): Boolean =
+private fun matchAgentUserPrompt(
+    lines: List<String>,
+    index: Int,
+    allowTopLevelSingleLine: Boolean,
+): Pair<String, String>? {
+    val rawLine = lines[index]
+    val trimmed = rawLine.trim()
+    AGENT_PROMPT_REGEX.matchEntire(trimmed)?.let { m ->
+        return m.groupValues[1] to m.groupValues[2].trim()
+    }
+    if (!rawLine.startsWith("> ")) return null
+    val angleMatch = ANGLE_PROMPT_REGEX.matchEntire(trimmed) ?: return null
+    if (GRADLE_ANGLE_LINE_REGEX.matches(trimmed) || MARKDOWN_CALLOUT_REGEX.matches(trimmed)) return null
+    if (lines.getOrNull(index + 1)?.trim()?.startsWith(">") == true) return null
+
+    val nextRaw = lines.getOrNull(index + 1)
+    val hasHangingContinuation = nextRaw != null &&
+        nextRaw.trim().isNotEmpty() &&
+        (nextRaw.startsWith("  ") || nextRaw.startsWith("\t")) &&
+        !nextRaw.trim().startsWith(">") &&
+        !isActivityLine(nextRaw.trim()) &&
+        !startsHardBlock(nextRaw.trim(), lines.getOrNull(index + 2)?.trim())
+
+    var j = index + 1
+    while (j < lines.size) {
+        val probe = lines[j]
+        val probeTrim = probe.trim()
+        if (probeTrim.isEmpty()) break
+        if ((probe.startsWith("  ") || probe.startsWith("\t")) && !probeTrim.startsWith(">")) {
+            j++
+        } else {
+            break
+        }
+    }
+    while (j < lines.size && lines[j].trim().isEmpty()) {
+        j++
+    }
+    val lookaheadTrim = lines.getOrNull(j)?.trim()
+    val followedByActivity = lookaheadTrim != null && isActivityLine(lookaheadTrim)
+
+    return if (hasHangingContinuation || followedByActivity || allowTopLevelSingleLine) {
+        ">" to angleMatch.groupValues[2].trim()
+    } else {
+        null
+    }
+}
+
+private fun startsHardBlock(trimmed: String, nextTrimmed: String?): Boolean =
     trimmed.startsWith("```") ||
         trimmed.startsWith("diff --git ") ||
         trimmed.startsWith("@@ ") ||
         (nextTrimmed != null && isTableRow(trimmed) && isTableSeparator(nextTrimmed)) ||
         DIVIDER_REGEX.matches(trimmed) ||
-        HEADING_REGEX.matches(trimmed) ||
+        HEADING_REGEX.matches(trimmed)
+
+private fun startsSpecialBlock(trimmed: String, nextTrimmed: String?): Boolean =
+    startsHardBlock(trimmed, nextTrimmed) ||
         AGENT_PROMPT_REGEX.matches(trimmed) ||
         matchShellPrompt(trimmed) != null
 

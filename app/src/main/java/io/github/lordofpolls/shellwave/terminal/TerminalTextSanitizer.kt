@@ -33,10 +33,20 @@ object TerminalTextSanitizer {
         "send a message",
     )
     private val TUI_GHOST_PROMPT = Regex(
-        "^[❯➜›]\\s+(?:Try\\s+\"|Ask\\s+a\\s+follow-up|Type\\s+(?:a|your)\\s+message|Send\\s+a\\s+message).*",
+        "^[❯➜›>]\\s+(?:Try\\s+\"|Ask\\s+a\\s+follow-up|Type\\s+(?:a|your)\\s+message|Send\\s+a\\s+message).*",
         RegexOption.IGNORE_CASE,
     )
     private val TURN_START_PROMPT = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s+\\S.*|[❯➜›]\\s+(?!\\d+[.)\\]]\\s)\\S.*|\\$\\s+\\S.*)$")
+    private val ANGLE_AGENT_PROMPT = Regex("^>\\s+(?!\\d+[.)\\]]\\s)\\S.*")
+    private val GRADLE_ANGLE_LINE = Regex(
+        "^>\\s+(?:Task\\b|Configure\\b|Run with\\b|Get more help\\b|What went wrong:|A problem occurred\\b|Execution failed\\b).*",
+        RegexOption.IGNORE_CASE,
+    )
+    private val MARKDOWN_CALLOUT_LINE = Regex("^>\\s+\\[![A-Z]+].*")
+    private val AGENT_ACTIVITY_LINE = Regex(
+        "^[○●•*◦▸▹]\\s+(?:Thought|Thinking|Planned|Planning|Analyzed|Analyzing|Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Creating|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling|Updated|Updating|Deleted|Deleting|Verified|Verifying|Fetched|Fetching|Built|Building|Tested|Testing)\\b.*",
+        RegexOption.IGNORE_CASE,
+    )
     private val BARE_PROMPT_LINE = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s*|[$#>❯➜›%]\\s*)$")
     private val DIFF_GIT_HEADER = Regex("^diff --git a/(.+?) b/(.+)$")
 
@@ -65,21 +75,26 @@ object TerminalTextSanitizer {
      */
     fun extractReadableOutput(
         emulator: TerminalEmulator,
-        maxRows: Int = 240,
+        maxRows: Int? = null,
         latestTurnOnly: Boolean = true,
     ): String {
-        val rawText = readRawBuffer(emulator, maxRows = maxRows)
+        val resolvedMaxRows = maxRows ?: if (latestTurnOnly) 400 else 2000
+        val rawText = readRawBuffer(emulator, maxRows = resolvedMaxRows, joinFullLines = false)
         return cleanForReadable(rawText, latestTurnOnly = latestTurnOnly)
     }
 
-    private fun readRawBuffer(emulator: TerminalEmulator, maxRows: Int): String {
+    private fun readRawBuffer(
+        emulator: TerminalEmulator,
+        maxRows: Int,
+        joinFullLines: Boolean = true,
+    ): String {
         val screen = emulator.screen ?: return ""
         val activeTranscript = screen.activeTranscriptRows
         val startRow = (-activeTranscript).coerceAtLeast(-maxRows)
         val endRow = emulator.mRows - 1
 
         return try {
-            screen.getSelectedText(0, startRow, emulator.mColumns, endRow, true, true)
+            screen.getSelectedText(0, startRow, emulator.mColumns, endRow, true, joinFullLines)
         } catch (_: Throwable) {
             screen.transcriptText ?: ""
         }
@@ -178,16 +193,58 @@ object TerminalTextSanitizer {
             TUI_GHOST_PROMPT.matches(unboxed) ||
             TUI_CHROME_SUBSTRINGS.any { chrome -> unboxed.contains(chrome, ignoreCase = true) }
 
+    private fun isAngleAgentPromptStart(lines: List<String>, idx: Int): Boolean {
+        val raw = lines[idx]
+        if (!raw.startsWith("> ")) return false
+        val candidate = raw.trim()
+        if (!ANGLE_AGENT_PROMPT.matches(candidate)) return false
+        if (GRADLE_ANGLE_LINE.matches(candidate) || MARKDOWN_CALLOUT_LINE.matches(candidate)) return false
+        if (lines.getOrNull(idx + 1)?.trim()?.startsWith(">") == true) return false
+
+        val nextRaw = lines.getOrNull(idx + 1)
+        if (nextRaw != null &&
+            nextRaw.trim().isNotEmpty() &&
+            (nextRaw.startsWith("  ") || nextRaw.startsWith("\t")) &&
+            !nextRaw.trim().startsWith(">")
+        ) {
+            return true
+        }
+
+        var j = idx + 1
+        while (j < lines.size) {
+            val probe = lines[j]
+            val probeTrim = probe.trim()
+            if (probeTrim.isEmpty()) break
+            if ((probe.startsWith("  ") || probe.startsWith("\t")) && !probeTrim.startsWith(">")) {
+                j++
+            } else {
+                break
+            }
+        }
+        while (j < lines.size && lines[j].trim().isEmpty()) {
+            j++
+        }
+        val lookahead = lines.getOrNull(j)?.trim() ?: return false
+        return AGENT_ACTIVITY_LINE.matches(lookahead)
+    }
+
     private fun sliceToLatestTurn(normalized: List<String>): List<String> {
         var lastCommandIdx = -1
         for (idx in normalized.indices.reversed()) {
             val candidate = normalized[idx].trim()
-            if (candidate.isNotEmpty() && TURN_START_PROMPT.matches(candidate)) {
+            if (candidate.isNotEmpty() &&
+                (TURN_START_PROMPT.matches(candidate) || isAngleAgentPromptStart(normalized, idx))
+            ) {
                 val belowNonEmpty = normalized.drop(idx + 1).map { it.trim() }.filter { below ->
                     below.isNotEmpty() && !BARE_PROMPT_LINE.matches(below)
                 }
                 if (belowNonEmpty.isNotEmpty()) {
-                    val isStrayTrailingTuiPrompt = (candidate.startsWith("❯") || candidate.startsWith("➜") || candidate.startsWith("›")) &&
+                    val isStrayTrailingTuiPrompt = (
+                        candidate.startsWith("❯") ||
+                            candidate.startsWith("➜") ||
+                            candidate.startsWith("›") ||
+                            candidate.startsWith(">")
+                        ) &&
                         belowNonEmpty.size == 1 &&
                         normalized.take(idx).count { it.trim().isNotEmpty() && !BARE_PROMPT_LINE.matches(it.trim()) } >= 4 &&
                         belowNonEmpty[0].length < 60 &&

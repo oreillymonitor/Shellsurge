@@ -289,4 +289,89 @@ class ReadableOutputParserTest {
             strikeSpans,
         )
     }
+
+    @Test
+    fun `parseReadableBlocks handles angle bracket multi-line prompts and open-circle thoughts`() {
+        val raw = """
+            > Is the improved formatting in the rear mode work
+              retroactively? I installed the update and reopened
+              this chat with its history and it is still not
+              formatting multi lines prompts from the user
+              correctly.
+
+            ○ Thought for 44.2s (Terminal buffer parsing occur...)
+            ● Explored 3 files (TerminalTextSanitizer.kt, Read...)
+            ● Ran (grep -rn "ReadableOutputSheet\|cleanForRead...)
+            ● Explored 1 file (SessionsScreen.kt)
+            ● Ran (grep -rn -A 60 "public...) (ctrl+o to expand)
+
+            Yes — Read Mode works retroactively.
+        """.trimIndent()
+
+        val cleaned = TerminalTextSanitizer.cleanForReadable(raw, latestTurnOnly = true)
+        val blocks = parseReadableBlocks(cleaned)
+        assertEquals(3, blocks.size)
+        assertEquals(
+            ReadableBlock.UserPrompt(
+                prompt = ">",
+                text = "Is the improved formatting in the rear mode work retroactively? I installed the update and reopened this chat with its history and it is still not formatting multi lines prompts from the user correctly.",
+            ),
+            blocks[0],
+        )
+        assertEquals(
+            ReadableBlock.ActivityGroup(
+                listOf(
+                    "○ Thought for 44.2s (Terminal buffer parsing occur...)",
+                    "● Explored 3 files (TerminalTextSanitizer.kt, Read...)",
+                    "● Ran (grep -rn \"ReadableOutputSheet\\|cleanForRead...)",
+                    "● Explored 1 file (SessionsScreen.kt)",
+                    "● Ran (grep -rn -A 60 \"public...) (ctrl+o to expand)",
+                ),
+            ),
+            blocks[1],
+        )
+        assertEquals(ReadableBlock.Prose("Yes — Read Mode works retroactively."), blocks[2])
+    }
+
+    @Test
+    fun `cleanForReadable and parseReadableBlocks handle multi-turn angle prompts, URLs in prompts, blockquotes, and Gradle output`() {
+        val scrollback = """
+            > Check the layout at
+              https://example.com/preview
+              and fix padding.
+
+            ○ Thought for 3.1s
+            All fixed.
+
+            > push and cut
+
+            ○ Thought for 1.8s
+            Here are the details:
+
+            > Single-line markdown blockquote inside reply.
+
+            > Task :app:testFossDebugUnitTest
+            > Run with --stacktrace
+            BUILD SUCCESSFUL in 4s
+        """.trimIndent()
+
+        val latestCleaned = TerminalTextSanitizer.cleanForReadable(scrollback, latestTurnOnly = true)
+        assertTrue(!latestCleaned.contains("All fixed."))
+        assertTrue(latestCleaned.startsWith("> push and cut"))
+
+        val fullCleaned = TerminalTextSanitizer.cleanForReadable(scrollback, latestTurnOnly = false)
+        val fullBlocks = parseReadableBlocks(fullCleaned)
+
+        val userPrompts = fullBlocks.filterIsInstance<ReadableBlock.UserPrompt>()
+        assertEquals(2, userPrompts.size)
+        assertEquals("Check the layout at\nhttps://example.com/preview and fix padding.", userPrompts[0].text)
+        assertEquals("push and cut", userPrompts[1].text)
+
+        assertTrue(fullBlocks.contains(ReadableBlock.Quote("Single-line markdown blockquote inside reply.")))
+        assertTrue(
+            fullBlocks.contains(
+                ReadableBlock.Quote("Task :app:testFossDebugUnitTest Run with --stacktrace"),
+            ),
+        )
+    }
 }

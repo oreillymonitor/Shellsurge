@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,23 +24,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -49,7 +52,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -82,12 +84,6 @@ import io.github.lordofpolls.shellwave.core.prefs.WidgetPreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import io.github.lordofpolls.shellwave.feature.host.hostDeleteBlockReason
 import io.github.lordofpolls.shellwave.feature.scripts.ScriptMode
-import io.github.lordofpolls.shellwave.feature.session.AgentSectionHeader
-import io.github.lordofpolls.shellwave.feature.session.AgentSheetDragHandle
-import io.github.lordofpolls.shellwave.feature.session.AgentTabPill
-import io.github.lordofpolls.shellwave.feature.session.SessionDrawerActionRow
-import io.github.lordofpolls.shellwave.feature.session.SessionSheetCard
-import io.github.lordofpolls.shellwave.feature.session.SessionSheetHeader
 import io.github.lordofpolls.shellwave.feature.settings.AppReleaseInfo
 import io.github.lordofpolls.shellwave.feature.settings.UpdateCheckState
 import io.github.lordofpolls.shellwave.feature.settings.checkForUpdate
@@ -621,7 +617,6 @@ internal fun hostScriptActions(
                 onRun = { onRunScript(script, host) })
         }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun HostsOverflow(
     sort: HostSort,
@@ -629,62 +624,50 @@ private fun HostsOverflow(
     onImportSshConfig: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    IconButton(onClick = { expanded = true }) {
-        Icon(Icons.Outlined.MoreVert, contentDescription = "More options")
-    }
-    if (expanded) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { expanded = false },
-            sheetState = sheetState,
-            dragHandle = { AgentSheetDragHandle() },
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding(),
-            ) {
-                SessionSheetHeader(
-                    icon = Icons.Outlined.Tune,
-                    title = "Hosts options",
-                    onDismiss = { expanded = false },
+    // Reset on every open so the menu never reappears mid-submenu.
+    var showingSort by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { showingSort = false; expanded = true }) {
+            Icon(Icons.Outlined.MoreVert, contentDescription = "More options")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (showingSort) {
+                DropdownMenuItem(
+                    text = { Text("Back") },
+                    leadingIcon = {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null)
+                    },
+                    onClick = { showingSort = false },
                 )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    SessionSheetCard {
-                        AgentSectionHeader(title = "Sort by")
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            HostSort.entries.forEach { mode ->
-                                AgentTabPill(
-                                    label = mode.label,
-                                    selected = mode == sort,
-                                    onClick = {
-                                        expanded = false
-                                        onSort(mode)
-                                    },
-                                )
-                            }
-                        }
-                    }
-
-                    SessionSheetCard {
-                        SessionDrawerActionRow(
-                            icon = Icons.Outlined.FileOpen,
-                            label = "Import from ~/.ssh/config",
-                            onClick = {
-                                expanded = false
-                                onImportSshConfig()
-                            },
-                        )
-                    }
+                HostSort.entries.forEach { mode ->
+                    DropdownMenuItem(
+                        text = { Text(mode.label) },
+                        trailingIcon = {
+                            if (mode == sort) Icon(Icons.Outlined.Check, contentDescription = "Selected")
+                        },
+                        onClick = {
+                            expanded = false
+                            onSort(mode)
+                        },
+                    )
                 }
+            } else {
+                DropdownMenuItem(
+                    text = { Text("Sort by") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Sort, contentDescription = null) },
+                    trailingIcon = {
+                        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null)
+                    },
+                    onClick = { showingSort = true },
+                )
+                DropdownMenuItem(
+                    text = { Text("Import from ~/.ssh/config") },
+                    leadingIcon = { Icon(Icons.Outlined.FileOpen, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onImportSshConfig()
+                    },
+                )
             }
         }
     }

@@ -1,6 +1,10 @@
 package io.github.lordofpolls.shellwave.core.crypto
 
+import android.content.Context
+import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
+import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -25,6 +29,9 @@ fun Exception.isBiometricCancellation(): Boolean =
             (errorCode == BiometricPrompt.ERROR_USER_CANCELED ||
                     errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON ||
                     errorCode == BiometricPrompt.ERROR_CANCELED)
+
+private const val APP_LOCK_AUTHENTICATORS =
+    BIOMETRIC_STRONG or BIOMETRIC_WEAK or DEVICE_CREDENTIAL
 
 /**
  * A `BIOMETRIC_STRONG` [BiometricPrompt] round trip, in the two shapes the vault's two biometric
@@ -64,11 +71,37 @@ class BiometricGate @Inject constructor() {
         prompt(activity, crypto = null, title = title, subtitle = subtitle)
     }
 
+    /** True when the device has biometrics or a PIN/pattern/password enrolled for app lock. */
+    fun canAuthenticateAppLock(context: Context): Boolean =
+        BiometricManager.from(context).canAuthenticate(APP_LOCK_AUTHENTICATORS) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+
+    /**
+     * Authenticates the user for app-wide lock using biometrics or device credential (PIN/pattern/password).
+     * Does not set a negative button because Android forbids it alongside `DEVICE_CREDENTIAL`.
+     */
+    suspend fun authenticateAppLock(
+        activity: FragmentActivity,
+        title: String = "Unlock ShellSurge",
+        subtitle: String? = "Authenticate to access your SSH sessions",
+    ) {
+        prompt(
+            activity = activity,
+            crypto = null,
+            title = title,
+            subtitle = subtitle,
+            allowedAuthenticators = APP_LOCK_AUTHENTICATORS,
+            includeNegativeButton = false,
+        )
+    }
+
     private suspend fun prompt(
         activity: FragmentActivity,
         crypto: BiometricPrompt.CryptoObject?,
         title: String,
         subtitle: String?,
+        allowedAuthenticators: Int = BIOMETRIC_STRONG,
+        includeNegativeButton: Boolean = true,
     ): BiometricPrompt.CryptoObject? =
         suspendCancellableCoroutine { cont ->
             val executor = ContextCompat.getMainExecutor(activity)
@@ -80,7 +113,7 @@ class BiometricGate @Inject constructor() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                             // Null here is correct for the plain form and a contract breach for the
                             // CryptoObject one, so only that caller treats it as an error.
-                            cont.resume(result.cryptoObject)
+                            if (cont.isActive) cont.resume(result.cryptoObject)
                         }
 
                         override fun onAuthenticationError(
@@ -101,13 +134,15 @@ class BiometricGate @Inject constructor() {
                         }
                     },
                 )
-            val info =
+            val infoBuilder =
                 BiometricPrompt.PromptInfo.Builder()
                     .setTitle(title)
                     .apply { if (subtitle != null) setSubtitle(subtitle) }
-                    .setNegativeButtonText("Cancel")
-                    .setAllowedAuthenticators(BIOMETRIC_STRONG)
-                    .build()
+                    .setAllowedAuthenticators(allowedAuthenticators)
+            if (includeNegativeButton) {
+                infoBuilder.setNegativeButtonText("Cancel")
+            }
+            val info = infoBuilder.build()
             cont.invokeOnCancellation { prompt.cancelAuthentication() }
             if (crypto != null) prompt.authenticate(info, crypto) else prompt.authenticate(info)
         }

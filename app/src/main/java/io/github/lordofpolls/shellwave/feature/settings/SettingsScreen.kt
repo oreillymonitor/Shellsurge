@@ -32,8 +32,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
+import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Dns
@@ -47,9 +52,11 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -104,6 +111,7 @@ import io.github.lordofpolls.shellwave.core.net.TailscaleCrashDiagnostics
 import io.github.lordofpolls.shellwave.core.net.TailscaleManager
 import io.github.lordofpolls.shellwave.core.prefs.AgentCli
 import io.github.lordofpolls.shellwave.core.prefs.AgentCliPreferences
+import io.github.lordofpolls.shellwave.core.prefs.AppLockTimeout
 import io.github.lordofpolls.shellwave.core.prefs.BellMode
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.core.prefs.ColourTheme
@@ -113,6 +121,7 @@ import io.github.lordofpolls.shellwave.core.prefs.NanoReleaseChannel
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.OutputIdleDelay
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityInterval
+import io.github.lordofpolls.shellwave.core.prefs.SecurityPreferences
 import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.core.prefs.ThemeMode
 import io.github.lordofpolls.shellwave.core.prefs.UpdatePreferences
@@ -177,6 +186,11 @@ fun SettingsScreen(
     val nanoChannel by rememberPrefState { NanoModelPreferences.getReleaseChannel(it) }
     val nanoThinking by rememberPrefState { NanoModelPreferences.isThinkingModeEnabled(it) }
     val nanoWarmup by rememberPrefState { NanoModelPreferences.isWarmupEnabled(it) }
+    val hideInRecents by rememberPrefState { SecurityPreferences.isHideInRecentsEnabled(it) }
+    val appLockEnabled by rememberPrefState { SecurityPreferences.isAppLockEnabled(it) }
+    val appLockTimeout by rememberPrefState { SecurityPreferences.getAppLockTimeout(it) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val matchedSections = remember(searchQuery) { matchingSettingsSections(searchQuery) }
     val settingsScope = rememberCoroutineScope()
     var nanoDiag by remember { mutableStateOf<NanoDiagnostics?>(null) }
     var nanoActionStatus by remember { mutableStateOf<String?>(null) }
@@ -213,14 +227,53 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = LocalReadableInset.current)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(innerPadding),
         ) {
-            // 1. APPEARANCE
-            SettingsGroupCard(title = "Appearance", icon = Icons.Outlined.Palette) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search settings…") },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = LocalReadableInset.current)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = LocalReadableInset.current)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                if (matchedSections.isEmpty()) {
+                    SettingsGroupCard(title = "No matches", icon = Icons.Outlined.Search) {
+                        Text(
+                            text = "No settings match \"$searchQuery\".",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { searchQuery = "" }) {
+                            Text("Clear search")
+                        }
+                    }
+                }
+
+                // 1. APPEARANCE
+                if (SettingsSection.APPEARANCE in matchedSections) {
+                    SettingsGroupCard(title = "Appearance", icon = Icons.Outlined.Palette) {
                 SettingsSegmentedGroup(
                     label = "Theme mode",
                     options = ThemeMode.entries,
@@ -242,10 +295,12 @@ fun SettingsScreen(
                     checked = exactSchemeColours,
                     onCheckedChange = onExactSchemeColoursChange,
                 )
-            }
+                    }
+                }
 
-            // 2. TERMINAL & INPUT
-            SettingsGroupCard(title = "Terminal & Input", icon = Icons.Outlined.Terminal) {
+                // 2. TERMINAL & INPUT
+                if (SettingsSection.TERMINAL in matchedSections) {
+                    SettingsGroupCard(title = "Terminal & Input", icon = Icons.Outlined.Terminal) {
                 SettingsRow(
                     title = "Terminal configuration",
                     description = "Font, cursor, scrollback, colour scheme, key bar layouts, bell and full-width mode.",
@@ -253,10 +308,12 @@ fun SettingsScreen(
                     chevron = true,
                     onClick = onOpenTerminalSettings,
                 )
-            }
+                    }
+                }
 
-            // 3. NOTIFICATIONS
-            SettingsGroupCard(title = "Notifications", icon = Icons.Outlined.Notifications) {
+                // 3. NOTIFICATIONS
+                if (SettingsSection.NOTIFICATIONS in matchedSections) {
+                    SettingsGroupCard(title = "Notifications", icon = Icons.Outlined.Notifications) {
                 if (!systemNotificationsEnabled) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -348,10 +405,12 @@ fun SettingsScreen(
                     labelOf = BellPreferences::modeName,
                     onSelect = { BellPreferences.set(context, it) },
                 )
-            }
+                    }
+                }
 
-            // 4. CODING AGENTS
-            SettingsGroupCard(title = "Coding Agents", icon = Icons.Outlined.SmartToy) {
+                // 4. CODING AGENTS
+                if (SettingsSection.CODING_AGENTS in matchedSections) {
+                    SettingsGroupCard(title = "Coding Agents", icon = Icons.Outlined.SmartToy) {
                 Text(
                     "Choose which CLI coding harnesses appear in Quick Response and Prompt Composer.",
                     style = MaterialTheme.typography.bodySmall,
@@ -368,10 +427,12 @@ fun SettingsScreen(
                         },
                     )
                 }
-            }
+                    }
+                }
 
-            // 5. ON-DEVICE AI (GEMINI NANO)
-            SettingsGroupCard(title = "On-Device AI (Gemini Nano)", icon = Icons.Outlined.AutoAwesome) {
+                // 5. ON-DEVICE AI (GEMINI NANO)
+                if (SettingsSection.ON_DEVICE_AI in matchedSections) {
+                    SettingsGroupCard(title = "On-Device AI (Gemini Nano)", icon = Icons.Outlined.AutoAwesome) {
                 val diag = nanoDiag
                 val statusLabel = when (diag?.status) {
                     FeatureStatus.AVAILABLE -> "Available"
@@ -541,17 +602,21 @@ fun SettingsScreen(
                     checked = nanoWarmup,
                     onCheckedChange = { NanoModelPreferences.setWarmupEnabled(context, it) },
                 )
-            }
+                    }
+                }
 
-            // 6. TAILSCALE (EMBEDDED)
-            TailscaleSettingsCard(
-                tailscaleManager = tailscaleManager,
-                onOpenTailnetPeers = onOpenTailnetPeers,
-                uriHandler = uriHandler,
-            )
+                // 6. TAILSCALE (EMBEDDED)
+                if (SettingsSection.TAILSCALE in matchedSections) {
+                    TailscaleSettingsCard(
+                        tailscaleManager = tailscaleManager,
+                        onOpenTailnetPeers = onOpenTailnetPeers,
+                        uriHandler = uriHandler,
+                    )
+                }
 
-            // 7. HOSTS & SECURITY
-            SettingsGroupCard(title = "Hosts & Security", icon = Icons.Outlined.Dns) {
+                // 7. HOSTS & SECURITY
+                if (SettingsSection.HOSTS_SECURITY in matchedSections) {
+                    SettingsGroupCard(title = "Hosts & Security", icon = Icons.Outlined.Dns) {
                 SettingsRow(
                     title = "Trusted host keys",
                     description = "Review fingerprints or remove accepted host keys.",
@@ -603,27 +668,80 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
 
-            // 8. AUTOMATION
-            SettingsGroupCard(title = "Automation", icon = Icons.Outlined.Code) {
+                SettingsCardDivider()
+
+                SettingsSwitch(
+                    title = "Hide screen in app switcher",
+                    description = "Masks terminal content in Android Recents and blocks screenshots.",
+                    checked = hideInRecents,
+                    onCheckedChange = { SecurityPreferences.setHideInRecentsEnabled(context, it) },
+                )
+
+                SettingsCardDivider()
+
+                SettingsSwitch(
+                    title = "App lock",
+                    description = "Require fingerprint, face, or device PIN when opening or returning to ShellSurge.",
+                    checked = appLockEnabled,
+                    onCheckedChange = { enabled ->
+                        if (!enabled) {
+                            SecurityPreferences.setAppLockEnabled(context, false)
+                        } else {
+                            val canAuth = BiometricManager.from(context).canAuthenticate(
+                                BIOMETRIC_STRONG or BIOMETRIC_WEAK or DEVICE_CREDENTIAL,
+                            ) == BiometricManager.BIOMETRIC_SUCCESS
+                            if (canAuth) {
+                                SecurityPreferences.setAppLockEnabled(context, true)
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Set up a device screen lock or biometric first to enable App lock.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
+                    },
+                )
+
+                AnimatedVisibility(visible = appLockEnabled) {
+                    Column(modifier = Modifier.padding(top = 4.dp)) {
+                        SettingsSegmentedGroup(
+                            label = "Lock after leaving app",
+                            options = AppLockTimeout.entries,
+                            selected = appLockTimeout,
+                            labelOf = { it.label },
+                            onSelect = { SecurityPreferences.setAppLockTimeout(context, it) },
+                        )
+                    }
+                }
+                    }
+                }
+
+                // 8. AUTOMATION
+                if (SettingsSection.AUTOMATION in matchedSections) {
+                    SettingsGroupCard(title = "Automation", icon = Icons.Outlined.Code) {
                 AutomationSettings(
                     enabled = automationEnabled,
                     onEnabledChange = onAutomationEnabledChange,
                     token = automationToken,
                     onRegenerate = onRegenerateAutomationToken,
                 )
-            }
+                    }
+                }
 
-            // 9. BACKUP & RESTORE
-            SettingsGroupCard(title = "Backup & Restore", icon = Icons.Outlined.FolderOpen) {
+                // 9. BACKUP & RESTORE
+                if (SettingsSection.BACKUP_RESTORE in matchedSections) {
+                    SettingsGroupCard(title = "Backup & Restore", icon = Icons.Outlined.FolderOpen) {
                 ConfigExportRow(onExport = onExportConfig)
                 SettingsCardDivider()
                 ConfigImportRow(onImport = onImportConfig)
-            }
+                    }
+                }
 
-            // 10. SUPPORT
-            SettingsGroupCard(title = "Support", icon = Icons.Outlined.FavoriteBorder) {
+                // 10. SUPPORT
+                if (SettingsSection.SUPPORT in matchedSections) {
+                    SettingsGroupCard(title = "Support", icon = Icons.Outlined.FavoriteBorder) {
                 Text(
                     text = "ShellSurge is a fork of Shellwave. If you find this app useful, please consider supporting the original Shellwave developer.",
                     style = MaterialTheme.typography.bodySmall,
@@ -647,10 +765,12 @@ fun SettingsScreen(
                     SettingsCardDivider()
                     SupporterRow(state = supporterState, onBecomeSupporter = onBecomeSupporter)
                 }
-            }
+                    }
+                }
 
-            // 7. ABOUT
-            SettingsGroupCard(title = "About", icon = Icons.Outlined.Info) {
+                // 11. ABOUT
+                if (SettingsSection.ABOUT in matchedSections) {
+                    SettingsGroupCard(title = "About", icon = Icons.Outlined.Info) {
                 SettingsRow(
                     title = "Version",
                     description = "ShellSurge SSH & Terminal Client",
@@ -679,9 +799,11 @@ fun SettingsScreen(
                     chevron = true,
                     onClick = onOpenLicenses,
                 )
-            }
+                    }
+                }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+            }
         }
     }
 }

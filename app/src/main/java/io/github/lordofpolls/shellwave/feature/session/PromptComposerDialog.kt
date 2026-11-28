@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -68,6 +69,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -81,6 +83,7 @@ import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
 import kotlinx.coroutines.launch
 
 private enum class ComposerInsertTab { TEMPLATES, COMMANDS }
+private enum class ComposerUploadKind { IMAGE, FILE }
 
 private val COMPOSER_TEMPLATES = listOf(
     "Fix errors" to "Please review the errors above and fix them.",
@@ -104,6 +107,7 @@ internal fun PromptComposerDialog(
     modifier: Modifier = Modifier,
     initialText: String = "",
     onUploadImage: (suspend (Uri) -> Result<String>)? = null,
+    onUploadFile: (suspend (Uri) -> Result<String>)? = null,
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -116,7 +120,7 @@ internal fun PromptComposerDialog(
     var isListening by remember { mutableStateOf(false) }
     var isPolishing by remember { mutableStateOf(false) }
     var isGeneratingCmd by remember { mutableStateOf(false) }
-    var isUploadingImage by remember { mutableStateOf(false) }
+    var uploadingKind by remember { mutableStateOf<ComposerUploadKind?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var selectedInsertTab by remember { mutableStateOf(ComposerInsertTab.TEMPLATES) }
     var insertsExpanded by remember { mutableStateOf(true) }
@@ -237,32 +241,51 @@ internal fun PromptComposerDialog(
         }
     }
 
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        val uploader = onUploadImage ?: return@rememberLauncherForActivityResult
-        if (uri == null || isUploadingImage) return@rememberLauncherForActivityResult
-        isUploadingImage = true
-        statusMessage = "Uploading image to remote host…"
+    fun appendRemotePath(remotePath: String) {
+        text = when {
+            text.isBlank() -> remotePath
+            text.endsWith(" ") || text.endsWith("\n") -> "$text$remotePath"
+            else -> "$text $remotePath"
+        }
+    }
+
+    fun launchUpload(
+        kind: ComposerUploadKind,
+        uri: Uri?,
+        uploader: (suspend (Uri) -> Result<String>)?,
+    ) {
+        if (uri == null || uploader == null || uploadingKind != null) return
+        val kindLabel = if (kind == ComposerUploadKind.IMAGE) "image" else "file"
+        val kindTitle = if (kind == ComposerUploadKind.IMAGE) "Image" else "File"
+        uploadingKind = kind
+        statusMessage = "Uploading $kindLabel to remote host…"
         scope.launch {
             try {
                 uploader(uri).fold(
                     onSuccess = { remotePath ->
-                        text = when {
-                            text.isBlank() -> remotePath
-                            text.endsWith(" ") || text.endsWith("\n") -> "$text$remotePath"
-                            else -> "$text $remotePath"
-                        }
+                        appendRemotePath(remotePath)
                         statusMessage = "Attached $remotePath"
                     },
                     onFailure = { err ->
-                        statusMessage = "Image upload failed: ${err.message ?: "SFTP error"}"
+                        statusMessage = "$kindTitle upload failed: ${err.message ?: "SFTP error"}"
                     },
                 )
             } finally {
-                isUploadingImage = false
+                uploadingKind = null
             }
         }
+    }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        launchUpload(ComposerUploadKind.IMAGE, uri, onUploadImage)
+    }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        launchUpload(ComposerUploadKind.FILE, uri, onUploadFile)
     }
 
     fun polish() {
@@ -374,10 +397,11 @@ internal fun PromptComposerDialog(
                     preTransformText = preTransformText,
                     hasClipboardText = clipboardManager.hasText(),
                     hasImageUpload = onUploadImage != null,
+                    hasFileUpload = onUploadFile != null,
                     isListening = isListening,
                     isPolishing = isPolishing,
                     isGeneratingCmd = isGeneratingCmd,
-                    isUploadingImage = isUploadingImage,
+                    uploadingKind = uploadingKind,
                     onToggleVoice = ::toggleVoice,
                     onPolish = ::polish,
                     onGenerateShellCmd = ::generateShellCmd,
@@ -391,6 +415,9 @@ internal fun PromptComposerDialog(
                         photoPickerLauncher.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
+                    },
+                    onPickFile = {
+                        filePickerLauncher.launch(arrayOf("*/*"))
                     },
                     onUndo = {
                         preTransformText?.let { priorText ->
@@ -494,15 +521,17 @@ private fun ComposerActionBar(
     preTransformText: String?,
     hasClipboardText: Boolean,
     hasImageUpload: Boolean,
+    hasFileUpload: Boolean,
     isListening: Boolean,
     isPolishing: Boolean,
     isGeneratingCmd: Boolean,
-    isUploadingImage: Boolean,
+    uploadingKind: ComposerUploadKind?,
     onToggleVoice: () -> Unit,
     onPolish: () -> Unit,
     onGenerateShellCmd: () -> Unit,
     onPaste: () -> Unit,
     onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
     onUndo: () -> Unit,
     onClear: () -> Unit,
 ) {
@@ -594,7 +623,7 @@ private fun ComposerActionBar(
             }
         }
 
-        val showUtilities = hasClipboardText || hasImageUpload || preTransformText != null || text.isNotEmpty()
+        val showUtilities = hasClipboardText || hasImageUpload || hasFileUpload || preTransformText != null || text.isNotEmpty()
         if (showUtilities) {
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -616,24 +645,22 @@ private fun ComposerActionBar(
                 }
 
                 if (hasImageUpload) {
-                    AgentUtilityPill(
-                        label = if (isUploadingImage) "Uploading…" else "Image",
-                        enabled = !isUploadingImage,
+                    UploadUtilityPill(
+                        label = "Image",
+                        isUploading = uploadingKind == ComposerUploadKind.IMAGE,
+                        enabled = uploadingKind == null,
+                        icon = Icons.Outlined.Image,
                         onClick = onPickImage,
-                        leadingIcon = {
-                            if (isUploadingImage) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Outlined.Image,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                )
-                            }
-                        },
+                    )
+                }
+
+                if (hasFileUpload) {
+                    UploadUtilityPill(
+                        label = "File",
+                        isUploading = uploadingKind == ComposerUploadKind.FILE,
+                        enabled = uploadingKind == null,
+                        icon = Icons.Outlined.AttachFile,
+                        onClick = onPickFile,
                     )
                 }
 
@@ -668,6 +695,35 @@ private fun ComposerActionBar(
             }
         }
     }
+}
+
+@Composable
+private fun UploadUtilityPill(
+    label: String,
+    isUploading: Boolean,
+    enabled: Boolean,
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    AgentUtilityPill(
+        label = if (isUploading) "Uploading…" else label,
+        enabled = enabled,
+        onClick = onClick,
+        leadingIcon = {
+            if (isUploading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        },
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

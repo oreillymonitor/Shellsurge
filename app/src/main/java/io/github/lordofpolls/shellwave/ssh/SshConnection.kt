@@ -8,6 +8,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.VibrationEffect
 import android.os.VibratorManager
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.termux.terminal.TerminalEmulator
@@ -1121,6 +1122,27 @@ open class SshConnection(
             else -> "jpg"
         }
         val remotePath = "/tmp/shellsurge-${System.currentTimeMillis()}.$ext"
+        return uploadFile(remotePath, uri) { _, _ -> }.map { remotePath }
+    }
+
+    /**
+     * Uploads an arbitrary file from Android's document picker to
+     * `/tmp/shellsurge-<timestamp>-<sanitized-name>` on the remote host and returns that remote path
+     * so the developer can reference it in a prompt.
+     */
+    suspend fun uploadFileAttachment(uri: Uri): Result<String> {
+        val displayName = runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/')
+        val mimeType = context.contentResolver.getType(uri)
+        val remotePath = buildRemoteAttachmentPath(
+            displayName = displayName,
+            mimeType = mimeType,
+            timestampMs = System.currentTimeMillis(),
+        )
         return uploadFile(remotePath, uri) { _, _ -> }.map { remotePath }
     }
 

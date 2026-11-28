@@ -278,6 +278,8 @@ fun SessionsScreen(
         var linksSheetOpen by remember(current?.id) { mutableStateOf(false) }
         var readableOutputOpen by remember(current?.id) { mutableStateOf(false) }
         var readableRefreshTick by remember(current?.id) { mutableIntStateOf(0) }
+        var tmuxSheetOpen by remember(current?.id) { mutableStateOf(false) }
+        var portsSheetOpen by remember(current?.id) { mutableStateOf(false) }
 
         // A capture script pinned to another host is left out: "run it here" and "run it on that
         // other machine" are opposite instructions, and honouring the script's own target would run
@@ -353,6 +355,12 @@ fun SessionsScreen(
                     onOpenReadableOutput = if (current?.connection?.emulatorOrNull != null) ({
                         readableRefreshTick++
                         readableOutputOpen = true
+                    }) else null,
+                    onOpenTmux = if (current?.status == SessionStatus.CONNECTED) ({
+                        tmuxSheetOpen = true
+                    }) else null,
+                    onOpenListeningPorts = if (current?.status == SessionStatus.CONNECTED) ({
+                        portsSheetOpen = true
                     }) else null,
                 )
             },
@@ -489,6 +497,58 @@ fun SessionsScreen(
             )
         }
 
+        if (tmuxSheetOpen && current != null && current.status == SessionStatus.CONNECTED) {
+            TmuxSheet(
+                connection = current.connection,
+                onSendShellLine = { line -> current.connection.write("$line\r") },
+                onDismiss = { tmuxSheetOpen = false },
+            )
+        }
+
+        if (portsSheetOpen && current != null && current.status == SessionStatus.CONNECTED) {
+            val portsContext = LocalContext.current
+            val activeEphemeralPorts by current.connection.activeEphemeralPorts.collectAsState()
+            fun forwardPort(port: Int, openBrowser: Boolean) {
+                scope.launch {
+                    val result = current.connection.startEphemeralLocalForward(
+                        port = port,
+                        autoStopAfterMs = 60 * 60 * 1000L,
+                    )
+                    result.onSuccess {
+                        Toast.makeText(
+                            portsContext,
+                            "Forwarding localhost:$port over SSH",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        if (openBrowser) {
+                            portsSheetOpen = false
+                            openUrlInBrowser(portsContext, "http://127.0.0.1:$port")
+                        }
+                    }.onFailure { err ->
+                        Toast.makeText(
+                            portsContext,
+                            "Could not forward localhost:$port: ${err.message ?: "bind failed"}",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+            ListeningPortsSheet(
+                connection = current.connection,
+                activeEphemeralPorts = activeEphemeralPorts,
+                onForwardAndOpen = { port -> forwardPort(port, openBrowser = true) },
+                onForwardOnly = { port -> forwardPort(port, openBrowser = false) },
+                onOpenForwarded = { port ->
+                    portsSheetOpen = false
+                    openUrlInBrowser(portsContext, "http://127.0.0.1:$port")
+                },
+                onStopForward = { port ->
+                    scope.launch { current.connection.stopEphemeralLocalForward(port) }
+                },
+                onDismiss = { portsSheetOpen = false },
+            )
+        }
+
         if (readableOutputOpen && current != null) {
             val readerContext = LocalContext.current
             val latestText = remember(current.id, readableOutputOpen, readableRefreshTick) {
@@ -526,6 +586,11 @@ fun SessionsScreen(
                 initialText = composerInitialText,
                 onUploadImage = if (current.status == SessionStatus.CONNECTED) {
                     { uri -> current.connection.uploadImageAttachment(uri) }
+                } else {
+                    null
+                },
+                onUploadFile = if (current.status == SessionStatus.CONNECTED) {
+                    { uri -> current.connection.uploadFileAttachment(uri) }
                 } else {
                     null
                 },
@@ -1715,6 +1780,11 @@ internal fun SessionTabBody(
                 initialText = tabComposerInitialText,
                 onUploadImage = if (summary.status == SessionStatus.CONNECTED) {
                     { uri -> summary.connection.uploadImageAttachment(uri) }
+                } else {
+                    null
+                },
+                onUploadFile = if (summary.status == SessionStatus.CONNECTED) {
+                    { uri -> summary.connection.uploadFileAttachment(uri) }
                 } else {
                     null
                 },

@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.ViewQuilt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Download
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SmartToy
@@ -77,6 +79,8 @@ internal fun TerminalOverflowMenu(
     onOpenGitDiff: (() -> Unit)? = null,
     onOpenLinks: (() -> Unit)? = null,
     onOpenReadableOutput: (() -> Unit)? = null,
+    onOpenTmux: (() -> Unit)? = null,
+    onOpenListeningPorts: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -195,6 +199,38 @@ internal fun TerminalOverflowMenu(
                                     onClick = {
                                         expanded = false
                                         onOpenLinks()
+                                    },
+                                )
+                            }
+                            if (connection != null && onOpenTmux != null) {
+                                AgentUtilityPill(
+                                    label = "tmux",
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.AutoMirrored.Outlined.ViewQuilt,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        expanded = false
+                                        onOpenTmux()
+                                    },
+                                )
+                            }
+                            if (connection != null && onOpenListeningPorts != null) {
+                                AgentUtilityPill(
+                                    label = "Ports",
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Router,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        expanded = false
+                                        onOpenListeningPorts()
                                     },
                                 )
                             }

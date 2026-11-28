@@ -7,21 +7,32 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -31,11 +42,13 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -45,15 +58,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.lordofpolls.shellwave.core.billing.SupporterBilling
 import io.github.lordofpolls.shellwave.core.billing.SupporterState
+import io.github.lordofpolls.shellwave.core.crypto.BiometricGate
 import io.github.lordofpolls.shellwave.core.crypto.CredentialType
 import io.github.lordofpolls.shellwave.core.crypto.CredentialVault
 import io.github.lordofpolls.shellwave.core.crypto.isBiometricCancellation
@@ -77,9 +95,11 @@ import io.github.lordofpolls.shellwave.core.prefs.AutomationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.HostStartupPreferences
 import io.github.lordofpolls.shellwave.core.prefs.HostTailscaleConfig
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityPreferences
+import io.github.lordofpolls.shellwave.core.prefs.SecurityPreferences
 import io.github.lordofpolls.shellwave.core.prefs.SupportPreferences
 import io.github.lordofpolls.shellwave.core.prefs.TailscalePreferences
 import io.github.lordofpolls.shellwave.core.prefs.rememberPrefState
+import io.github.lordofpolls.shellwave.core.prefs.shouldLockApp
 import io.github.lordofpolls.shellwave.core.prefs.ThemeMode
 import io.github.lordofpolls.shellwave.core.ui.AgentConsentRequest
 import io.github.lordofpolls.shellwave.core.ui.agentConsentRequestSaver
@@ -298,6 +318,11 @@ class MainActivity : FragmentActivity() {
 
     @Inject lateinit var sessionAlerts: SessionAlerts
 
+    @Inject lateinit var biometricGate: BiometricGate
+
+    private val appLocked = mutableStateOf(false)
+    private var backgroundedAtElapsedMs: Long? = null
+
     private val requestLocalNetworkPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     private var notificationsGranted = mutableStateOf(true)
@@ -317,6 +342,15 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (SecurityPreferences.isHideInRecentsEnabled(this)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        if (savedInstanceState == null &&
+            SecurityPreferences.isAppLockEnabled(this) &&
+            biometricGate.canAuthenticateAppLock(this)
+        ) {
+            appLocked.value = true
+        }
         enableEdgeToEdge()
         handleIntent(intent)
 
@@ -350,6 +384,44 @@ class MainActivity : FragmentActivity() {
             val colourTheme by rememberPrefState { AppearancePreferences.getColourTheme(it) }
             val themeMode by rememberPrefState { AppearancePreferences.getThemeMode(it) }
             val exactSchemeColours by rememberPrefState { AppearancePreferences.getExactSchemeColours(it) }
+            val hideInRecents by rememberPrefState { SecurityPreferences.isHideInRecentsEnabled(it) }
+            val appLockEnabled by rememberPrefState { SecurityPreferences.isAppLockEnabled(it) }
+
+            LaunchedEffect(appLockEnabled) {
+                if (!appLockEnabled) {
+                    appLocked.value = false
+                    backgroundedAtElapsedMs = null
+                }
+            }
+
+            DisposableEffect(Unit) {
+                val lifecycle = ProcessLifecycleOwner.get().lifecycle
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_STOP -> {
+                            if (!appLocked.value && SecurityPreferences.isAppLockEnabled(this@MainActivity)) {
+                                backgroundedAtElapsedMs = SystemClock.elapsedRealtime()
+                            }
+                        }
+                        Lifecycle.Event.ON_START -> {
+                            val timeoutMs = SecurityPreferences.getAppLockTimeout(this@MainActivity).durationMs
+                            val lockNow = shouldLockApp(
+                                enabled = SecurityPreferences.isAppLockEnabled(this@MainActivity),
+                                backgroundedAtMs = backgroundedAtElapsedMs,
+                                nowMs = SystemClock.elapsedRealtime(),
+                                timeoutMs = timeoutMs,
+                            )
+                            backgroundedAtElapsedMs = null
+                            if (lockNow && biometricGate.canAuthenticateAppLock(this@MainActivity)) {
+                                appLocked.value = true
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+                lifecycle.addObserver(observer)
+                onDispose { lifecycle.removeObserver(observer) }
+            }
 
             // These three exist only to render the Settings controls and gate the indicator: each
             // setter writes the pref and calls start(), and the probe re-reads all of them on
@@ -379,6 +451,11 @@ class MainActivity : FragmentActivity() {
             // system left white status-bar icons on a white app. Set via the insets controller, not
             // the statusBarColor/navigationBarColor setters deprecated in API 35.
             SideEffect {
+                if (hideInRecents) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     isAppearanceLightStatusBars = !darkTheme
                     isAppearanceLightNavigationBars = !darkTheme
@@ -1391,7 +1468,16 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                if (useRail) {
+                if (appLocked.value) {
+                    BackHandler(enabled = true) { moveTaskToBack(true) }
+                    AppLockOverlay(
+                        onUnlockRequest = {
+                            biometricGate.authenticateAppLock(this@MainActivity)
+                            appLocked.value = false
+                            backgroundedAtElapsedMs = null
+                        },
+                    )
+                } else if (useRail) {
                     // Medium/expanded width: a side rail beside the content, both in one Row.
                     // Scaffold has no side-rail slot, so the rail sits outside it and the inner
                     // Scaffold still only handles the status/nav bar insets; the rail's width is
@@ -1506,5 +1592,89 @@ private fun NotificationsDeniedBanner(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(12.dp),
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+@Composable
+private fun AppLockOverlay(
+    onUnlockRequest: suspend () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var prompting by remember { mutableStateOf(false) }
+
+    fun launchPrompt() {
+        if (prompting) return
+        prompting = true
+        errorMessage = null
+        scope.launch {
+            try {
+                onUnlockRequest()
+            } catch (e: Exception) {
+                if (!e.isBiometricCancellation()) {
+                    errorMessage = e.message ?: "Authentication failed"
+                }
+            } finally {
+                prompting = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        launchPrompt()
+    }
+
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Lock,
+                    contentDescription = null,
+                    modifier = Modifier.size(44.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "ShellSurge is locked",
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = "Authenticate with biometrics or your device PIN to access SSH sessions.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                errorMessage?.let { msg ->
+                    Text(
+                        text = msg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Button(
+                    enabled = !prompting,
+                    onClick = { launchPrompt() },
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Lock,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Unlock")
+                }
+            }
+        }
     }
 }

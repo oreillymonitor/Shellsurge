@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -19,6 +20,7 @@ import (
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 )
 
@@ -30,18 +32,35 @@ type nodeStatusSnapshot struct {
 	TailnetName    string `json:"tailnetName"`
 	MagicDNSSuffix string `json:"magicDnsSuffix"`
 	ProxyPort      int32  `json:"proxyPort"`
+	PeersVersion   int64  `json:"peersVersion"`
 	LastError      string `json:"lastError"`
 	Detail         string `json:"detail"`
 }
 
 type peerSnapshot struct {
-	ID          string   `json:"id"`
-	HostName    string   `json:"hostName"`
-	DNSName     string   `json:"dnsName"`
-	IPs         []string `json:"ips"`
-	OS          string   `json:"os"`
-	Online      bool     `json:"online"`
-	SSHHostKeys bool     `json:"sshHostKeys"`
+	ID            string   `json:"id"`
+	HostName      string   `json:"hostName"`
+	DNSName       string   `json:"dnsName"`
+	IPs           []string `json:"ips"`
+	OS            string   `json:"os"`
+	Online        bool     `json:"online"`
+	SSHHostKeys   bool     `json:"sshHostKeys"`
+	PrimaryRoutes []string `json:"primaryRoutes,omitempty"`
+	CurAddr       string   `json:"curAddr,omitempty"`
+	Relay         string   `json:"relay,omitempty"`
+	Active        bool     `json:"active,omitempty"`
+}
+
+type pingResultSnapshot struct {
+	IP             string  `json:"ip"`
+	NodeName       string  `json:"nodeName"`
+	LatencyMs      float64 `json:"latencyMs"`
+	Direct         bool    `json:"direct"`
+	Endpoint       string  `json:"endpoint"`
+	DERPRegionCode string  `json:"derpRegionCode"`
+	DERPRegionID   int     `json:"derpRegionId"`
+	PeerRelay      string  `json:"peerRelay"`
+	Error          string  `json:"error"`
 }
 
 // Node manages a single embedded userspace tsnet node and loopback SOCKS5 dialer.
@@ -54,6 +73,7 @@ type Node struct {
 	proxyUser string
 	proxyPass string
 	cancel    context.CancelFunc
+	forwards  map[int32]*tcpForward
 
 	stateDir       string
 	state          string
@@ -62,6 +82,7 @@ type Node struct {
 	selfIP         string
 	tailnetName    string
 	magicDNSSuffix string
+	peersVersion   int64
 	lastError      string
 	detail         string
 	loginStarted   bool
@@ -224,6 +245,7 @@ func (n *Node) Start(stateDir, hostname, authKey, controlURL string) (retErr err
 	n.selfIP = ""
 	n.tailnetName = ""
 	n.magicDNSSuffix = ""
+	n.peersVersion = 0
 	n.lastError = ""
 	n.detail = ""
 	n.loginStarted = false
@@ -310,6 +332,7 @@ func (n *Node) watchBus(ctx context.Context, lc *local.Client, hasAuthKey bool) 
 			n.detail = ""
 		}
 		if note.NetMap != nil {
+			n.peersVersion++
 			if note.NetMap.SelfNode.Valid() {
 				addrs := note.NetMap.SelfNode.Addresses()
 				for i := range addrs.Len() {
@@ -478,10 +501,12 @@ func (n *Node) Stop() (retErr error) {
 	n.selfIP = ""
 	n.tailnetName = ""
 	n.magicDNSSuffix = ""
+	n.peersVersion = 0
 	n.detail = ""
 	n.loginStarted = false
 	n.mu.Unlock()
 
+	n.StopAllTCPForwards()
 	if cancel != nil {
 		cancel()
 	}
@@ -583,6 +608,7 @@ func (n *Node) StatusJSON() (out string) {
 		TailnetName:    n.tailnetName,
 		MagicDNSSuffix: n.magicDNSSuffix,
 		ProxyPort:      0,
+		PeersVersion:   n.peersVersion,
 		LastError:      n.lastError,
 		Detail:         n.detail,
 	}
@@ -627,14 +653,25 @@ func (n *Node) PeersJSON() (out string) {
 		for _, ip := range p.TailscaleIPs {
 			ips = append(ips, ip.String())
 		}
+		var rawRoutes []netip.Prefix
+		if p.PrimaryRoutes != nil {
+			rawRoutes = make([]netip.Prefix, 0, p.PrimaryRoutes.Len())
+			for i := range p.PrimaryRoutes.Len() {
+				rawRoutes = append(rawRoutes, p.PrimaryRoutes.At(i))
+			}
+		}
 		peers = append(peers, peerSnapshot{
-			ID:          string(p.ID),
-			HostName:    p.HostName,
-			DNSName:     p.DNSName,
-			IPs:         ips,
-			OS:          p.OS,
-			Online:      p.Online,
-			SSHHostKeys: len(p.SSH_HostKeys) > 0,
+			ID:            string(p.ID),
+			HostName:      p.HostName,
+			DNSName:       p.DNSName,
+			IPs:           ips,
+			OS:            p.OS,
+			Online:        p.Online,
+			SSHHostKeys:   len(p.SSH_HostKeys) > 0,
+			PrimaryRoutes: filterSubnetRoutes(rawRoutes),
+			CurAddr:       p.CurAddr,
+			Relay:         p.Relay,
+			Active:        p.Active,
 		})
 	}
 
@@ -648,6 +685,75 @@ func (n *Node) PeersJSON() (out string) {
 	raw, err := json.Marshal(peers)
 	if err != nil {
 		return "[]"
+	}
+	return string(raw)
+}
+
+func (n *Node) PingPeerJSON(target string) (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			msg := n.handleRecovered("Node.PingPeerJSON", r)
+			raw, _ := json.Marshal(pingResultSnapshot{Error: msg})
+			out = string(raw)
+		}
+	}()
+	encodeErr := func(msg string) string {
+		raw, _ := json.Marshal(pingResultSnapshot{Error: msg})
+		return string(raw)
+	}
+
+	cleanTarget := strings.TrimSuffix(strings.TrimSpace(target), ".")
+	if cleanTarget == "" {
+		return encodeErr("Target host or IP is required")
+	}
+
+	n.mu.Lock()
+	lc := n.lc
+	n.mu.Unlock()
+	if lc == nil {
+		return encodeErr("Embedded Tailscale is not running")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ip, err := netip.ParseAddr(cleanTarget)
+	if err != nil {
+		st, stErr := lc.Status(ctx)
+		if stErr != nil || st == nil {
+			return encodeErr("Could not query tailnet status for peer IP")
+		}
+		peerIP := resolvePeerIPFromStatus(st, cleanTarget)
+		if peerIP == "" {
+			return encodeErr("Peer not found on tailnet: " + cleanTarget)
+		}
+		ip, err = netip.ParseAddr(peerIP)
+		if err != nil {
+			return encodeErr("Invalid peer IP: " + peerIP)
+		}
+	}
+
+	res, err := lc.Ping(ctx, ip, tailcfg.PingDisco)
+	if err != nil {
+		return encodeErr(err.Error())
+	}
+	if res == nil {
+		return encodeErr("Empty ping response")
+	}
+	snap := pingResultSnapshot{
+		IP:             res.IP,
+		NodeName:       res.NodeName,
+		LatencyMs:      res.LatencySeconds * 1000.0,
+		Direct:         res.Endpoint != "" && res.DERPRegionID == 0 && res.PeerRelay == "",
+		Endpoint:       res.Endpoint,
+		DERPRegionCode: res.DERPRegionCode,
+		DERPRegionID:   res.DERPRegionID,
+		PeerRelay:      res.PeerRelay,
+		Error:          res.Err,
+	}
+	raw, marshalErr := json.Marshal(snap)
+	if marshalErr != nil {
+		return encodeErr(marshalErr.Error())
 	}
 	return string(raw)
 }

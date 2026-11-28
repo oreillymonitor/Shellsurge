@@ -17,6 +17,7 @@ import io.github.lordofpolls.shellwave.ssh.SessionManager
 import io.github.lordofpolls.shellwave.ssh.SessionStatus
 import io.github.lordofpolls.shellwave.ssh.SessionSummary
 import io.github.lordofpolls.shellwave.ssh.TunnelState
+import io.github.lordofpolls.shellwave.ssh.compactSessionHostLabel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -174,8 +175,9 @@ internal fun notificationTitle(sessions: List<NotificationSession>): String {
 internal fun notificationText(sessions: List<NotificationSession>): String {
     val uniform = sessions.distinctBy { it.status }.size <= 1
     return sessions.joinToString(", ") { s ->
+        val shortName = compactSessionHostLabel(s.label)
         val note = if (uniform) null else statusNote(s.status)
-        if (note == null) s.label else "${s.label} ($note)"
+        if (note == null) shortName else "$shortName ($note)"
     }
 }
 

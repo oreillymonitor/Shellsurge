@@ -118,6 +118,7 @@ import io.github.lordofpolls.shellwave.core.prefs.ColourTheme
 import io.github.lordofpolls.shellwave.core.prefs.NanoModelPreferences
 import io.github.lordofpolls.shellwave.core.prefs.NanoModelTier
 import io.github.lordofpolls.shellwave.core.prefs.NanoReleaseChannel
+import io.github.lordofpolls.shellwave.core.prefs.NotificationFilter
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
 import io.github.lordofpolls.shellwave.core.prefs.OutputIdleDelay
 import io.github.lordofpolls.shellwave.core.prefs.ReachabilityInterval
@@ -177,6 +178,7 @@ fun SettingsScreen(
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val commandNotifyEnabled by rememberPrefState { NotificationPreferences.isCommandNotifyEnabled(it) }
+    val notificationFilter by rememberPrefState { NotificationPreferences.getNotificationFilter(it) }
     val outputIdleDelay by rememberPrefState { NotificationPreferences.getIdleDelay(it) }
     val notifyOnActiveTab by rememberPrefState { NotificationPreferences.isNotifyOnActiveTab(it) }
     val autoDigestOnReturn by rememberPrefState { NotificationPreferences.isAutoDigestOnReturn(it) }
@@ -390,6 +392,15 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.padding(top = 4.dp),
                     ) {
+                        SettingsSegmentedGroup(
+                            label = "Notify on",
+                            description = "All turns, important (approvals & errors), or approvals only.",
+                            options = NotificationFilter.entries,
+                            selected = notificationFilter,
+                            labelOf = { it.label },
+                            onSelect = { NotificationPreferences.setNotificationFilter(context, it) },
+                        )
+
                         SettingsSegmentedGroup(
                             label = "Idle settle delay",
                             description = "Wait after output settles before alerting. 'OSC only' uses explicit shell/agent hooks.",
@@ -1300,7 +1311,10 @@ private fun TailscaleSettingsCard(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val status by tailscaleManager.status.collectAsState()
+    val peers by tailscaleManager.peers.collectAsState()
+    val webForwards by tailscaleManager.webForwards.collectAsState()
     val autoStart by rememberPrefState { TailscalePreferences.isAutoStartEnabled(it) }
+    val autoRouteSubnets by rememberPrefState { TailscalePreferences.isAutoRouteSubnetsEnabled(it) }
     val savedHostname by rememberPrefState { TailscalePreferences.getHostname(it) }
     val savedControlUrl by rememberPrefState { TailscalePreferences.getControlUrl(it) }
 
@@ -1414,6 +1428,25 @@ private fun TailscaleSettingsCard(
                     ).joinToString(" • ")
                     if (info.isNotBlank()) {
                         MachineText(info)
+                    }
+                    val subnetRoutes = remember(peers) { tailscaleManager.advertisedSubnets() }
+                    if (subnetRoutes.isNotEmpty()) {
+                        val routeSummary = subnetRoutes.take(3).joinToString(", ") { (cidr, peer) ->
+                            val peerName = peer.hostName.ifBlank { peer.primaryAddress }
+                            "$cidr ($peerName)"
+                        } + if (subnetRoutes.size > 3) " +${subnetRoutes.size - 3} more" else ""
+                        Text(
+                            text = "Subnets: $routeSummary",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (webForwards.isNotEmpty()) {
+                        Text(
+                            text = "${webForwards.size} active tailnet web ${if (webForwards.size == 1) "preview" else "previews"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
                 status.lastError?.let { err ->
@@ -1562,6 +1595,12 @@ private fun TailscaleSettingsCard(
             description = "Starts embedded Tailscale automatically for Tailscale hosts and *.ts.net addresses.",
             checked = autoStart,
             onCheckedChange = { TailscalePreferences.setAutoStartEnabled(context, it) },
+        )
+        SettingsSwitch(
+            title = "Auto-route advertised subnets",
+            description = "Automatically route LAN/subnet IPs advertised by online Tailscale subnet routers through tsnet when connected.",
+            checked = autoRouteSubnets,
+            onCheckedChange = { TailscalePreferences.setAutoRouteSubnetsEnabled(context, it) },
         )
 
         Row(

@@ -1126,22 +1126,29 @@ open class SshConnection(
     }
 
     /**
-     * Uploads an arbitrary file from Android's document picker to
+     * Uploads an arbitrary file from Android's document picker or share sheet to
      * `/tmp/shellsurge-<timestamp>-<sanitized-name>` on the remote host and returns that remote path
      * so the developer can reference it in a prompt.
      */
-    suspend fun uploadFileAttachment(uri: Uri): Result<String> {
+    suspend fun uploadFileAttachment(
+        uri: Uri,
+        fallbackMimeType: String? = null,
+        timestampMs: Long = System.currentTimeMillis(),
+    ): Result<String> {
         val displayName = runCatching {
             context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { cursor ->
                     if (cursor.moveToFirst()) cursor.getString(0) else null
                 }
         }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/')
-        val mimeType = context.contentResolver.getType(uri)
+        val resolvedMime = context.contentResolver.getType(uri)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && it != "*/*" }
+        val mimeType = resolvedMime ?: fallbackMimeType?.trim()?.takeIf { it.isNotEmpty() && it != "*/*" }
         val remotePath = buildRemoteAttachmentPath(
             displayName = displayName,
             mimeType = mimeType,
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = timestampMs,
         )
         return uploadFile(remotePath, uri) { _, _ -> }.map { remotePath }
     }

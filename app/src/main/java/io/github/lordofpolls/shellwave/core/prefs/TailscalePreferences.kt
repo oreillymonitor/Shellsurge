@@ -5,6 +5,7 @@ import androidx.core.content.edit
 
 private const val KEY_TS_ENABLED = "tailscale_enabled"
 private const val KEY_TS_AUTO_START = "tailscale_auto_start"
+private const val KEY_TS_AUTO_ROUTE_SUBNETS = "tailscale_auto_route_subnets"
 private const val KEY_TS_HOSTNAME = "tailscale_hostname"
 private const val KEY_TS_CONTROL_URL = "tailscale_control_url"
 
@@ -32,6 +33,13 @@ object TailscalePreferences {
 
     fun setAutoStartEnabled(context: Context, enabled: Boolean) {
         sharedPrefs(context).edit { putBoolean(KEY_TS_AUTO_START, enabled) }
+    }
+
+    fun isAutoRouteSubnetsEnabled(context: Context): Boolean =
+        sharedPrefs(context).getBoolean(KEY_TS_AUTO_ROUTE_SUBNETS, true)
+
+    fun setAutoRouteSubnetsEnabled(context: Context, enabled: Boolean) {
+        sharedPrefs(context).edit { putBoolean(KEY_TS_AUTO_ROUTE_SUBNETS, enabled) }
     }
 
     fun getHostname(context: Context): String =

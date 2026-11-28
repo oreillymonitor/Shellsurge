@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.OpenInBrowser
@@ -46,6 +47,8 @@ import io.github.lordofpolls.shellwave.ui.design.ChromeMonoFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.lordofpolls.shellwave.core.net.TailscaleWebForward
+import io.github.lordofpolls.shellwave.core.net.TailscaleWebTarget
 import io.github.lordofpolls.shellwave.terminal.SessionLinkCategory
 import io.github.lordofpolls.shellwave.terminal.TerminalLink
 import io.github.lordofpolls.shellwave.terminal.classifyLinkScheme
@@ -75,6 +78,10 @@ internal fun SessionLinksSheet(
     modifier: Modifier = Modifier,
     onOpenRemoteFile: ((remotePath: String) -> Unit)? = null,
     onCopyText: ((String) -> Unit)? = null,
+    tailscaleWebForwards: List<TailscaleWebForward> = emptyList(),
+    resolveTailscaleWebTarget: ((String) -> TailscaleWebTarget?)? = null,
+    onTailscalePreviewAndOpen: ((TerminalLink, TailscaleWebTarget) -> Unit)? = null,
+    onStopTailscaleWebForward: ((Int) -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val grouped = remember(links) { groupSessionLinks(links) }
@@ -124,6 +131,32 @@ internal fun SessionLinksSheet(
                                         )
                                     },
                                     onClick = { onStopTunnel(port) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (tailscaleWebForwards.isNotEmpty() && onStopTailscaleWebForward != null) {
+                    SessionSheetCard {
+                        AgentSectionHeader(title = "Active Tailnet Web Previews", icon = Icons.Outlined.Hub)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            tailscaleWebForwards.forEach { fwd ->
+                                AgentUtilityPill(
+                                    label = "${fwd.targetHost}:${fwd.targetPort} · Stop",
+                                    active = true,
+                                    isMonospace = true,
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Close,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(13.dp),
+                                        )
+                                    },
+                                    onClick = { onStopTailscaleWebForward(fwd.localPort) },
                                 )
                             }
                         }
@@ -198,6 +231,8 @@ internal fun SessionLinksSheet(
                                 onCopy = onCopy,
                                 onOpenRemoteFile = onOpenRemoteFile,
                                 onCopyText = onCopyText,
+                                resolveTailscaleWebTarget = resolveTailscaleWebTarget,
+                                onTailscalePreviewAndOpen = onTailscalePreviewAndOpen,
                             )
                         }
 
@@ -214,6 +249,8 @@ internal fun SessionLinksSheet(
                                 onCopy = onCopy,
                                 onOpenRemoteFile = onOpenRemoteFile,
                                 onCopyText = onCopyText,
+                                resolveTailscaleWebTarget = resolveTailscaleWebTarget,
+                                onTailscalePreviewAndOpen = onTailscalePreviewAndOpen,
                             )
                         }
 
@@ -230,6 +267,8 @@ internal fun SessionLinksSheet(
                                 onCopy = onCopy,
                                 onOpenRemoteFile = onOpenRemoteFile,
                                 onCopyText = onCopyText,
+                                resolveTailscaleWebTarget = resolveTailscaleWebTarget,
+                                onTailscalePreviewAndOpen = onTailscalePreviewAndOpen,
                             )
                         }
                     }
@@ -251,6 +290,8 @@ private fun LazyListScope.linkSectionItems(
     onCopy: (TerminalLink) -> Unit,
     onOpenRemoteFile: ((String) -> Unit)?,
     onCopyText: ((String) -> Unit)?,
+    resolveTailscaleWebTarget: ((String) -> TailscaleWebTarget?)?,
+    onTailscalePreviewAndOpen: ((TerminalLink, TailscaleWebTarget) -> Unit)?,
 ) {
     item(key = "header:$keyPrefix") {
         AgentSectionHeader(
@@ -269,6 +310,8 @@ private fun LazyListScope.linkSectionItems(
             onCopy = { onCopy(link) },
             onOpenRemoteFile = onOpenRemoteFile,
             onCopyText = onCopyText,
+            resolveTailscaleWebTarget = resolveTailscaleWebTarget,
+            onTailscalePreviewAndOpen = onTailscalePreviewAndOpen,
         )
     }
 }
@@ -284,9 +327,16 @@ private fun SessionLinkCard(
     onCopy: () -> Unit,
     onOpenRemoteFile: ((String) -> Unit)?,
     onCopyText: ((String) -> Unit)?,
+    resolveTailscaleWebTarget: ((String) -> TailscaleWebTarget?)?,
+    onTailscalePreviewAndOpen: ((TerminalLink, TailscaleWebTarget) -> Unit)?,
 ) {
     val category = classifyLinkScheme(link.text)
     val callbackInfo = if (category == SessionLinkCategory.WEB) detectLocalhostCallback(link.text) else null
+    val tailscaleTarget = if (category == SessionLinkCategory.WEB && callbackInfo == null) {
+        resolveTailscaleWebTarget?.invoke(link.text)
+    } else {
+        null
+    }
     val portTunneled = callbackInfo != null && callbackInfo.port in activeEphemeralPorts
     val filePath = if (category == SessionLinkCategory.FILE) extractFileUriPath(link.text) else null
     val title = linkDisplayTitle(link)
@@ -319,6 +369,19 @@ private fun SessionLinkCard(
                 Text(
                     text = badgeText,
                     style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        } else if (tailscaleTarget != null) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Text(
+                    text = "Tailnet · ${tailscaleTarget.host}:${tailscaleTarget.port}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = ChromeMonoFontFamily,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                 )
             }
@@ -399,6 +462,23 @@ private fun SessionLinkCard(
                                 "Tunnel :${callbackInfo.port} & Open"
                             },
                         )
+                    }
+                    TextButton(onClick = onOpen) {
+                        Text("Open")
+                    }
+                } else if (tailscaleTarget != null && onTailscalePreviewAndOpen != null) {
+                    Button(
+                        onClick = { onTailscalePreviewAndOpen(link, tailscaleTarget) },
+                        shape = AGENT_BUTTON_SHAPE,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Hub,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Text("Preview via Tailscale")
                     }
                     TextButton(onClick = onOpen) {
                         Text("Open")

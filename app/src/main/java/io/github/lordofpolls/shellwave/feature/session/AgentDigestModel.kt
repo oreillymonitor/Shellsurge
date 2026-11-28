@@ -131,6 +131,84 @@ internal object AgentDigestModel {
     private val OUTCOME_FACT_REGEX = Regex(
         "(?i)(BUILD SUCCESSFUL[^\\n]*|BUILD FAILED[^\\n]*|\\d+\\s+tests?\\s+(?:completed|passed|failed)[^\\n]*|All\\s+\\d+\\s+tests\\s+passed[^\\n]*|\\d+\\s+passed(?:,\\s*\\d+\\s+failed)?[^\\n]*|Tests run:[^\\n]*)"
     )
+    private val TOOL_ACTIVITY_SUMMARY_REGEX = Regex(
+        "^(?:[●•*◦▸▹]\\s*)?(?:Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling)\\b.*|\\(ctrl\\+o to expand\\)",
+        RegexOption.IGNORE_CASE,
+    )
+    private val STRUCTURAL_LINE_START_REGEX = Regex(
+        "^(?:[-*•●◦▸▹]|\\d+[.)\\]]\\s+|#+\\s+|Diff\\s+|e:\\s+|(?:error|failure|fatal|exception|traceback|build failed|build successful)\\b[:\\s]).*",
+        RegexOption.IGNORE_CASE,
+    )
+
+    internal fun reflowWrappedLines(lines: List<String>): List<String> {
+        val result = mutableListOf<String>()
+        for (raw in lines) {
+            val line = raw.trim()
+            if (line.isEmpty()) continue
+            val prev = result.lastOrNull()
+            if (prev == null) {
+                result += line
+                continue
+            }
+            val prevEndsSentence = prev.endsWith('.') ||
+                prev.endsWith('!') ||
+                prev.endsWith('?') ||
+                prev.endsWith(':') ||
+                prev.endsWith(';')
+            val prevIsStructural = STRUCTURAL_LINE_START_REGEX.matches(prev) ||
+                TOOL_ACTIVITY_SUMMARY_REGEX.containsMatchIn(prev) ||
+                PROMPT_LINE_REGEX.matches(prev)
+            val nextIsStructural = STRUCTURAL_LINE_START_REGEX.matches(line) ||
+                TOOL_ACTIVITY_SUMMARY_REGEX.containsMatchIn(line) ||
+                PROMPT_LINE_REGEX.matches(line)
+
+            if (!prevEndsSentence && !prevIsStructural && !nextIsStructural) {
+                result[result.lastIndex] = "$prev $line"
+            } else {
+                result += line
+            }
+        }
+        return result
+    }
+
+    internal fun formatNotificationTitle(
+        isResponseNeeded: Boolean,
+        digest: AgentDigestResult,
+    ): String {
+        val headline = digest.headlineFact?.trim()?.takeIf { it.isNotEmpty() }
+        return when {
+            isResponseNeeded -> headline ?: "Response needed"
+            digest.isError -> (headline ?: "Command failed").take(48)
+            else -> (headline ?: "Turn complete").take(48)
+        }
+    }
+
+    internal fun formatNotificationBody(
+        digest: AgentDigestResult,
+        fallbackBody: String,
+        maxChars: Int = 360,
+    ): String {
+        val base = digest.spokenSummary.trim().ifBlank { fallbackBody.trim() }.ifBlank { "Turn finished." }
+        val extras = mutableListOf<String>()
+        val err = digest.firstError?.trim()?.takeIf { it.isNotEmpty() }
+        if (digest.isError && err != null && !base.contains(err.take(28), ignoreCase = true)) {
+            extras += "Error: $err"
+        } else if (digest.touchedFiles.isNotEmpty()) {
+            val shortFiles = digest.touchedFiles.take(3).map { path ->
+                path.trimEnd('/').substringAfterLast('/').ifBlank { path }
+            }.distinct()
+            val unseenFiles = shortFiles.filterNot { name -> base.contains(name, ignoreCase = true) }
+            if (unseenFiles.isNotEmpty()) {
+                extras += "Files: ${unseenFiles.joinToString(", ")}"
+            }
+        }
+        val combined = if (extras.isEmpty()) base else "$base\n${extras.joinToString("\n")}"
+        return if (combined.length <= maxChars) {
+            combined
+        } else {
+            combined.take((maxChars - 1).coerceAtLeast(1)).trimEnd() + "…"
+        }
+    }
 
     internal fun extractTerminalFacts(cleanedTurn: String): TerminalFacts {
         val allLines = cleanedTurn.lines().map { it.trim() }.filter { it.isNotEmpty() }
@@ -519,7 +597,8 @@ internal object AgentDigestModel {
         }
 
         val analysisPool = if (meaningfulLines.isNotEmpty()) meaningfulLines else allLines
-        val lastFew = analysisPool.takeLast(12)
+        val reflowedPool = reflowWrappedLines(analysisPool)
+        val lastFew = reflowedPool.takeLast(10)
 
         // 1. Detect pending yes/no or approval prompts (not arbitrary open-ended prose questions).
         val questionLine = lastFew.lastOrNull { line ->
@@ -570,8 +649,17 @@ internal object AgentDigestModel {
                 line.contains("pushed", ignoreCase = true)
         }
         if (successLine != null) {
+            val cleanSuccess = successLine.trim().trimEnd('.')
+            val alreadyStatesOutcome =
+                Regex("(?i)\\b(?:completed|committed|pushed|success)\\b").containsMatchIn(cleanSuccess) &&
+                    !cleanSuccess.contains("BUILD SUCCESSFUL", ignoreCase = true)
+            val summary = if (alreadyStatesOutcome) {
+                cleanSuccess.replaceFirstChar { it.uppercase() } + "."
+            } else {
+                "Completed successfully: $cleanSuccess."
+            }
             return AgentDigestResult(
-                spokenSummary = "Completed successfully: $successLine.",
+                spokenSummary = summary,
                 hasQuestion = false,
                 isError = false,
                 usedAi = false,
@@ -583,9 +671,19 @@ internal object AgentDigestModel {
 
         // 4. Summarize the last meaningful command or agent outputs
         if (meaningfulLines.isNotEmpty()) {
-            val summaryText = meaningfulLines.takeLast(2).joinToString(". ")
+            val reflowedMeaningful = reflowWrappedLines(meaningfulLines)
+            val nonToolParagraphs = reflowedMeaningful
+                .filterNot { TOOL_ACTIVITY_SUMMARY_REGEX.containsMatchIn(it) }
+                .ifEmpty { reflowedMeaningful }
+            val joined = nonToolParagraphs.takeLast(2).joinToString(" ").trim()
+            val cleanSummary = if (joined.length <= 240) {
+                joined
+            } else {
+                val cutoff = joined.lastIndexOf(' ', startIndex = 239).takeIf { it > 120 } ?: 239
+                joined.take(cutoff).trimEnd() + "…"
+            }
             return AgentDigestResult(
-                spokenSummary = summaryText,
+                spokenSummary = cleanSummary,
                 hasQuestion = false,
                 isError = false,
                 usedAi = false,

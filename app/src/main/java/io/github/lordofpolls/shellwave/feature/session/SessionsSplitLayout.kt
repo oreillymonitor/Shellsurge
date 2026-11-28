@@ -29,6 +29,7 @@ import io.github.lordofpolls.shellwave.core.db.dao.KeyBarLayoutDao
 import io.github.lordofpolls.shellwave.core.db.dao.TerminalProfileDao
 import io.github.lordofpolls.shellwave.core.db.entities.HostEntity
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
+import io.github.lordofpolls.shellwave.core.net.TailscaleManager
 import io.github.lordofpolls.shellwave.core.ui.FoldPosture
 import io.github.lordofpolls.shellwave.ssh.SessionManager
 import io.github.lordofpolls.shellwave.ssh.SessionSummary
@@ -61,6 +62,9 @@ internal fun SessionsSplitLayout(
     searchController: TerminalSearchController,
     modifier: Modifier = Modifier,
     onEditRemoteFile: ((sessionId: Long, path: String) -> Unit)? = null,
+    pendingComposerDraft: PendingComposerDraft? = null,
+    onConsumePendingComposerDraft: (Long) -> Unit = {},
+    tailscaleManager: TailscaleManager? = null,
 ) {
     Box(modifier = modifier) {
         val tabletop = posture as? FoldPosture.Tabletop
@@ -77,6 +81,9 @@ internal fun SessionsSplitLayout(
                 searchController = searchController,
                 modifier = Modifier.fillMaxSize(),
                 onEditRemoteFile = onEditRemoteFile,
+                pendingComposerDraft = pendingComposerDraft,
+                onConsumePendingComposerDraft = onConsumePendingComposerDraft,
+                tailscaleManager = tailscaleManager,
             )
         } else if (isWide && fullWidthTerminal) {
             // Bypasses the scaffold rather than talking it into a Detail-only pane while
@@ -94,6 +101,9 @@ internal fun SessionsSplitLayout(
                 fullWidthTerminal = fullWidthTerminal,
                 onToggleFullWidth = onToggleFullWidth,
                 onEditRemoteFile = onEditRemoteFile,
+                pendingComposerDraft = pendingComposerDraft,
+                onConsumePendingComposerDraft = onConsumePendingComposerDraft,
+                tailscaleManager = tailscaleManager,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
@@ -127,6 +137,9 @@ internal fun SessionsSplitLayout(
                             fullWidthTerminal = fullWidthTerminal,
                             onToggleFullWidth = onToggleFullWidth,
                             onEditRemoteFile = onEditRemoteFile,
+                            pendingComposerDraft = pendingComposerDraft,
+                            onConsumePendingComposerDraft = onConsumePendingComposerDraft,
+                            tailscaleManager = tailscaleManager,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -216,6 +229,9 @@ private fun TabletopSessionLayout(
     searchController: TerminalSearchController,
     modifier: Modifier = Modifier,
     onEditRemoteFile: ((sessionId: Long, path: String) -> Unit)? = null,
+    pendingComposerDraft: PendingComposerDraft? = null,
+    onConsumePendingComposerDraft: (Long) -> Unit = {},
+    tailscaleManager: TailscaleManager? = null,
 ) {
     val density = LocalDensity.current
     var originInWindowPx by remember { mutableStateOf(Offset.Zero) }
@@ -241,6 +257,9 @@ private fun TabletopSessionLayout(
                 terminalHeight = terminalHeight,
                 preKeyBarGap = hingeGap,
                 onEditRemoteFile = onEditRemoteFile,
+                pendingComposerDraft = pendingComposerDraft,
+                onConsumePendingComposerDraft = onConsumePendingComposerDraft,
+                tailscaleManager = tailscaleManager,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -256,6 +275,9 @@ private fun TabletopSessionLayout(
                 fileTransferController = fileTransferController,
                 searchController = searchController,
                 onEditRemoteFile = onEditRemoteFile,
+                pendingComposerDraft = pendingComposerDraft,
+                onConsumePendingComposerDraft = onConsumePendingComposerDraft,
+                tailscaleManager = tailscaleManager,
                 modifier = Modifier.fillMaxSize(),
             )
         }

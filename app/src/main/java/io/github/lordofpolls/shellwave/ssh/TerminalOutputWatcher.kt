@@ -22,6 +22,11 @@ private val PROMPT_LINE_REGEX = Regex(
 private val DIVIDER_LINE_REGEX = Regex("^[─━═\\-_*~·•]+$")
 private val QUESTION_REGEX = Regex("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no\\))")
 private val SPINNER_ONLY_REGEX = Regex("^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◐◓◑◒\\s]+$")
+private val INLINE_SPINNER_REGEX = Regex("^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◐◓◑◒✳✻✶✢✽]\\s+\\S.*")
+private val AGENT_TOOL_ACTIVITY_REGEX = Regex(
+    "^(?:[●•*◦▸▹]\\s*)?(?:Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling)\\b.*",
+    RegexOption.IGNORE_CASE,
+)
 
 private val IN_PROGRESS_MARKERS = listOf(
     "thinking...",
@@ -36,7 +41,11 @@ private val IN_PROGRESS_MARKERS = listOf(
     "downloading...",
     "running...",
     "esc to interrupt",
+    "esc to cancel",
+    "esc to stop",
     "ctrl+c to interrupt",
+    "ctrl+c to cancel",
+    "ctrl+c to stop",
 )
 
 private val IDLE_TUI_INPUT_MARKERS = listOf(
@@ -118,8 +127,32 @@ internal enum class OutputPromptKind(val titleSuffix: String) {
     RESPONSE_NEEDED("Response needed"),
 }
 
+internal fun compactSessionHostLabel(identity: String): String {
+    val trimmed = identity.trim()
+    if (trimmed.isEmpty()) return "session"
+    val withoutUser = trimmed.substringAfter('@')
+    val withoutPort = if (withoutUser.startsWith("[")) {
+        withoutUser.substringBeforeLast("]:").let {
+            if (it.startsWith("[") && !it.endsWith("]")) "$it]" else it
+        }
+    } else {
+        val lastColon = withoutUser.lastIndexOf(':')
+        if (lastColon > 0 && withoutUser.substring(lastColon + 1).all { it.isDigit() }) {
+            withoutUser.substring(0, lastColon)
+        } else {
+            withoutUser
+        }
+    }
+    val cleanHost = withoutPort.trimEnd('.')
+    if (cleanHost.endsWith(".ts.net", ignoreCase = true)) {
+        val shortName = cleanHost.substringBefore('.')
+        if (shortName.isNotBlank()) return shortName
+    }
+    return cleanHost.ifBlank { trimmed }
+}
+
 internal fun formatPromptTitle(label: String, kind: OutputPromptKind): String =
-    "$label · ${kind.titleSuffix}"
+    "${compactSessionHostLabel(label)} · ${kind.titleSuffix}"
 
 internal fun containsCommandSubmit(
     data: ByteArray,
@@ -245,15 +278,45 @@ private fun isHardBlockingPrompt(sanitizedTail: String): Boolean {
     }
 }
 
+private fun isToolActivityLine(line: String): Boolean {
+    val t = line.trim()
+    if (t.isEmpty()) return false
+    return AGENT_TOOL_ACTIVITY_REGEX.matches(t) ||
+        t.contains("(ctrl+o to expand)", ignoreCase = true)
+}
+
 private fun isActivelyRunning(sanitizedTail: String): Boolean {
     val rawLines = sanitizedTail.lines()
         .map { it.trim() }
         .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
     if (rawLines.isEmpty()) return false
-    return rawLines.takeLast(6).any { line ->
-        IN_PROGRESS_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) } ||
-            SPINNER_ONLY_REGEX.matches(line)
+    if (rawLines.takeLast(6).any { line ->
+            IN_PROGRESS_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) } ||
+                SPINNER_ONLY_REGEX.matches(line) ||
+                INLINE_SPINNER_REGEX.matches(line)
+        }
+    ) {
+        return true
     }
+
+    val hasIdlePrompt = rawLines.takeLast(4).any { line ->
+        PROMPT_LINE_REGEX.matches(line) ||
+            IDLE_TUI_INPUT_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) }
+    }
+    if (!hasIdlePrompt) {
+        val stripped = TerminalTextSanitizer.stripTuiChrome(sanitizedTail)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !DIVIDER_LINE_REGEX.matches(it) }
+        val lastLine = stripped.lastOrNull()
+        if (lastLine != null &&
+            isToolActivityLine(lastLine) &&
+            stripped.takeLast(3).none { line -> COMPLETED_MARKERS.any { line.contains(it, ignoreCase = true) } } &&
+            !isResponseNeededText(sanitizedTail)
+        ) {
+            return true
+        }
+    }
+    return false
 }
 
 /**
@@ -327,6 +390,10 @@ internal fun classifyPromptKind(
 
     val hasCompletionMarker = meaningfulLines.takeLast(6).any { line ->
         COMPLETED_MARKERS.any { marker -> line.contains(marker, ignoreCase = true) }
+    }
+
+    if (!hasCompletionMarker && isToolActivityLine(meaningfulLines.last())) {
+        return null
     }
 
     return if (hasCompletionMarker || settledAfterIdle) {

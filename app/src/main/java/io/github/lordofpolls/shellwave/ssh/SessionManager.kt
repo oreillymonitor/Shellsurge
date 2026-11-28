@@ -220,11 +220,39 @@ constructor(
         if (spec.useTailscale || hostTs?.useTailscale == true) return true
         if (tailscaleManager.isRunning()) {
             return TailscalePreferences.looksLikeTailscaleHost(spec.hostname) ||
-                tailscaleManager.matchesKnownPeer(spec.hostname)
+                tailscaleManager.matchesKnownPeer(spec.hostname) ||
+                (TailscalePreferences.isAutoRouteSubnetsEnabled(context) &&
+                    tailscaleManager.matchesSubnetRoute(spec.hostname))
         }
         return TailscalePreferences.isEnabled(context) &&
             TailscalePreferences.isAutoStartEnabled(context) &&
             TailscalePreferences.looksLikeTailscaleHost(spec.hostname)
+    }
+
+    init {
+        managerScope.launch {
+            tailscaleManager.peerCameOnlineEvents.collect { event ->
+                val targetEntry = event.reconnectSessionId?.let { entries[it] }
+                    ?: entries.values.firstOrNull { entry ->
+                        val h = entry.spec.hostname.trim().lowercase().removeSuffix(".")
+                        val peerDns = event.peer.dnsName.trim().lowercase().removeSuffix(".")
+                        val peerShort = peerDns.substringBefore('.')
+                        h == event.peer.hostName.trim().lowercase() ||
+                            (peerDns.isNotEmpty() && h == peerDns) ||
+                            (peerShort.isNotEmpty() && h == peerShort) ||
+                            event.peer.ips.any { it.equals(h, ignoreCase = true) }
+                    }
+                val label = targetEntry?.label
+                    ?: event.peer.hostName.ifBlank { event.peer.primaryAddress }
+                val sessionId = targetEntry?.id
+                if (targetEntry != null &&
+                    (targetEntry.status == SessionStatus.FAILED || targetEntry.status == SessionStatus.DISCONNECTED)
+                ) {
+                    reconnectNow(targetEntry.id)
+                }
+                sessionAlerts.tailscalePeerOnline(label = label, sessionId = sessionId)
+            }
+        }
     }
 
     private fun isTailscaleEntry(entry: Entry): Boolean {
@@ -606,7 +634,7 @@ constructor(
                     publish()
                 }
             },
-            onRichAlert = { kind, title, fallbackBody, actions, turnEpoch, rawTail ->
+            onRichAlert = { kind, _, fallbackBody, actions, turnEpoch, rawTail ->
                 if (entries[entry.id] === entry && isOutputAlertsEnabled(entry)) {
                     val isActiveTab = foregroundSessionId == entry.id
                     val appForeground = sessionAlerts.isAppForeground()
@@ -622,7 +650,7 @@ constructor(
                         entry.digestJob = managerScope.launch {
                             val cleanedTurn = TerminalTextSanitizer.cleanForDigest(rawTail, maxLines = 60)
                                 .ifBlank { rawTail }
-                            val digest = withTimeoutOrNull(2_500L) {
+                            val digest = withTimeoutOrNull(4_500L) {
                                 AgentDigestModel.analyzeTerminalTail(
                                     sanitizedOutput = cleanedTurn,
                                     context = context,
@@ -645,25 +673,34 @@ constructor(
                             )
                             publish()
 
-                            if (willPostNotification) {
+                            val filter = NotificationPreferences.getNotificationFilter(context)
+                            val passesFilter = NotificationPreferences.shouldNotifyForOutcome(
+                                filter = filter,
+                                isResponseNeeded = isResponseNeeded,
+                                isError = digest.isError,
+                            )
+                            if (willPostNotification && passesFilter) {
                                 val nowActiveTab = foregroundSessionId == entry.id
                                 val nowForeground = sessionAlerts.isAppForeground()
                                 if (!nowForeground || !nowActiveTab || notifyOnActiveTab) {
-                                    val notifyBody = if (fallbackBody.isNotBlank() && rawTail.isNotBlank() && digest.spokenSummary.isNotBlank()) {
-                                        val summary = digest.spokenSummary.trim()
-                                        if (summary.length <= 320) summary else summary.take(319).trimEnd() + "…"
-                                    } else {
-                                        fallbackBody
-                                    }
+                                    val shortHost = entry.spec.hostId
+                                        ?.let { id -> runCatching { hostDao.getById(id)?.label }.getOrNull() }
+                                        ?.trim()
+                                        ?.takeIf { it.isNotEmpty() }
+                                        ?: compactSessionHostLabel(entry.label)
+                                    val notifyTitle = AgentDigestModel.formatNotificationTitle(isResponseNeeded, digest)
+                                    val notifyBody = AgentDigestModel.formatNotificationBody(digest, fallbackBody)
                                     sessionAlerts.commandOutput(
                                         sessionId = entry.id,
-                                        title = title,
+                                        title = notifyTitle,
                                         body = notifyBody,
                                         isActiveTab = nowActiveTab,
                                         notifyOnActiveTab = notifyOnActiveTab,
                                         isResponseNeeded = isResponseNeeded,
                                         quickActions = actions,
                                         turnEpoch = turnEpoch,
+                                        subText = shortHost,
+                                        isError = digest.isError,
                                     )
                                 }
                             }

@@ -11,8 +11,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -25,6 +28,7 @@ import java.io.File
 import java.lang.reflect.InvocationTargetException
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import javax.net.SocketFactory
@@ -41,6 +45,7 @@ data class TailscaleStatus(
     val tailnetName: String? = null,
     val magicDnsSuffix: String? = null,
     val proxyPort: Int = 0,
+    val peersVersion: Long = 0L,
     val lastError: String? = null,
     val detail: String? = null,
     val libraryAvailable: Boolean = true,
@@ -63,6 +68,10 @@ data class TailscalePeer(
     val os: String,
     val online: Boolean,
     val sshHostKeys: Boolean,
+    val primaryRoutes: List<String> = emptyList(),
+    val curAddr: String = "",
+    val relay: String = "",
+    val active: Boolean = false,
 ) {
     val primaryAddress: String
         get() = dnsName.removeSuffix(".").ifBlank {
@@ -70,6 +79,12 @@ data class TailscalePeer(
                 ips.firstOrNull().orEmpty().ifBlank { hostName }
             }
         }
+
+    val watchKey: String
+        get() = id.ifBlank { primaryAddress.lowercase(Locale.ROOT) }
+
+    val pathBadge: Pair<String, Boolean>?
+        get() = formatPeerPathBadge(curAddr, relay)
 }
 
 internal interface TailscaleNodeClient {
@@ -83,6 +98,12 @@ internal interface TailscaleNodeClient {
     fun proxyPassword(): String
     fun statusJson(): String
     fun peersJson(): String
+    fun pingPeerJson(target: String): String = """{"error":"Ping unavailable in this build"}"""
+    fun startTcpForward(targetHost: String, targetPort: Int): Int =
+        throw UnsupportedOperationException("TCP forward unavailable in this build")
+    fun stopTcpForward(localPort: Int) {}
+    fun stopAllTcpForwards() {}
+    fun activeTcpForwardsJson(): String = "[]"
 }
 
 internal class GomobileTailscaleNodeClient private constructor(
@@ -141,11 +162,56 @@ internal class GomobileTailscaleNodeClient private constructor(
     override fun peersJson(): String =
         invokeAnyName(listOf("peersJSON", "peersJson")) as? String ?: "[]"
 
-    private fun invokeAnyName(names: List<String>): Any? {
+    override fun pingPeerJson(target: String): String =
+        invokeAnyNameWithArgs(
+            names = listOf("pingPeerJSON", "pingPeerJson"),
+            paramTypes = arrayOf(String::class.java),
+            target,
+        ) as? String ?: """{"error":"Ping unavailable in this build"}"""
+
+    override fun startTcpForward(targetHost: String, targetPort: Int): Int {
+        val result = invokeAnyNameWithArgs(
+            names = listOf("startTCPForward", "startTcpForward"),
+            paramTypes = arrayOf(String::class.java, Int::class.javaPrimitiveType!!),
+            targetHost,
+            targetPort,
+        ) ?: error("TCP forward unavailable in this build")
+        return (result as Number).toInt()
+    }
+
+    override fun stopTcpForward(localPort: Int) {
+        runCatching {
+            invokeAnyNameWithArgs(
+                names = listOf("stopTCPForward", "stopTcpForward"),
+                paramTypes = arrayOf(Int::class.javaPrimitiveType!!),
+                localPort,
+            )
+        }
+    }
+
+    override fun stopAllTcpForwards() {
+        runCatching {
+            invokeAnyName(listOf("stopAllTCPForwards", "stopAllTcpForwards"))
+        }
+    }
+
+    override fun activeTcpForwardsJson(): String =
+        runCatching {
+            invokeAnyName(listOf("activeTCPForwardsJSON", "activeTcpForwardsJson")) as? String
+        }.getOrNull() ?: "[]"
+
+    private fun invokeAnyName(names: List<String>): Any? =
+        invokeAnyNameWithArgs(names, emptyArray())
+
+    private fun invokeAnyNameWithArgs(
+        names: List<String>,
+        paramTypes: Array<Class<*>>,
+        vararg args: Any?,
+    ): Any? {
         for (name in names) {
-            val method = runCatching { cls.getMethod(name) }.getOrNull() ?: continue
+            val method = runCatching { cls.getMethod(name, *paramTypes) }.getOrNull() ?: continue
             return try {
-                method.invoke(nodeInstance)
+                method.invoke(nodeInstance, *args)
             } catch (e: InvocationTargetException) {
                 throw (e.targetException ?: e)
             }
@@ -215,6 +281,7 @@ internal fun parseTailscaleStatusJson(raw: String): TailscaleStatus {
             tailnetName = obj.optString("tailnetName", "").trim().takeIf { it.isNotEmpty() },
             magicDnsSuffix = obj.optString("magicDnsSuffix", "").trim().takeIf { it.isNotEmpty() },
             proxyPort = obj.optInt("proxyPort", 0),
+            peersVersion = obj.optLong("peersVersion", 0L),
             lastError = obj.optString("lastError", "").trim().takeIf { it.isNotEmpty() },
             detail = obj.optString("detail", "").trim().takeIf { it.isNotEmpty() },
             libraryAvailable = true,
@@ -237,6 +304,13 @@ internal fun parseTailscalePeersJson(raw: String): List<TailscalePeer> {
                     ipsArray.optString(j, "").trim().takeIf { it.isNotEmpty() }?.let { ips += it }
                 }
             }
+            val routesArray = obj.optJSONArray("primaryRoutes")
+            val primaryRoutes = mutableListOf<String>()
+            if (routesArray != null) {
+                for (j in 0 until routesArray.length()) {
+                    routesArray.optString(j, "").trim().takeIf { it.isNotEmpty() }?.let { primaryRoutes += it }
+                }
+            }
             result += TailscalePeer(
                 id = obj.optString("id", ""),
                 hostName = obj.optString("hostName", ""),
@@ -245,6 +319,10 @@ internal fun parseTailscalePeersJson(raw: String): List<TailscalePeer> {
                 os = obj.optString("os", ""),
                 online = obj.optBoolean("online", false),
                 sshHostKeys = obj.optBoolean("sshHostKeys", false),
+                primaryRoutes = primaryRoutes,
+                curAddr = obj.optString("curAddr", "").trim(),
+                relay = obj.optString("relay", "").trim(),
+                active = obj.optBoolean("active", false),
             )
         }
         result
@@ -278,12 +356,23 @@ constructor(
     private var activeNode: TailscaleNodeClient? = null
     private var pollJob: Job? = null
     private var lastLoadedRunningPeers = false
+    private var lastPeersVersion = -1L
+    private val forwardTimeoutJobs = mutableMapOf<Int, Job>()
 
     private val _status = MutableStateFlow(TailscaleStatus())
     open val status: StateFlow<TailscaleStatus> = _status.asStateFlow()
 
     private val _peers = MutableStateFlow<List<TailscalePeer>>(emptyList())
     open val peers: StateFlow<List<TailscalePeer>> = _peers.asStateFlow()
+
+    private val _webForwards = MutableStateFlow<List<TailscaleWebForward>>(emptyList())
+    open val webForwards: StateFlow<List<TailscaleWebForward>> = _webForwards.asStateFlow()
+
+    private val _watchedPeers = MutableStateFlow<Map<String, WatchedPeerState>>(emptyMap())
+    open val watchedPeers: StateFlow<Map<String, WatchedPeerState>> = _watchedPeers.asStateFlow()
+
+    private val _peerCameOnlineEvents = MutableSharedFlow<WatchedPeerOnlineEvent>(extraBufferCapacity = 8)
+    open val peerCameOnlineEvents: SharedFlow<WatchedPeerOnlineEvent> = _peerCameOnlineEvents.asSharedFlow()
 
     private fun stateDir(): File = File(context.filesDir, "tsnet")
 
@@ -320,6 +409,7 @@ constructor(
                 node.start(stateDir().absolutePath, hostname, authKey.trim(), controlUrl)
                 activeNode = node
                 lastLoadedRunningPeers = false
+                lastPeersVersion = -1L
                 TailscaleCrashDiagnostics.recordStage(context, "8:sync_snapshot")
                 syncSnapshot(node)
                 startPolling(node)
@@ -339,6 +429,8 @@ constructor(
             pollJob?.cancel()
             pollJob = null
             lastLoadedRunningPeers = false
+            lastPeersVersion = -1L
+            clearForwardsAndWatchesLocked(activeNode)
             runCatching { activeNode?.stop() }
             activeNode = null
             _peers.value = emptyList()
@@ -351,6 +443,8 @@ constructor(
             pollJob?.cancel()
             pollJob = null
             lastLoadedRunningPeers = false
+            lastPeersVersion = -1L
+            clearForwardsAndWatchesLocked(activeNode)
             runCatching { activeNode?.logout() }
             activeNode = null
             runCatching { stateDir().deleteRecursively() }
@@ -363,7 +457,9 @@ constructor(
     open suspend fun refreshPeers() = withContext(Dispatchers.IO) {
         val node = activeNode ?: return@withContext
         val raw = runCatching { node.peersJson() }.getOrNull() ?: return@withContext
-        _peers.value = parseTailscalePeersJson(raw)
+        val parsed = parseTailscalePeersJson(raw)
+        _peers.value = parsed
+        evaluateWatchedPeers(parsed)
     }
 
     open suspend fun ensureRunning(timeoutMs: Long = 20_000L): Result<SocketFactory> =
@@ -409,6 +505,142 @@ constructor(
         }
     }
 
+    open fun matchesSubnetRoute(hostname: String): Boolean =
+        findMatchingSubnetPeer(hostname, _peers.value) != null
+
+    open fun findPeerForHost(hostname: String): TailscalePeer? {
+        val clean = hostname.trim().lowercase().removeSuffix(".").removePrefix("[").removeSuffix("]")
+        if (clean.isEmpty()) return null
+        _peers.value.firstOrNull { peer ->
+            val dns = peer.dnsName.trim().lowercase().removeSuffix(".")
+            val shortDns = dns.substringBefore('.')
+            peer.hostName.trim().lowercase() == clean ||
+                (dns.isNotEmpty() && dns == clean) ||
+                (shortDns.isNotEmpty() && shortDns == clean) ||
+                peer.ips.any { it.equals(clean, ignoreCase = true) }
+        }?.let { return it }
+        return findMatchingSubnetPeer(clean, _peers.value)?.first
+    }
+
+    open fun isTailscaleRoutableHost(hostname: String): Boolean {
+        if (TailscalePreferences.looksLikeTailscaleHost(hostname) || matchesKnownPeer(hostname)) {
+            return true
+        }
+        return TailscalePreferences.isAutoRouteSubnetsEnabled(context) && matchesSubnetRoute(hostname)
+    }
+
+    open fun advertisedSubnets(): List<Pair<String, TailscalePeer>> {
+        val seen = LinkedHashMap<String, TailscalePeer>()
+        for (peer in _peers.value) {
+            if (!peer.online) continue
+            for (route in peer.primaryRoutes) {
+                seen.putIfAbsent(route, peer)
+            }
+        }
+        return seen.entries.map { it.key to it.value }
+    }
+
+    open suspend fun pingPeer(target: String): TailscalePingResult = withContext(Dispatchers.IO) {
+        val node = activeNode
+            ?: return@withContext TailscalePingResult(error = "Embedded Tailscale is not running")
+        val raw = runCatching { node.pingPeerJson(target) }
+            .getOrElse { err ->
+                return@withContext TailscalePingResult(error = err.message ?: "Ping failed")
+            }
+        parseTailscalePingJson(raw)
+    }
+
+    open suspend fun startWebForward(
+        targetHost: String,
+        targetPort: Int,
+        autoStopAfterMs: Long = 60 * 60 * 1000L,
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        val node = activeNode
+            ?: return@withContext Result.failure(IllegalStateException("Embedded Tailscale is not running"))
+        runCatching {
+            val localPort = node.startTcpForward(targetHost, targetPort)
+            refreshWebForwards(node)
+            forwardTimeoutJobs.remove(localPort)?.cancel()
+            if (autoStopAfterMs > 0L) {
+                forwardTimeoutJobs[localPort] = scope.launch {
+                    delay(autoStopAfterMs)
+                    stopWebForward(localPort)
+                }
+            }
+            localPort
+        }
+    }
+
+    open suspend fun stopWebForward(localPort: Int) {
+        withContext(Dispatchers.IO) {
+            forwardTimeoutJobs.remove(localPort)?.cancel()
+            val node = activeNode ?: return@withContext
+            runCatching { node.stopTcpForward(localPort) }
+            refreshWebForwards(node)
+        }
+    }
+
+    open fun watchPeerUntilOnline(peer: TailscalePeer, reconnectSessionId: Long? = null) {
+        val key = peer.watchKey
+        val label = peer.hostName.ifBlank { peer.primaryAddress }
+        _watchedPeers.value = _watchedPeers.value + (
+            key to WatchedPeerState(
+                watchKey = key,
+                label = label,
+                peerHostname = peer.primaryAddress,
+                reconnectSessionId = reconnectSessionId,
+                waitForOfflineFirst = peer.online,
+            )
+        )
+    }
+
+    open fun cancelPeerWatch(watchKey: String) {
+        if (_watchedPeers.value.containsKey(watchKey)) {
+            _watchedPeers.value = _watchedPeers.value - watchKey
+        }
+    }
+
+    private fun refreshWebForwards(node: TailscaleNodeClient) {
+        val raw = runCatching { node.activeTcpForwardsJson() }.getOrDefault("[]")
+        _webForwards.value = parseActiveTcpForwardsJson(raw)
+    }
+
+    private fun clearForwardsAndWatchesLocked(node: TailscaleNodeClient?) {
+        forwardTimeoutJobs.values.forEach { it.cancel() }
+        forwardTimeoutJobs.clear()
+        runCatching { node?.stopAllTcpForwards() }
+        _webForwards.value = emptyList()
+        _watchedPeers.value = emptyMap()
+    }
+
+    private fun evaluateWatchedPeers(peersList: List<TailscalePeer>) {
+        val currentWatches = _watchedPeers.value
+        if (currentWatches.isEmpty()) return
+
+        var updated: MutableMap<String, WatchedPeerState>? = null
+        for ((key, watch) in currentWatches) {
+            val matched = peersList.firstOrNull { peer ->
+                peer.watchKey == key ||
+                    peer.hostName.equals(watch.peerHostname, ignoreCase = true) ||
+                    peer.primaryAddress.equals(watch.peerHostname, ignoreCase = true)
+            } ?: continue
+
+            if (watch.waitForOfflineFirst) {
+                if (!matched.online) {
+                    val map = updated ?: currentWatches.toMutableMap().also { updated = it }
+                    map[key] = watch.copy(waitForOfflineFirst = false)
+                }
+            } else if (matched.online) {
+                val map = updated ?: currentWatches.toMutableMap().also { updated = it }
+                map.remove(key)
+                _peerCameOnlineEvents.tryEmit(
+                    WatchedPeerOnlineEvent(peer = matched, reconnectSessionId = watch.reconnectSessionId),
+                )
+            }
+        }
+        updated?.let { _watchedPeers.value = it }
+    }
+
     open fun socketFactory(): SocketFactory? {
         val node = activeNode ?: return null
         val snap = _status.value
@@ -438,8 +670,9 @@ constructor(
         pollJob = scope.launch {
             while (isActive && activeNode === node) {
                 val snap = syncSnapshot(node)
-                if (snap.isRunning && !lastLoadedRunningPeers) {
+                if (snap.isRunning && (!lastLoadedRunningPeers || snap.peersVersion != lastPeersVersion)) {
                     lastLoadedRunningPeers = true
+                    lastPeersVersion = snap.peersVersion
                     refreshPeers()
                 }
                 delay(if (snap.isRunning) STATUS_POLL_INTERVAL_MS else STATUS_POLL_CONNECTING_MS)

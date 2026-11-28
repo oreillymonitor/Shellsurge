@@ -678,4 +678,65 @@ class TerminalOutputWatcherTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun `compactSessionHostLabel strips user, port, and MagicDNS suffix`() {
+        assertEquals("mobile-octagon", compactSessionHostLabel("morningbus@mobile-octagon.tail9498d.ts.net:22"))
+        assertEquals("devbox", compactSessionHostLabel("devbox.ts.net"))
+        assertEquals("192.168.1.50", compactSessionHostLabel("root@192.168.1.50:2222"))
+        assertEquals("dev", compactSessionHostLabel("dev"))
+    }
+
+    @Test
+    fun `suppresses mid-turn agent tool accordions and inline spinners until turn finishes`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            assertNull(
+                classifyPromptKind(
+                    "● Ran 2 commands (+1 · grep -n -C 8 \"Tailsc…).\n● Explored 4 files (TerminalL…) (ctrl+o to expand)",
+                    settledAfterIdle = true,
+                ),
+            )
+            assertNull(
+                classifyPromptKind(
+                    "⠋ Running Gradle unit tests across :app...",
+                    settledAfterIdle = true,
+                ),
+            )
+            assertEquals(
+                OutputPromptKind.COMPLETED,
+                classifyPromptKind(
+                    "● Ran 2 commands.\nUpdated TerminalOutputWatcher.kt cleanly.\n❯ Type a message",
+                    settledAfterIdle = true,
+                ),
+            )
+
+            val alerts = mutableListOf<RecordedAlert>()
+            var tail = "● Ran 2 commands (+1 · grep).\n● Explored 4 files (ctrl+o to expand)"
+            val watcher = TerminalOutputWatcher(
+                scope = scope,
+                label = "morningbus@mobile-octagon.tail9498d.ts.net:22",
+                isEnabled = { true },
+                idleDelayMs = { 40L },
+                readTail = { tail },
+                onAlert = { kind, title, body -> alerts += RecordedAlert(kind, title, body) },
+            )
+
+            watcher.onUserWrite("inspect tailscale\r".toByteArray())
+            watcher.onRawOutput("● Ran 2 commands (+1 · grep).\r\n● Explored 4 files (ctrl+o to expand)".toByteArray())
+            delay(130L)
+            assertTrue(alerts.isEmpty())
+
+            tail = "● Explored 4 files\nDone checking Tailscale files.\n❯ Type a message"
+            watcher.onRawOutput("\r\nDone checking Tailscale files.\r\n❯ Type a message".toByteArray())
+            delay(130L)
+
+            assertEquals(1, alerts.size)
+            assertEquals(OutputPromptKind.COMPLETED, alerts[0].kind)
+            assertEquals("mobile-octagon · Completed", alerts[0].title)
+            watcher.cancel()
+        } finally {
+            scope.cancel()
+        }
+    }
 }

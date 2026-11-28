@@ -96,6 +96,14 @@ import io.github.lordofpolls.shellwave.core.db.entities.HostEntity
 import io.github.lordofpolls.shellwave.core.db.entities.KeyBarLayoutEntity
 import io.github.lordofpolls.shellwave.core.db.entities.ScriptEntity
 import io.github.lordofpolls.shellwave.core.db.entities.TerminalProfileEntity
+import io.github.lordofpolls.shellwave.core.net.TailscaleManager
+import io.github.lordofpolls.shellwave.core.net.TailscalePeer
+import io.github.lordofpolls.shellwave.core.net.TailscaleStatus
+import io.github.lordofpolls.shellwave.core.net.TailscaleWebForward
+import io.github.lordofpolls.shellwave.core.net.TailscaleWebTarget
+import io.github.lordofpolls.shellwave.core.net.WatchedPeerState
+import io.github.lordofpolls.shellwave.core.net.parseTailscaleWebTarget
+import io.github.lordofpolls.shellwave.core.net.rewriteUrlToLoopback
 import io.github.lordofpolls.shellwave.core.prefs.BellPreferences
 import io.github.lordofpolls.shellwave.core.prefs.DefaultKeyBarDeck
 import io.github.lordofpolls.shellwave.core.prefs.NotificationPreferences
@@ -197,6 +205,9 @@ fun SessionsScreen(
     keyBarLayoutDao: KeyBarLayoutDao,
     modifier: Modifier = Modifier,
     onEditRemoteFile: ((sessionId: Long, path: String) -> Unit)? = null,
+    pendingComposerDraft: PendingComposerDraft? = null,
+    onConsumePendingComposerDraft: (Long) -> Unit = {},
+    tailscaleManager: TailscaleManager? = null,
 ) {
     val summaries by sessionManager.summaries.collectAsState()
     if (summaries.isEmpty()) {
@@ -317,7 +328,25 @@ fun SessionsScreen(
             },
         )
 
-        current?.takeIf { it.status == SessionStatus.FAILED }?.error?.let { error ->
+        val tailscaleStatus by (tailscaleManager?.status ?: remember { MutableStateFlow(TailscaleStatus()) }).collectAsState()
+        val tailscalePeers by (tailscaleManager?.peers ?: remember { MutableStateFlow(emptyList<TailscalePeer>()) }).collectAsState()
+        val tailscaleWebForwards by (tailscaleManager?.webForwards ?: remember { MutableStateFlow(emptyList<TailscaleWebForward>()) }).collectAsState()
+        val watchedTailscalePeers by (tailscaleManager?.watchedPeers ?: remember { MutableStateFlow(emptyMap<String, WatchedPeerState>()) }).collectAsState()
+
+        val currentHostName = current?.label?.substringAfter('@')?.substringBeforeLast(':').orEmpty()
+        val matchedTsPeer = remember(current?.id, current?.status, tailscalePeers, tailscaleStatus.isRunning) {
+            if (tailscaleManager != null && tailscaleStatus.isRunning && currentHostName.isNotBlank()) {
+                tailscaleManager.findPeerForHost(currentHostName)
+            } else {
+                null
+            }
+        }
+        val showStatusBanner = current != null && (
+            (current.status == SessionStatus.FAILED && current.error != null) ||
+                (current.status == SessionStatus.DISCONNECTED && matchedTsPeer != null)
+            )
+        if (showStatusBanner) {
+            val isWatched = matchedTsPeer != null && watchedTailscalePeers.containsKey(matchedTsPeer.watchKey)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -326,11 +355,32 @@ fun SessionsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    error,
+                    current.error ?: "Session disconnected.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
+                if (matchedTsPeer != null && tailscaleManager != null) {
+                    TextButton(
+                        onClick = {
+                            if (isWatched) {
+                                tailscaleManager.cancelPeerWatch(matchedTsPeer.watchKey)
+                            } else {
+                                tailscaleManager.watchPeerUntilOnline(
+                                    matchedTsPeer,
+                                    reconnectSessionId = current.id,
+                                )
+                                Toast.makeText(
+                                    bellContext,
+                                    "Watching ${matchedTsPeer.hostName.ifBlank { matchedTsPeer.primaryAddress }} — will notify & reconnect",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                    ) {
+                        Text(if (isWatched) "Watching…" else "Watch online")
+                    }
+                }
                 TextButton(onClick = { sessionManager.reconnectNow(current.id) }) { Text("Retry") }
             }
         }
@@ -425,6 +475,45 @@ fun SessionsScreen(
                 onCopyText = { text ->
                     current.connection.onCopyTextToClipboard(text)
                     linksSheetOpen = false
+                },
+                tailscaleWebForwards = tailscaleWebForwards,
+                resolveTailscaleWebTarget = if (tailscaleManager != null && tailscaleStatus.isRunning) {
+                    { url -> parseTailscaleWebTarget(url, tailscaleManager::isTailscaleRoutableHost) }
+                } else {
+                    null
+                },
+                onTailscalePreviewAndOpen = if (tailscaleManager != null && tailscaleStatus.isRunning) {
+                    { _, target ->
+                        linksSheetOpen = false
+                        scope.launch {
+                            tailscaleManager.startWebForward(target.host, target.port).fold(
+                                onSuccess = { localPort ->
+                                    openUrlInBrowser(
+                                        linkContext,
+                                        rewriteUrlToLoopback(target.originalUrl, localPort),
+                                    ).onFailure {
+                                        Toast.makeText(linkContext, "No app found to open link", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onFailure = { err ->
+                                    Toast.makeText(
+                                        linkContext,
+                                        "Tailscale preview failed: ${err.message ?: "dial error"}",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                },
+                            )
+                        }
+                    }
+                } else {
+                    null
+                },
+                onStopTailscaleWebForward = if (tailscaleManager != null) {
+                    { localPort ->
+                        scope.launch { tailscaleManager.stopWebForward(localPort) }
+                    }
+                } else {
+                    null
                 },
                 onDismiss = { linksSheetOpen = false },
             )
@@ -570,6 +659,9 @@ fun SessionsScreen(
                 fileTransferController = fileTransferController,
                 searchController = searchController,
                 onEditRemoteFile = onEditRemoteFile,
+                pendingComposerDraft = pendingComposerDraft,
+                onConsumePendingComposerDraft = onConsumePendingComposerDraft,
+                tailscaleManager = tailscaleManager,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -654,6 +746,9 @@ internal fun SessionTabBody(
     fullWidthTerminal: Boolean = false,
     onToggleFullWidth: () -> Unit = {},
     onEditRemoteFile: ((sessionId: Long, path: String) -> Unit)? = null,
+    pendingComposerDraft: PendingComposerDraft? = null,
+    onConsumePendingComposerDraft: (Long) -> Unit = {},
+    tailscaleManager: TailscaleManager? = null,
 ) {
     val summaries by sessionManager.summaries.collectAsState()
     val summary = summaries.firstOrNull { it.id == sessionId } ?: return
@@ -1448,6 +1543,17 @@ internal fun SessionTabBody(
                         null
                     }
                     val isPortTunneled = callbackInfo != null && callbackInfo.port in activeEphemeralPorts
+                    val tsStatus by (tailscaleManager?.status ?: remember { MutableStateFlow(TailscaleStatus()) }).collectAsState()
+                    val tailscalePreviewTarget = if (
+                        link.type == LinkType.URL &&
+                        callbackInfo == null &&
+                        tailscaleManager != null &&
+                        tsStatus.isRunning
+                    ) {
+                        parseTailscaleWebTarget(link.text, tailscaleManager::isTailscaleRoutableHost)
+                    } else {
+                        null
+                    }
                     LinkActionDialog(
                         link = link,
                         onOpen = { openLink(link); detectedLink = null },
@@ -1482,6 +1588,32 @@ internal fun SessionTabBody(
                         onTunnelAndOpen = if (callbackInfo != null && summary.status == SessionStatus.CONNECTED) ({
                             detectedLink = null
                             tunnelAndOpenLink(link, callbackInfo.port)
+                        }) else null,
+                        tailscalePreviewTarget = tailscalePreviewTarget,
+                        onTailscalePreviewAndOpen = if (tailscalePreviewTarget != null && tailscaleManager != null) ({
+                            detectedLink = null
+                            coroutineScope.launch {
+                                tailscaleManager.startWebForward(
+                                    tailscalePreviewTarget.host,
+                                    tailscalePreviewTarget.port,
+                                ).fold(
+                                    onSuccess = { localPort ->
+                                        openUrlInBrowser(
+                                            localContext,
+                                            rewriteUrlToLoopback(tailscalePreviewTarget.originalUrl, localPort),
+                                        ).onFailure {
+                                            Toast.makeText(localContext, "No app found to open link", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onFailure = { err ->
+                                        Toast.makeText(
+                                            localContext,
+                                            "Tailscale preview failed: ${err.message ?: "dial error"}",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    },
+                                )
+                            }
                         }) else null,
                     )
                 }
@@ -1877,6 +2009,13 @@ internal fun SessionTabBody(
     }
 
     LaunchedEffect(sessionId) { focusRequester.requestFocus() }
+    LaunchedEffect(sessionId, pendingComposerDraft?.nonce) {
+        val draft = pendingComposerDraft
+        if (draft != null && draft.sessionId == sessionId) {
+            openInlineComposer(draft.text)
+            onConsumePendingComposerDraft(draft.nonce)
+        }
+    }
 }
 
 /** Scrollback position, line steppers, and jump-to-bottom in one: shown only while scrolled back. */
@@ -2022,6 +2161,8 @@ private fun LinkActionDialog(
     callbackInfo: LocalhostCallbackInfo? = null,
     isPortAlreadyTunneled: Boolean = false,
     onTunnelAndOpen: (() -> Unit)? = null,
+    tailscalePreviewTarget: TailscaleWebTarget? = null,
+    onTailscalePreviewAndOpen: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val displayTitle = when (link.type) {
@@ -2125,6 +2266,12 @@ private fun LinkActionDialog(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
+                            } else if (tailscalePreviewTarget != null && onTailscalePreviewAndOpen != null) {
+                                Text(
+                                    text = "Tailnet host ${tailscalePreviewTarget.host}:${tailscalePreviewTarget.port} — preview in browser via embedded Tailscale without Android VPN.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
                             }
                         }
 
@@ -2142,25 +2289,44 @@ private fun LinkActionDialog(
                                     },
                                 )
                             }
+                        } else if (tailscalePreviewTarget != null && onTailscalePreviewAndOpen != null) {
+                            Button(
+                                onClick = onTailscalePreviewAndOpen,
+                                shape = AGENT_BUTTON_SHAPE,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Preview via Tailscale")
+                            }
                         }
 
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            if (callbackInfo == null || onTunnelAndOpen == null) {
-                                Button(
-                                    onClick = onOpen,
-                                    shape = AGENT_BUTTON_SHAPE,
-                                ) {
-                                    Text("Open in browser")
+                            when {
+                                callbackInfo != null && onTunnelAndOpen != null -> {
+                                    OutlinedButton(
+                                        onClick = onOpen,
+                                        shape = AGENT_BUTTON_SHAPE,
+                                    ) {
+                                        Text("Open without tunnel")
+                                    }
                                 }
-                            } else {
-                                OutlinedButton(
-                                    onClick = onOpen,
-                                    shape = AGENT_BUTTON_SHAPE,
-                                ) {
-                                    Text("Open without tunnel")
+                                tailscalePreviewTarget != null && onTailscalePreviewAndOpen != null -> {
+                                    OutlinedButton(
+                                        onClick = onOpen,
+                                        shape = AGENT_BUTTON_SHAPE,
+                                    ) {
+                                        Text("Open directly")
+                                    }
+                                }
+                                else -> {
+                                    Button(
+                                        onClick = onOpen,
+                                        shape = AGENT_BUTTON_SHAPE,
+                                    ) {
+                                        Text("Open in browser")
+                                    }
                                 }
                             }
                             OutlinedButton(

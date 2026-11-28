@@ -201,4 +201,65 @@ class AgentDigestModelTest {
         assertEquals("2", actions[1].sendText)
         assertEquals("3", actions[2].sendText)
     }
+
+    @Test
+    fun `reflowWrappedLines joins soft-wrapped prose without injecting periods`() {
+        val wrapped = listOf(
+            "SessionsScreen.kt and re-launched the Go",
+            "tests, Android unit tests, lint, and invariant",
+            "checks.",
+        )
+        assertEquals(
+            listOf("SessionsScreen.kt and re-launched the Go tests, Android unit tests, lint, and invariant checks."),
+            AgentDigestModel.reflowWrappedLines(wrapped),
+        )
+
+        val fallback = AgentDigestModel.fallbackAnalyze(
+            """
+            ● Ran 2 commands (gradle test)
+            SessionsScreen.kt and re-launched the Go
+            tests, Android unit tests, lint, and invariant
+            checks.
+            """.trimIndent(),
+        )
+        assertFalse(fallback.spokenSummary.contains(",."))
+        assertFalse(fallback.spokenSummary.contains(".."))
+        assertTrue(fallback.spokenSummary.contains("Go tests, Android unit tests"))
+        assertFalse(fallback.spokenSummary.contains("Ran 2 commands"))
+    }
+
+    @Test
+    fun `fallbackAnalyze avoids tautological completed prefix and double periods`() {
+        val result = AgentDigestModel.fallbackAnalyze("completed with success (12m5s).")
+        assertEquals("Completed with success (12m5s).", result.spokenSummary)
+
+        val wrappedSuccess = AgentDigestModel.fallbackAnalyze(
+            "Committed (a055891), tagged 1.16.8, and\npushed atomically.",
+        )
+        assertEquals("Committed (a055891), tagged 1.16.8, and pushed atomically.", wrappedSuccess.spokenSummary)
+    }
+
+    @Test
+    fun `formatNotificationTitle and formatNotificationBody prioritize outcome and include metadata`() {
+        val errorDigest = AgentDigestResult(
+            spokenSummary = "Kotlin compilation failed.",
+            isError = true,
+            headlineFact = "BUILD FAILED in 8s",
+            firstError = "MainActivity.kt:142: Unresolved reference 'foo'",
+            touchedFiles = listOf("app/MainActivity.kt"),
+        )
+        assertEquals("BUILD FAILED in 8s", AgentDigestModel.formatNotificationTitle(isResponseNeeded = false, errorDigest))
+        val errorBody = AgentDigestModel.formatNotificationBody(errorDigest, "fallback")
+        assertTrue(errorBody.contains("Kotlin compilation failed."))
+        assertTrue(errorBody.contains("Error: MainActivity.kt:142"))
+
+        val editDigest = AgentDigestResult(
+            spokenSummary = "Refactored share sheet flow.",
+            headlineFact = "Updated 2 files",
+            touchedFiles = listOf("app/IncomingShare.kt", "app/MainActivity.kt"),
+        )
+        assertEquals("Updated 2 files", AgentDigestModel.formatNotificationTitle(isResponseNeeded = false, editDigest))
+        val editBody = AgentDigestModel.formatNotificationBody(editDigest, "fallback")
+        assertTrue(editBody.contains("Files: IncomingShare.kt, MainActivity.kt"))
+    }
 }

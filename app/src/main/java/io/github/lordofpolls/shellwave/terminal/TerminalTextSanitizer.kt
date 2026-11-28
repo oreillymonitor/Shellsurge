@@ -10,6 +10,7 @@ object TerminalTextSanitizer {
     private val SPINNER_CHARS = setOf('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏', '◐', '◓', '◑', '◒')
     private val BOX_BORDER_ONLY = Regex("^[┌┐└┘├┤┬┴┼╭╮╰╯─━═│┃▀▄█░▒▓\\-_*~·•\\s]+$")
     private val BOX_EDGE_STRIP = Regex("^[│┃║]\\s*(.*?)\\s*[│┃║]$")
+    private val BOX_EDGE_PRESERVE_INDENT = Regex("^[│┃║] ?(.*?)\\s*[│┃║]$")
     private val TMUX_STATUS_LINE = Regex("^\\[[^\\]]+]\\s+\\d+:.*|\\b\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s+\\d{1,2}-[A-Za-z]{3}-\\d{2,4})?\\s*$")
     private val PROGRESS_BAR_LINE = Regex(".*\\[[=>#\\-█▓▒░\\s]{5,}]\\s*\\d{1,3}%.*")
     private val TUI_CHROME_SUBSTRINGS = listOf(
@@ -32,11 +33,11 @@ object TerminalTextSanitizer {
         "send a message",
     )
     private val TUI_GHOST_PROMPT = Regex(
-        "^[❯➜]\\s+(?:Try\\s+\"|Ask\\s+a\\s+follow-up|Type\\s+(?:a|your)\\s+message|Send\\s+a\\s+message).*",
+        "^[❯➜›]\\s+(?:Try\\s+\"|Ask\\s+a\\s+follow-up|Type\\s+(?:a|your)\\s+message|Send\\s+a\\s+message).*",
         RegexOption.IGNORE_CASE,
     )
-    private val TURN_START_PROMPT = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s+\\S.*|[❯➜]\\s+(?!\\d+[.)\\]]\\s)\\S.*|\\$\\s+\\S.*)$")
-    private val BARE_PROMPT_LINE = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s*|[$#>❯➜%]\\s*)$")
+    private val TURN_START_PROMPT = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s+\\S.*|[❯➜›]\\s+(?!\\d+[.)\\]]\\s)\\S.*|\\$\\s+\\S.*)$")
+    private val BARE_PROMPT_LINE = Regex("^(?:[\\w.-]+@[\\w.-]+:.*[$#%]\\s*|[$#>❯➜›%]\\s*)$")
     private val DIFF_GIT_HEADER = Regex("^diff --git a/(.+?) b/(.+)$")
 
     /**
@@ -180,15 +181,15 @@ object TerminalTextSanitizer {
     private fun sliceToLatestTurn(normalized: List<String>): List<String> {
         var lastCommandIdx = -1
         for (idx in normalized.indices.reversed()) {
-            val candidate = normalized[idx]
+            val candidate = normalized[idx].trim()
             if (candidate.isNotEmpty() && TURN_START_PROMPT.matches(candidate)) {
-                val belowNonEmpty = normalized.drop(idx + 1).filter { below ->
+                val belowNonEmpty = normalized.drop(idx + 1).map { it.trim() }.filter { below ->
                     below.isNotEmpty() && !BARE_PROMPT_LINE.matches(below)
                 }
                 if (belowNonEmpty.isNotEmpty()) {
-                    val isStrayTrailingTuiPrompt = (candidate.startsWith("❯") || candidate.startsWith("➜")) &&
+                    val isStrayTrailingTuiPrompt = (candidate.startsWith("❯") || candidate.startsWith("➜") || candidate.startsWith("›")) &&
                         belowNonEmpty.size == 1 &&
-                        normalized.take(idx).count { it.isNotEmpty() && !BARE_PROMPT_LINE.matches(it) } >= 4 &&
+                        normalized.take(idx).count { it.trim().isNotEmpty() && !BARE_PROMPT_LINE.matches(it.trim()) } >= 4 &&
                         belowNonEmpty[0].length < 60 &&
                         !belowNonEmpty[0].endsWith(".") &&
                         !belowNonEmpty[0].endsWith("?") &&
@@ -212,6 +213,12 @@ object TerminalTextSanitizer {
         val normalized = mutableListOf<String>()
         var inCodeFence = false
 
+        fun appendBlankSeparator() {
+            if (normalized.isNotEmpty() && normalized.last().isNotEmpty()) {
+                normalized.add("")
+            }
+        }
+
         for (rawLine in noAnsi.lines()) {
             val trimmedEnd = rawLine.trimEnd()
             val trimmed = trimmedEnd.trim()
@@ -225,31 +232,37 @@ object TerminalTextSanitizer {
             }
 
             if (trimmed.isEmpty()) {
-                if (normalized.isNotEmpty() && normalized.last().isNotEmpty()) {
-                    normalized.add("")
-                }
+                appendBlankSeparator()
                 continue
             }
 
-            val unboxed = BOX_EDGE_STRIP.matchEntire(trimmed)?.groupValues?.get(1)?.trim() ?: trimmed
-            if (unboxed.isEmpty() || BOX_BORDER_ONLY.matches(unboxed)) {
+            if (BOX_BORDER_ONLY.matches(trimmed)) {
+                appendBlankSeparator()
                 continue
             }
-            if (unboxed.startsWith("```")) {
+
+            val boxMatch = BOX_EDGE_PRESERVE_INDENT.matchEntire(trimmed)
+            val contentLine = boxMatch?.groupValues?.get(1)?.trimEnd() ?: trimmedEnd
+            val contentTrim = contentLine.trim()
+            if (contentTrim.isEmpty() || BOX_BORDER_ONLY.matches(contentTrim)) {
+                appendBlankSeparator()
+                continue
+            }
+            if (contentTrim.startsWith("```")) {
                 inCodeFence = true
-                normalized.add(unboxed)
+                normalized.add(contentTrim)
                 continue
             }
-            if (isTransientChrome(unboxed)) {
+            if (isTransientChrome(contentTrim)) {
                 continue
             }
-            normalized.add(unboxed)
+            normalized.add(contentLine)
         }
 
         val sliced = if (latestTurnOnly) sliceToLatestTurn(normalized) else normalized
         return sliced
-            .dropWhile { it.isEmpty() }
-            .dropLastWhile { it.isEmpty() }
+            .dropWhile { it.trim().isEmpty() }
+            .dropLastWhile { it.trim().isEmpty() || BARE_PROMPT_LINE.matches(it.trim()) }
             .joinToString("\n")
     }
 

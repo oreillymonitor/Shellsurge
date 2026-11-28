@@ -191,4 +191,102 @@ class ReadableOutputParserTest {
             spans,
         )
     }
+
+    @Test
+    fun `parseReadableBlocks separates multi-line and boxed user prompts from agent reply`() {
+        val rawBoxed = """
+            ╭────────────────────────────────────────────╮
+            │ ❯ Let's work on the formatted read output  │
+            │   of the terminal too. User input is still │
+            │   being mixed with terminal output if it   │
+            │   is broken by a line.                     │
+            ╰────────────────────────────────────────────╯
+            Sure, let's inspect ReadableOutputParser.kt and clean that up.
+        """.trimIndent()
+
+        val cleaned = TerminalTextSanitizer.cleanForReadable(rawBoxed, latestTurnOnly = true)
+        val blocks = parseReadableBlocks(cleaned)
+        assertEquals(2, blocks.size)
+        assertEquals(
+            ReadableBlock.UserPrompt(
+                prompt = "❯",
+                text = "Let's work on the formatted read output of the terminal too. User input is still being mixed with terminal output if it is broken by a line.",
+            ),
+            blocks[0],
+        )
+        assertEquals(
+            ReadableBlock.Prose("Sure, let's inspect ReadableOutputParser.kt and clean that up."),
+            blocks[1],
+        )
+
+        val unboxedWrapped = """
+            ❯ Let's work on the formatted read output of the
+            terminal too. User input is still being mixed with
+            terminal input if it is broken by a line.
+            I'll start by reading the parser.
+        """.trimIndent()
+        val unboxedBlocks = parseReadableBlocks(unboxedWrapped)
+        assertEquals(2, unboxedBlocks.size)
+        assertTrue(unboxedBlocks[0] is ReadableBlock.UserPrompt)
+        assertEquals(
+            ReadableBlock.Prose("I'll start by reading the parser."),
+            unboxedBlocks[1],
+        )
+
+        val shortPrompt = "❯ hi\nHello! How can I help?"
+        val shortBlocks = parseReadableBlocks(shortPrompt)
+        assertEquals(2, shortBlocks.size)
+        assertEquals(ReadableBlock.UserPrompt("❯", "hi"), shortBlocks[0])
+        assertEquals(ReadableBlock.Prose("Hello! How can I help?"), shortBlocks[1])
+    }
+
+    @Test
+    fun `parseReadableBlocks handles shell backslash continuations, activity groups, nested bullets, and strikethrough`() {
+        val raw = """
+            user@box:~/repo$ ./gradlew test \
+              :app:lintFossDebug
+            ● Ran 2 commands (grep -rn)
+            ● Explored 4 files (ReadableOutputSheet.kt)
+              (ctrl+o to expand)
+            - Top item
+              - Nested item with ~~old~~ **new**
+            ❯ 
+        """.trimIndent()
+
+        val cleaned = TerminalTextSanitizer.cleanForReadable(raw, latestTurnOnly = true)
+        val blocks = parseReadableBlocks(cleaned)
+        assertEquals(
+            ReadableBlock.Command("user@box:~/repo$", "./gradlew test :app:lintFossDebug"),
+            blocks[0],
+        )
+        assertEquals(
+            ReadableBlock.ActivityGroup(
+                listOf(
+                    "● Ran 2 commands (grep -rn)",
+                    "● Explored 4 files (ReadableOutputSheet.kt) (ctrl+o to expand)",
+                ),
+            ),
+            blocks[1],
+        )
+        assertEquals(
+            ReadableBlock.BulletList(
+                listOf(
+                    ReadableListItem("•", "Top item", indentLevel = 0),
+                    ReadableListItem("•", "Nested item with ~~old~~ **new**", indentLevel = 1),
+                ),
+            ),
+            blocks[2],
+        )
+
+        val strikeSpans = parseInlineSpans("with ~~old~~ **new**")
+        assertEquals(
+            listOf(
+                ReadableInlineSpan.Plain("with "),
+                ReadableInlineSpan.Strikethrough("old"),
+                ReadableInlineSpan.Plain(" "),
+                ReadableInlineSpan.Bold("new"),
+            ),
+            strikeSpans,
+        )
+    }
 }

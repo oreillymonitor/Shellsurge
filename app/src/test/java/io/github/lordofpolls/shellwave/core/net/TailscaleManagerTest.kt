@@ -14,14 +14,22 @@ import org.junit.Test
 import java.io.File
 
 private class FakeTailscaleNodeClient(
-    private val statusJsonValue: String,
-    private val peersJsonValue: String = "[]",
+    private var statusJsonValue: String,
+    private var peersJsonValue: String = "[]",
     private val portValue: Int = 10805,
+    private val pingJsonValue: String = """{"ip":"100.64.0.9","nodeName":"workstation","latencyMs":12.3,"direct":true,"endpoint":"1.2.3.4:41641"}""",
 ) : TailscaleNodeClient {
     var startedDir: String? = null
     var networkChangedCount = 0
     var updateNetworkCount = 0
     var lastDefaultIface: String? = null
+    private val activeForwards = mutableListOf<TailscaleWebForward>()
+    private var nextForwardPort = 45000
+
+    fun updateSnapshot(statusJson: String, peersJson: String) {
+        statusJsonValue = statusJson
+        peersJsonValue = peersJson
+    }
 
     override fun start(stateDir: String, hostname: String, authKey: String, controlUrl: String) {
         startedDir = stateDir
@@ -43,6 +51,29 @@ private class FakeTailscaleNodeClient(
     override fun proxyPassword(): String = "pass"
     override fun statusJson(): String = statusJsonValue
     override fun peersJson(): String = peersJsonValue
+    override fun pingPeerJson(target: String): String = pingJsonValue
+
+    override fun startTcpForward(targetHost: String, targetPort: Int): Int {
+        activeForwards.firstOrNull {
+            it.targetHost.equals(targetHost, ignoreCase = true) && it.targetPort == targetPort
+        }?.let { return it.localPort }
+        val port = nextForwardPort++
+        activeForwards += TailscaleWebForward(port, targetHost, targetPort)
+        return port
+    }
+
+    override fun stopTcpForward(localPort: Int) {
+        activeForwards.removeAll { it.localPort == localPort }
+    }
+
+    override fun stopAllTcpForwards() {
+        activeForwards.clear()
+    }
+
+    override fun activeTcpForwardsJson(): String =
+        activeForwards.joinToString(prefix = "[", postfix = "]") {
+            """{"localPort":${it.localPort},"targetHost":"${it.targetHost}","targetPort":${it.targetPort}}"""
+        }
 }
 
 private class TestTailscaleContext(private val dir: File) : ContextWrapper(null) {
@@ -163,5 +194,72 @@ class TailscaleManagerTest {
         assertTrue(needsLogin.isFailure)
         assertTrue(needsLogin.exceptionOrNull()?.message?.contains("sign-in", ignoreCase = true) == true)
         loginMgr.stop()
+    }
+
+    @Test
+    fun `subnet routing, ping, web forwards, and reboot watcher work end-to-end`() = runBlocking {
+        val dir = kotlin.io.path.createTempDirectory("ts-features-test").toFile().apply { deleteOnExit() }
+        val mgr = TailscaleManager(TestTailscaleContext(dir))
+        val fakeNode = FakeTailscaleNodeClient(
+            statusJsonValue = """{"state":"Running","selfIp":"100.64.0.5","proxyPort":44444,"peersVersion":1}""",
+            peersJsonValue = """
+                [
+                  {
+                    "id": "router1",
+                    "hostName": "home-pi",
+                    "dnsName": "home-pi.tail1234.ts.net.",
+                    "ips": ["100.64.0.10"],
+                    "os": "linux",
+                    "online": true,
+                    "sshHostKeys": true,
+                    "primaryRoutes": ["192.168.1.0/24"],
+                    "curAddr": "1.2.3.4:41641",
+                    "relay": "nyc"
+                  }
+                ]
+            """.trimIndent(),
+            portValue = 44444,
+        )
+        mgr.nodeFactory = { fakeNode }
+
+        assertTrue(mgr.ensureRunning(timeoutMs = 1_000L).isSuccess)
+        mgr.refreshPeers()
+
+        assertTrue(mgr.matchesSubnetRoute("192.168.1.50"))
+        assertFalse(mgr.matchesSubnetRoute("10.0.0.5"))
+        assertTrue(mgr.isTailscaleRoutableHost("192.168.1.50"))
+        assertEquals(1, mgr.advertisedSubnets().size)
+
+        val ping = mgr.pingPeer("home-pi")
+        assertTrue(ping.isSuccess)
+        assertTrue(ping.direct)
+        assertEquals("Direct · 12 ms", ping.summaryLabel)
+
+        val localPort = mgr.startWebForward("home-pi.tail1234.ts.net", 3000, autoStopAfterMs = 0L).getOrThrow()
+        assertEquals(1, mgr.webForwards.value.size)
+        assertEquals(localPort, mgr.webForwards.value[0].localPort)
+        mgr.stopWebForward(localPort)
+        assertTrue(mgr.webForwards.value.isEmpty())
+
+        // Watch an online peer (reboot mode): must wait for offline=false then online=true.
+        val routerPeer = mgr.peers.value.first()
+        mgr.watchPeerUntilOnline(routerPeer, reconnectSessionId = 77L)
+        assertTrue(mgr.watchedPeers.value[routerPeer.watchKey]?.waitForOfflineFirst == true)
+
+        fakeNode.updateSnapshot(
+            statusJson = """{"state":"Running","selfIp":"100.64.0.5","proxyPort":44444,"peersVersion":2}""",
+            peersJson = """[{"id":"router1","hostName":"home-pi","dnsName":"home-pi.tail1234.ts.net.","ips":["100.64.0.10"],"os":"linux","online":false,"sshHostKeys":true}]""",
+        )
+        mgr.refreshPeers()
+        assertTrue(mgr.watchedPeers.value[routerPeer.watchKey]?.waitForOfflineFirst == false)
+
+        fakeNode.updateSnapshot(
+            statusJson = """{"state":"Running","selfIp":"100.64.0.5","proxyPort":44444,"peersVersion":3}""",
+            peersJson = """[{"id":"router1","hostName":"home-pi","dnsName":"home-pi.tail1234.ts.net.","ips":["100.64.0.10"],"os":"linux","online":true,"sshHostKeys":true}]""",
+        )
+        mgr.refreshPeers()
+        assertFalse(mgr.watchedPeers.value.containsKey(routerPeer.watchKey))
+
+        mgr.stop()
     }
 }

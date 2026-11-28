@@ -24,6 +24,7 @@ import javax.inject.Singleton
 
 private const val CHANNEL_ID = "session_alerts"
 private const val COMMAND_OUTPUT_CHANNEL_ID = "command_output"
+private const val COMPLETED_TURN_CHANNEL_ID = "completed_turns"
 private const val BELL_CHANNEL_ID = "bell"
 
 // Clear of the ids SessionService (1), the terminal bell (2) and ScriptTriggerService (100+) post.
@@ -34,6 +35,7 @@ private const val RECOVERY_TIMEOUT_MS = 15_000L
 private const val NOTICE_ID_BASE = 1_000_000
 private const val OUTPUT_ID_BASE = 2_000_000
 private const val BELL_ID_BASE = 3_000_000
+private const val PEER_ONLINE_ID_BASE = 4_000_000
 
 /**
  * Announces an unclean drop, and the reconnect that answers it, as well as interactive command /
@@ -100,20 +102,30 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
         isResponseNeeded: Boolean = false,
         quickActions: List<NotificationQuickAction> = emptyList(),
         turnEpoch: Long = 0L,
+        subText: String? = null,
+        isError: Boolean = false,
     ) {
         scope.launch {
             val appForeground = isAppForeground()
             if (appForeground && isActiveTab && !notifyOnActiveTab) return@launch
             val manager =
                 context.getSystemService(NotificationManager::class.java) ?: return@launch
-            ensureCommandOutputChannel(manager)
+            val urgent = isResponseNeeded || isError
+            val channelId = if (urgent) {
+                ensureCommandOutputChannel(manager)
+                COMMAND_OUTPUT_CHANNEL_ID
+            } else {
+                ensureCompletedTurnChannel(manager)
+                COMPLETED_TURN_CHANNEL_ID
+            }
             val id = outputNotificationId(sessionId)
             val builder =
-                NotificationCompat.Builder(context, COMMAND_OUTPUT_CHANNEL_ID)
+                NotificationCompat.Builder(context, channelId)
                     .setSmallIcon(R.drawable.ic_stat_shellwave)
                     .setContentTitle(title)
                     .setContentText(body)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                    .apply { subText?.takeIf { it.isNotBlank() }?.let { setSubText(it) } }
                     .setContentIntent(openSessions(id, sessionId))
                     .setDeleteIntent(dismissPendingIntent(id * 5 + 4, sessionId, turnEpoch))
                     .setAutoCancel(true)
@@ -121,7 +133,9 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                     .setShowWhen(true)
                     .setOnlyAlertOnce(false)
                     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setPriority(
+                        if (urgent) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT,
+                    )
 
             val actionsToAttach = when {
                 quickActions.isNotEmpty() -> quickActions.take(2)
@@ -186,6 +200,34 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
                 cancel(outputNotificationId(sessionId))
                 cancel(bellNotificationId(sessionId))
             }
+        }
+    }
+
+    open fun tailscalePeerOnline(label: String, sessionId: Long?) {
+        scope.launch {
+            val manager =
+                context.getSystemService(NotificationManager::class.java) ?: return@launch
+            val title = "$label is back online"
+            val body = if (sessionId != null) {
+                "Tailscale peer came online — reconnecting session."
+            } else {
+                "Tailscale peer is reachable on your tailnet."
+            }
+            if (isAppForeground()) {
+                Toast.makeText(context, title, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            ensureChannel(manager)
+            val id = PEER_ONLINE_ID_BASE + (label.hashCode() and 0xFFFF)
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_shellwave)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setContentIntent(openSessions(id, sessionId))
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+            manager.notify(id, notification)
         }
     }
 
@@ -310,11 +352,23 @@ open class SessionAlerts @Inject constructor(@ApplicationContext private val con
         if (manager.getNotificationChannel(COMMAND_OUTPUT_CHANNEL_ID) != null) return
         val channel = NotificationChannel(
             COMMAND_OUTPUT_CHANNEL_ID,
-            "Command & output alerts",
+            "Approvals & errors",
             NotificationManager.IMPORTANCE_HIGH,
         )
         channel.description =
-            "Alerts when a terminal command finishes or new terminal output is ready to check."
+            "High-priority alerts when a session needs approval, asks a question, or fails."
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun ensureCompletedTurnChannel(manager: NotificationManager) {
+        if (manager.getNotificationChannel(COMPLETED_TURN_CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            COMPLETED_TURN_CHANNEL_ID,
+            "Completed turns",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+        channel.description =
+            "Quieter summaries when a command or agent turn finishes cleanly."
         manager.createNotificationChannel(channel)
     }
 

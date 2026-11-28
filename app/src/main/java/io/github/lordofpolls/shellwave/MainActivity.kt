@@ -131,11 +131,18 @@ import io.github.lordofpolls.shellwave.feature.scripts.ScriptTemplates
 import io.github.lordofpolls.shellwave.feature.scripts.ScriptsScreen
 import io.github.lordofpolls.shellwave.feature.scripts.rememberScriptRunController
 import io.github.lordofpolls.shellwave.feature.scripts.unlockFailureMessage
+import io.github.lordofpolls.shellwave.feature.session.IncomingSharePayload
+import io.github.lordofpolls.shellwave.feature.session.IncomingShareSheet
+import io.github.lordofpolls.shellwave.feature.session.PendingComposerDraft
 import io.github.lordofpolls.shellwave.feature.session.RemoteTextEditorScreen
 import io.github.lordofpolls.shellwave.feature.session.SessionsListScreen
 import io.github.lordofpolls.shellwave.feature.session.SessionsScreen
 import io.github.lordofpolls.shellwave.feature.session.SftpBrowserScreen
+import io.github.lordofpolls.shellwave.feature.session.ShareFramingPreset
+import io.github.lordofpolls.shellwave.feature.session.SharedAttachment
+import io.github.lordofpolls.shellwave.feature.session.buildSharedPrompt
 import io.github.lordofpolls.shellwave.feature.session.cdCommand
+import io.github.lordofpolls.shellwave.feature.session.extractIncomingShare
 import io.github.lordofpolls.shellwave.feature.settings.ConfigExporter
 import io.github.lordofpolls.shellwave.feature.settings.ConfigImporter
 import io.github.lordofpolls.shellwave.feature.settings.KeyBarLayoutsScreen
@@ -161,8 +168,10 @@ import io.github.lordofpolls.shellwave.terminal.DEFAULT_COLOR_SCHEME
 import io.github.lordofpolls.shellwave.ui.design.LocalReadableInset
 import io.github.lordofpolls.shellwave.ui.design.ShellwaveTheme
 import io.github.lordofpolls.shellwave.ui.design.readableInset
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -225,7 +234,21 @@ private data class SavedHostOffer(
     val matches: List<HostEntity>,
 )
 
-private data class PendingAgentConsent(val host: HostEntity, val keys: List<CredentialEntity>)
+private data class PendingAgentConsent(
+    val host: HostEntity,
+    val keys: List<CredentialEntity>,
+    val onSessionOpened: ((Long) -> Unit)? = null,
+)
+
+private data class PendingSessionShareDelivery(
+    val sessionId: Long,
+    val subject: String?,
+    val text: String?,
+    val attachments: List<SharedAttachment>,
+    val preset: ShareFramingPreset,
+    val note: String,
+    val sendNow: Boolean,
+)
 
 /**
  * A quick-connect password the user asked to keep, held until its session authenticates or fails.
@@ -339,6 +362,15 @@ class MainActivity : FragmentActivity() {
     // and QS-tile paths these run through ScriptRunController with real dialogs.
     private val runScriptRequested = mutableStateOf(-1L)
     private val openHostRequested = mutableStateOf(-1L)
+    private val incomingShareRequested = mutableStateOf<IncomingSharePayload?>(null)
+
+    private fun clearIncomingShare() {
+        incomingShareRequested.value = null
+        val action = intent?.action
+        if (action == Intent.ACTION_SEND || action == Intent.ACTION_SEND_MULTIPLE) {
+            setIntent(Intent(this, MainActivity::class.java))
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -539,6 +571,8 @@ class MainActivity : FragmentActivity() {
                 var browsingSessionId by rememberSaveable { mutableStateOf<Long?>(null) }
                 var editingRemotePath by rememberSaveable { mutableStateOf<String?>(null) }
                 var browsingPath by rememberSaveable { mutableStateOf(".") }
+                var pendingComposerDraft by remember { mutableStateOf<PendingComposerDraft?>(null) }
+                var pendingShareDelivery by remember { mutableStateOf<PendingSessionShareDelivery?>(null) }
                 val scope = rememberCoroutineScope()
 
                 val summaries by sessionManager.summaries.collectAsState()
@@ -614,6 +648,7 @@ class MainActivity : FragmentActivity() {
                     host: HostEntity,
                     approvedKeys: List<CredentialEntity> = emptyList(),
                     notice: String? = null,
+                    onSessionOpened: ((Long) -> Unit)? = null,
                 ) {
                     scope.launch {
                         try {
@@ -635,6 +670,7 @@ class MainActivity : FragmentActivity() {
                                 emptyList()
                             }
                             val id = openSession(spec, agentKeys)
+                            onSessionOpened?.invoke(id)
                             notice?.let { sessionAlerts.notice(id, spec.hostname, it) }
                         } catch (e: Exception) {
                             // A cancelled biometric prompt is the user changing their mind; only a
@@ -649,7 +685,10 @@ class MainActivity : FragmentActivity() {
 
                 // A selected key that no longer exists is not offered, so a deleted key can never be
                 // forwarded.
-                fun connectSaved(host: HostEntity) {
+                fun connectSaved(
+                    host: HostEntity,
+                    onSessionOpened: ((Long) -> Unit)? = null,
+                ) {
                     scope.launch {
                         val offered = offeredAgentKeys(host, decodeAgentKeyIds(host.agentKeyIdsJson), credentialDao::getById)
                         if (offered.isEmpty()) {
@@ -660,11 +699,42 @@ class MainActivity : FragmentActivity() {
                                 host,
                                 notice = "No keys to forward for $name. Pick one in host settings."
                                     .takeIf { host.agentForwarding },
+                                onSessionOpened = onSessionOpened,
                             )
                         } else {
                             agentConsentRequest = AgentConsentRequest(host.id, offered.map { it.id })
-                            pendingAgentConsent = PendingAgentConsent(host, offered)
+                            pendingAgentConsent = PendingAgentConsent(host, offered, onSessionOpened)
                         }
+                    }
+                }
+
+                fun deliverPromptToSession(sessionId: Long, prompt: String, sendNow: Boolean) {
+                    targetSessionId = sessionId
+                    openTerminal()
+                    if (sendNow) {
+                        val conn = sessionManager.summaries.value.firstOrNull { it.id == sessionId }?.connection
+                        if (conn != null) {
+                            scope.launch {
+                                withContext(Dispatchers.Main) {
+                                    val emulator = conn.emulatorOrNull
+                                    if (emulator != null) {
+                                        emulator.paste(prompt)
+                                    } else {
+                                        conn.write(prompt.replace("\n", "\r"))
+                                    }
+                                    conn.write("\r")
+                                }
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Sent to session",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        } else {
+                            pendingComposerDraft = PendingComposerDraft(sessionId = sessionId, text = prompt)
+                        }
+                    } else {
+                        pendingComposerDraft = PendingComposerDraft(sessionId = sessionId, text = prompt)
                     }
                 }
 
@@ -797,6 +867,70 @@ class MainActivity : FragmentActivity() {
                         )
                     }
                     pendingCredentialSave = null
+                }
+
+                val shareDelivery = pendingShareDelivery
+                LaunchedEffect(shareDelivery) {
+                    if (shareDelivery == null) return@LaunchedEffect
+                    var seen = false
+                    val settled =
+                        sessionManager.summaries.first { list ->
+                            val summary = list.firstOrNull { it.id == shareDelivery.sessionId }
+                            if (summary != null) seen = true
+                            when (summary?.status) {
+                                SessionStatus.CONNECTED, SessionStatus.FAILED, SessionStatus.DISCONNECTED -> true
+                                SessionStatus.CONNECTING, SessionStatus.RECONNECTING -> false
+                                null -> seen
+                            }
+                        }
+                    val connectedSummary = settled.firstOrNull {
+                        it.id == shareDelivery.sessionId && it.status == SessionStatus.CONNECTED
+                    }
+                    if (connectedSummary == null) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Could not deliver share: session did not connect",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    } else {
+                        val uploadedPaths = mutableListOf<String>()
+                        var uploadError: String? = null
+                        val baseTimestamp = System.currentTimeMillis()
+                        for ((index, attachment) in shareDelivery.attachments.withIndex()) {
+                            val result = connectedSummary.connection.uploadFileAttachment(
+                                uri = attachment.uri,
+                                fallbackMimeType = attachment.mimeType,
+                                timestampMs = baseTimestamp + index,
+                            )
+                            val remotePath = result.getOrElse { err ->
+                                uploadError =
+                                    "Upload failed for ${attachment.displayName}: ${err.message ?: "SFTP error"}"
+                                null
+                            }
+                            if (remotePath == null) break
+                            uploadedPaths.add(remotePath)
+                        }
+                        val prompt = buildSharedPrompt(
+                            subject = shareDelivery.subject,
+                            text = shareDelivery.text,
+                            uploadedPaths = uploadedPaths,
+                            preset = shareDelivery.preset,
+                            note = shareDelivery.note,
+                        )
+                        if (uploadError != null) {
+                            Toast.makeText(this@MainActivity, uploadError, Toast.LENGTH_LONG).show()
+                            if (prompt.isNotBlank()) {
+                                deliverPromptToSession(shareDelivery.sessionId, prompt, sendNow = false)
+                            }
+                        } else if (prompt.isNotBlank()) {
+                            deliverPromptToSession(
+                                shareDelivery.sessionId,
+                                prompt,
+                                sendNow = shareDelivery.sendNow,
+                            )
+                        }
+                    }
+                    pendingShareDelivery = null
                 }
 
                 LaunchedEffect(scriptsForShortcuts, hostsForShortcuts) {
@@ -1062,6 +1196,13 @@ class MainActivity : FragmentActivity() {
                                                 editingRemotePath = remotePath
                                                 push("remoteEdit")
                                             },
+                                            pendingComposerDraft = pendingComposerDraft,
+                                            onConsumePendingComposerDraft = { nonce ->
+                                                if (pendingComposerDraft?.nonce == nonce) {
+                                                    pendingComposerDraft = null
+                                                }
+                                            },
+                                            tailscaleManager = tailscaleManager,
                                         )
                                     }
 
@@ -1349,12 +1490,14 @@ class MainActivity : FragmentActivity() {
                                 hostName = consent.host.label?.takeIf { it.isNotBlank() } ?: consent.host.hostname,
                                 keys = consent.keys,
                                 onForward = { approved ->
+                                    val onOpened = consent.onSessionOpened
                                     clearAgentConsent()
-                                    connectSavedResolved(consent.host, approved)
+                                    connectSavedResolved(consent.host, approved, onSessionOpened = onOpened)
                                 },
                                 onWithoutForwarding = {
+                                    val onOpened = consent.onSessionOpened
                                     clearAgentConsent()
-                                    connectSavedResolved(consent.host)
+                                    connectSavedResolved(consent.host, onSessionOpened = onOpened)
                                 },
                             )
                         }
@@ -1465,6 +1608,59 @@ class MainActivity : FragmentActivity() {
                                 onDismiss = { showTailnetPeers = false },
                             )
                         }
+
+                        val pendingIncomingShare by incomingShareRequested
+                        pendingIncomingShare?.let { sharePayload ->
+                            IncomingShareSheet(
+                                payload = sharePayload,
+                                summaries = summaries,
+                                hosts = hostsForScriptPicker,
+                                preferredSessionId = targetSessionId,
+                                onDeliverReadyPrompt = { sessionId, prompt, sendNow ->
+                                    clearIncomingShare()
+                                    deliverPromptToSession(sessionId, prompt, sendNow)
+                                },
+                                onQueueForSession = { sessionId, remainingAttachments, preset, note, sendNow ->
+                                    clearIncomingShare()
+                                    val currentStatus = summaries.firstOrNull { it.id == sessionId }?.status
+                                    if (currentStatus == SessionStatus.FAILED || currentStatus == SessionStatus.DISCONNECTED) {
+                                        sessionManager.reconnectNow(sessionId)
+                                    }
+                                    pendingShareDelivery = PendingSessionShareDelivery(
+                                        sessionId = sessionId,
+                                        subject = sharePayload.subject,
+                                        text = sharePayload.text,
+                                        attachments = remainingAttachments,
+                                        preset = preset,
+                                        note = note,
+                                        sendNow = sendNow,
+                                    )
+                                    targetSessionId = sessionId
+                                    openTerminal()
+                                },
+                                onConnectHostAndDeliver = { host, remainingAttachments, preset, note, sendNow ->
+                                    clearIncomingShare()
+                                    connectSaved(host) { newSessionId ->
+                                        pendingShareDelivery = PendingSessionShareDelivery(
+                                            sessionId = newSessionId,
+                                            subject = sharePayload.subject,
+                                            text = sharePayload.text,
+                                            attachments = remainingAttachments,
+                                            preset = preset,
+                                            note = note,
+                                            sendNow = sendNow,
+                                        )
+                                    }
+                                },
+                                onAddHost = {
+                                    clearIncomingShare()
+                                    selectDestination(AppDestination.HOSTS)
+                                    editingHostId = -1L
+                                    push("addEdit")
+                                },
+                                onDismiss = { clearIncomingShare() },
+                            )
+                        }
                     }
                 }
 
@@ -1530,6 +1726,7 @@ class MainActivity : FragmentActivity() {
             ?.let { runScriptRequested.value = it }
         intent?.getLongExtra(EXTRA_OPEN_HOST_ID, -1L)?.takeIf { it >= 0 }
             ?.let { openHostRequested.value = it }
+        extractIncomingShare(this, intent)?.let { incomingShareRequested.value = it }
     }
 }
 

@@ -10,10 +10,17 @@ enum class OutputIdleDelay(val seconds: Int, val label: String) {
     EXPLICIT_ONLY(0, "OSC only"),
 }
 
+enum class NotificationFilter(val label: String) {
+    ALL("All"),
+    IMPORTANT_ONLY("Important"),
+    APPROVALS_ONLY("Approvals"),
+}
+
 private const val KEY_COMMAND_NOTIFY_ENABLED = "notify_command_output"
 private const val KEY_OUTPUT_IDLE_DELAY = "notify_output_idle_delay"
 private const val KEY_NOTIFY_ACTIVE_TAB = "notify_output_active_tab"
 private const val KEY_AUTO_DIGEST_ON_RETURN = "notify_auto_digest_on_return"
+private const val KEY_NOTIFICATION_FILTER = "notify_output_filter"
 
 /**
  * Synchronous SharedPreferences backing for interactive command/output notifications so background
@@ -49,5 +56,25 @@ object NotificationPreferences {
 
     fun setAutoDigestOnReturn(context: Context, enabled: Boolean) {
         sharedPrefs(context).edit { putBoolean(KEY_AUTO_DIGEST_ON_RETURN, enabled) }
+    }
+
+    fun getNotificationFilter(context: Context): NotificationFilter {
+        val stored = sharedPrefs(context).getString(KEY_NOTIFICATION_FILTER, null)
+        return stored?.let { runCatching { NotificationFilter.valueOf(it) }.getOrNull() }
+            ?: NotificationFilter.ALL
+    }
+
+    fun setNotificationFilter(context: Context, filter: NotificationFilter) {
+        sharedPrefs(context).edit { putString(KEY_NOTIFICATION_FILTER, filter.name) }
+    }
+
+    fun shouldNotifyForOutcome(
+        filter: NotificationFilter,
+        isResponseNeeded: Boolean,
+        isError: Boolean,
+    ): Boolean = when (filter) {
+        NotificationFilter.ALL -> true
+        NotificationFilter.IMPORTANT_ONLY -> isResponseNeeded || isError
+        NotificationFilter.APPROVALS_ONLY -> isResponseNeeded
     }
 }

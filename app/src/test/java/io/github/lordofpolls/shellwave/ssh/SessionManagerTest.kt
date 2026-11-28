@@ -73,6 +73,8 @@ private class NoopSessionAlerts(
         isResponseNeeded: Boolean,
         quickActions: List<NotificationQuickAction>,
         turnEpoch: Long,
+        subText: String?,
+        isError: Boolean,
     ) = Unit
 
     override fun bell(sessionId: Long, label: String, preview: String?) = Unit

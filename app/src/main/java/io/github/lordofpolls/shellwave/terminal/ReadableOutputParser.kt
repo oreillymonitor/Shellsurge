@@ -2,7 +2,9 @@ package io.github.lordofpolls.shellwave.terminal
 
 sealed interface ReadableBlock {
     data class Heading(val level: Int, val text: String) : ReadableBlock
+    data class UserPrompt(val prompt: String, val text: String) : ReadableBlock
     data class Command(val prompt: String, val command: String) : ReadableBlock
+    data class ActivityGroup(val items: List<String>) : ReadableBlock
     data class Prose(val text: String) : ReadableBlock
     data class BulletList(val items: List<ReadableListItem>) : ReadableBlock
     data class Quote(val text: String) : ReadableBlock
@@ -15,22 +17,36 @@ sealed interface ReadableBlock {
 data class ReadableListItem(
     val marker: String,
     val text: String,
+    val indentLevel: Int = 0,
 )
 
 sealed interface ReadableInlineSpan {
     data class Plain(val text: String) : ReadableInlineSpan
     data class Bold(val text: String) : ReadableInlineSpan
     data class Italic(val text: String) : ReadableInlineSpan
+    data class Strikethrough(val text: String) : ReadableInlineSpan
     data class InlineCode(val code: String) : ReadableInlineSpan
     data class Link(val label: String, val url: String) : ReadableInlineSpan
 }
 
 private val HEADING_REGEX = Regex("""^(#{1,6})\s+(.+?)\s*#*\s*$""")
 private val DIVIDER_REGEX = Regex("""^(?:[-*_]\s*){3,}$""")
-private val BULLET_ITEM_REGEX = Regex("""^\s*(?:([-*•●])|(\d+[.)]))\s+(.+)$""")
+private val BULLET_ITEM_REGEX = Regex("""^(\s*)(?:([-*•●])|(\d+[.)]))\s+(.+)$""")
 private val QUOTE_REGEX = Regex("""^\s*>\s?(.*)$""")
 private val USER_HOST_PROMPT_REGEX = Regex("""^([A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^$#%]*[$#%])\s+(\S.*)$""")
-private val SIMPLE_PROMPT_REGEX = Regex("""^([$%❯➜])\s+(\S.*)$""")
+private val SHELL_PROMPT_REGEX = Regex("""^([$%])\s+(\S.*)$""")
+private val AGENT_PROMPT_REGEX = Regex("""^([❯➜›])\s+(\S.*)$""")
+private val AGENT_ACTIVITY_BULLET_REGEX = Regex(
+    """^[●•*◦▸▹]\s+(?:Ran|Running|Explored|Exploring|Read|Reading|Edited|Editing|Wrote|Writing|Created|Searched|Searching|Listed|Listing|Viewed|Viewing|Checked|Checking|Called|Calling|Updated|Deleted)\b.*""",
+    RegexOption.IGNORE_CASE,
+)
+private val AGENT_ACTIVITY_CALL_REGEX = Regex(
+    """^(?:Read|Glob|Grep|Search|Edit|Write|Bash|Task|WebFetch|WebSearch)\([^)]*\)\s*$""",
+)
+private val AGENT_REPLY_OPENER_REGEX = Regex(
+    """^(?:Sure[,!.]|Okay[,!.]|Yes[,!.]|No[,!.]|Here(?:'s|\s+is|\s+are)|Let\s+me|Let's|I(?:'ll|'m|'ve|'d|\s+will|\s+can)\s|Checking\b|Looking\b|Reading\b|Done[.!]?$|All\s+set\b).*""",
+    RegexOption.IGNORE_CASE,
+)
 private val TABLE_ROW_REGEX = Regex("""^\|.*\|.*$""")
 private val TABLE_SEPARATOR_CELL_REGEX = Regex("""^:?-{2,}:?$""")
 private val STATUS_LINE_PREFIX_REGEX = Regex(
@@ -40,9 +56,10 @@ private val STATUS_LINE_PREFIX_REGEX = Regex(
 private val KEY_VALUE_LINE_REGEX = Regex("""^[A-Za-z0-9 _/-]{1,24}:\s+\S.*$""")
 
 /**
- * Splits cleaned terminal output into structured blocks (headings, commands, bullet/numbered lists,
- * blockquotes, tables, unified diffs, dividers, prose paragraphs, and fenced code blocks) so the
- * reader sheet can present terminal/agent output cleanly.
+ * Splits cleaned terminal output into structured blocks (headings, user prompts, shell commands,
+ * collapsed tool activity, bullet/numbered lists, blockquotes, tables, unified diffs, dividers,
+ * prose paragraphs, and fenced code blocks) so the reader sheet can present terminal/agent output
+ * cleanly.
  */
 fun parseReadableBlocks(text: String): List<ReadableBlock> {
     if (text.isBlank()) return emptyList()
@@ -137,26 +154,123 @@ fun parseReadableBlocks(text: String): List<ReadableBlock> {
             continue
         }
 
-        // 6. Shell / agent command prompt.
-        matchCommandPrompt(trimmed)?.let { cmdBlock ->
-            blocks += cmdBlock
+        // 6. Agent user prompt (supports wrapped & multi-line input without mixing into reply).
+        AGENT_PROMPT_REGEX.matchEntire(trimmed)?.let { promptMatch ->
+            val marker = promptMatch.groupValues[1]
+            val promptParagraphs = mutableListOf(promptMatch.groupValues[2].trim())
             i++
+            while (i < lines.size) {
+                val nextRaw = lines[i]
+                val nextTrim = nextRaw.trim()
+                if (nextTrim.isEmpty()) break
+                if (startsSpecialBlock(nextTrim, lines.getOrNull(i + 1)?.trim()) ||
+                    isActivityLine(nextTrim) ||
+                    BULLET_ITEM_REGEX.matches(nextRaw) ||
+                    QUOTE_REGEX.matches(nextRaw) ||
+                    isLineBreakSensitive(nextTrim)
+                ) {
+                    break
+                }
+                val prev = promptParagraphs.last()
+                val hasHangingIndent = nextRaw.startsWith("  ") || nextRaw.startsWith("\t")
+                val backslashContinuation = prev.endsWith("\\")
+                val startsLowerOrPunct = nextTrim.firstOrNull()?.let { ch ->
+                    ch.isLowerCase() || ch in setOf('(', ',', '.', ')', ']', '/', '—', '–', ';', ':')
+                } == true
+                val softWrappedLongLine = !endsSentence(prev) &&
+                    prev.length >= 36 &&
+                    !AGENT_REPLY_OPENER_REGEX.matches(nextTrim)
+
+                if (!hasHangingIndent && !backslashContinuation && !startsLowerOrPunct && !softWrappedLongLine) {
+                    break
+                }
+
+                if (backslashContinuation) {
+                    promptParagraphs[promptParagraphs.lastIndex] = "${prev.dropLast(1).trimEnd()} $nextTrim".trim()
+                } else if (hasHangingIndent && endsSentence(prev)) {
+                    promptParagraphs += nextTrim
+                } else {
+                    promptParagraphs[promptParagraphs.lastIndex] = "$prev $nextTrim"
+                }
+                i++
+            }
+            blocks += ReadableBlock.UserPrompt(
+                prompt = marker,
+                text = promptParagraphs.joinToString("\n").trim(),
+            )
             continue
         }
 
-        // 7. Bullet / numbered list.
+        // 7. Shell command prompt (supports trailing backslash continuations).
+        matchShellPrompt(trimmed)?.let { (prompt, firstCmd) ->
+            val cmdParts = mutableListOf(firstCmd)
+            i++
+            while (i < lines.size && cmdParts.last().endsWith("\\")) {
+                val nextRaw = lines[i]
+                val nextTrim = nextRaw.trim()
+                if (nextTrim.isEmpty()) break
+                if (startsSpecialBlock(nextTrim, lines.getOrNull(i + 1)?.trim())) break
+                val strippedPs2 = if (nextTrim.startsWith("> ")) nextTrim.drop(2).trimStart() else nextTrim
+                cmdParts[cmdParts.lastIndex] = cmdParts.last().dropLast(1).trimEnd()
+                cmdParts += strippedPs2
+                i++
+            }
+            blocks += ReadableBlock.Command(
+                prompt = prompt,
+                command = cmdParts.filter { it.isNotEmpty() }.joinToString(" "),
+            )
+            continue
+        }
+
+        // 8. Collapsed agent tool-activity steps (must precede bullet list so `● Ran ...` groups cleanly).
+        if (isActivityLine(trimmed)) {
+            val activityItems = mutableListOf<String>()
+            while (i < lines.size) {
+                val actRaw = lines[i]
+                val actTrim = actRaw.trim()
+                if (actTrim.isEmpty()) break
+                if (actTrim.equals("(ctrl+o to expand)", ignoreCase = true) && activityItems.isNotEmpty()) {
+                    activityItems[activityItems.lastIndex] = "${activityItems.last()} $actTrim"
+                    i++
+                } else if (isActivityLine(actTrim)) {
+                    activityItems += actTrim
+                    i++
+                } else if (
+                    activityItems.isNotEmpty() &&
+                    (actRaw.startsWith("  ") || actRaw.startsWith("\t")) &&
+                    !startsSpecialBlock(actTrim, lines.getOrNull(i + 1)?.trim()) &&
+                    !BULLET_ITEM_REGEX.matches(actRaw)
+                ) {
+                    activityItems[activityItems.lastIndex] = "${activityItems.last()} $actTrim"
+                    i++
+                } else {
+                    break
+                }
+            }
+            blocks += ReadableBlock.ActivityGroup(activityItems)
+            continue
+        }
+
+        // 9. Bullet / numbered list (preserving nested indentation level).
         if (BULLET_ITEM_REGEX.matches(rawLine)) {
             val items = mutableListOf<ReadableListItem>()
             while (i < lines.size) {
                 val itemLine = lines[i]
                 val itemTrim = itemLine.trim()
                 if (itemTrim.isEmpty()) break
+                if (isActivityLine(itemTrim)) break
                 val match = BULLET_ITEM_REGEX.matchEntire(itemLine)
                 if (match != null) {
-                    val bullet = match.groupValues[1]
-                    val numbered = match.groupValues[2]
+                    val indentWidth = match.groupValues[1].sumOf { ch -> if (ch == '\t') 2 else 1 }
+                    val indentLevel = (indentWidth / 2).coerceIn(0, 3)
+                    val bullet = match.groupValues[2]
+                    val numbered = match.groupValues[3]
                     val marker = if (bullet.isNotEmpty()) "•" else numbered
-                    items += ReadableListItem(marker = marker, text = match.groupValues[3].trim())
+                    items += ReadableListItem(
+                        marker = marker,
+                        text = match.groupValues[4].trim(),
+                        indentLevel = indentLevel,
+                    )
                     i++
                 } else if (
                     items.isNotEmpty() &&
@@ -174,7 +288,7 @@ fun parseReadableBlocks(text: String): List<ReadableBlock> {
             continue
         }
 
-        // 8. Blockquote.
+        // 10. Blockquote.
         if (QUOTE_REGEX.matches(rawLine)) {
             val quoteLines = mutableListOf<String>()
             while (i < lines.size) {
@@ -190,13 +304,18 @@ fun parseReadableBlocks(text: String): List<ReadableBlock> {
             continue
         }
 
-        // 9. Prose paragraph (reflow soft-wrapped prose lines cleanly while preserving structured lines).
+        // 11. Prose paragraph (reflow soft-wrapped prose lines cleanly while preserving structured lines).
         val paragraphLines = mutableListOf<String>()
         while (i < lines.size) {
             val pRaw = lines[i]
             val pTrim = pRaw.trim()
             if (pTrim.isEmpty()) break
-            if (paragraphLines.isNotEmpty() && (startsSpecialBlock(pTrim, lines.getOrNull(i + 1)?.trim()) || BULLET_ITEM_REGEX.matches(pRaw) || QUOTE_REGEX.matches(pRaw))) {
+            if (paragraphLines.isNotEmpty() &&
+                (startsSpecialBlock(pTrim, lines.getOrNull(i + 1)?.trim()) ||
+                    isActivityLine(pTrim) ||
+                    BULLET_ITEM_REGEX.matches(pRaw) ||
+                    QUOTE_REGEX.matches(pRaw))
+            ) {
                 break
             }
             if (paragraphLines.isEmpty()) {
@@ -223,6 +342,14 @@ fun parseReadableBlocks(text: String): List<ReadableBlock> {
     return blocks
 }
 
+private fun endsSentence(text: String): Boolean =
+    text.endsWith('.') || text.endsWith('!') || text.endsWith('?')
+
+private fun isActivityLine(trimmed: String): Boolean =
+    AGENT_ACTIVITY_BULLET_REGEX.matches(trimmed) ||
+        AGENT_ACTIVITY_CALL_REGEX.matches(trimmed) ||
+        trimmed.equals("(ctrl+o to expand)", ignoreCase = true)
+
 private fun rawLineOrSpace(line: String): Boolean =
     line.startsWith(" ") || line.startsWith("+") || line.startsWith("-") || line.startsWith("@@")
 
@@ -240,12 +367,12 @@ private fun splitTableCells(trimmed: String): List<String> {
     return core.split('|').map { it.trim() }
 }
 
-private fun matchCommandPrompt(trimmed: String): ReadableBlock.Command? {
+private fun matchShellPrompt(trimmed: String): Pair<String, String>? {
     USER_HOST_PROMPT_REGEX.matchEntire(trimmed)?.let { m ->
-        return ReadableBlock.Command(prompt = m.groupValues[1], command = m.groupValues[2].trim())
+        return m.groupValues[1] to m.groupValues[2].trim()
     }
-    SIMPLE_PROMPT_REGEX.matchEntire(trimmed)?.let { m ->
-        return ReadableBlock.Command(prompt = m.groupValues[1], command = m.groupValues[2].trim())
+    SHELL_PROMPT_REGEX.matchEntire(trimmed)?.let { m ->
+        return m.groupValues[1] to m.groupValues[2].trim()
     }
     return null
 }
@@ -257,7 +384,8 @@ private fun startsSpecialBlock(trimmed: String, nextTrimmed: String?): Boolean =
         (nextTrimmed != null && isTableRow(trimmed) && isTableSeparator(nextTrimmed)) ||
         DIVIDER_REGEX.matches(trimmed) ||
         HEADING_REGEX.matches(trimmed) ||
-        matchCommandPrompt(trimmed) != null
+        AGENT_PROMPT_REGEX.matches(trimmed) ||
+        matchShellPrompt(trimmed) != null
 
 private fun isLineBreakSensitive(trimmed: String): Boolean =
     STATUS_LINE_PREFIX_REGEX.matches(trimmed) ||
@@ -266,8 +394,8 @@ private fun isLineBreakSensitive(trimmed: String): Boolean =
         trimmed.contains("://")
 
 /**
- * Parses lightweight inline Markdown (`**bold**`, `*italic*`, `` `code` ``, `[label](url)`) and
- * bare `http(s)://` URLs into ordered spans with zero dropped characters.
+ * Parses lightweight inline Markdown (`**bold**`, `*italic*`, `~~strike~~`, `` `code` ``,
+ * `[label](url)`) and bare `http(s)://` URLs into ordered spans with zero dropped characters.
  */
 fun parseInlineSpans(text: String): List<ReadableInlineSpan> {
     if (text.isEmpty()) return emptyList()
@@ -317,7 +445,19 @@ fun parseInlineSpans(text: String): List<ReadableInlineSpan> {
             }
         }
 
-        // 3. Bold **...**
+        // 3. Strikethrough ~~...~~
+        if (ch == '~' && i + 1 < n && text[i + 1] == '~' && i + 2 < n && !text[i + 2].isWhitespace()) {
+            val close = text.indexOf("~~", startIndex = i + 2)
+            val newline = text.indexOf('\n', startIndex = i + 2)
+            if (close > i + 2 && !text[close - 1].isWhitespace() && (newline < 0 || close < newline)) {
+                flushPlain()
+                spans += ReadableInlineSpan.Strikethrough(text.substring(i + 2, close))
+                i = close + 2
+                continue
+            }
+        }
+
+        // 4. Bold **...**
         if (ch == '*' && i + 1 < n && text[i + 1] == '*' && i + 2 < n && !text[i + 2].isWhitespace()) {
             val close = text.indexOf("**", startIndex = i + 2)
             val newline = text.indexOf('\n', startIndex = i + 2)
@@ -329,7 +469,7 @@ fun parseInlineSpans(text: String): List<ReadableInlineSpan> {
             }
         }
 
-        // 4. Italic *...*
+        // 5. Italic *...*
         if (
             ch == '*' &&
             (i + 1 >= n || text[i + 1] != '*') &&
@@ -352,7 +492,7 @@ fun parseInlineSpans(text: String): List<ReadableInlineSpan> {
             }
         }
 
-        // 5. Bare URL (http://, https://, file://)
+        // 6. Bare URL (http://, https://, file://)
         if ((i == 0 || !text[i - 1].isLetterOrDigit()) && matchesUrlPrefix(text, i)) {
             var end = i
             while (end < n && !isUrlTerminator(text[end])) {
